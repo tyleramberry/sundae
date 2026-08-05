@@ -1,0 +1,149 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getGoogleTokens, saveGoogleTokens } from "@/lib/google/tokens";
+
+const TOKEN_URL = "https://oauth2.googleapis.com/token";
+const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
+
+export class GoogleCalendarError extends Error {}
+
+// Returns a live access token for the user, refreshing it against Google
+// first if it's expired (or about to expire).
+async function getValidAccessToken(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<string> {
+  const tokens = await getGoogleTokens(supabase, userId);
+
+  if (!tokens) {
+    throw new GoogleCalendarError(
+      "No Google tokens on file for this user. Sign in with Google first.",
+    );
+  }
+
+  const expiresInMs = new Date(tokens.expires_at).getTime() - Date.now();
+  const isFresh = expiresInMs > 60_000; // more than a minute left
+
+  if (isFresh) {
+    return tokens.access_token;
+  }
+
+  if (!tokens.refresh_token) {
+    throw new GoogleCalendarError(
+      "Google access token expired and no refresh_token is on file. Sign in again.",
+    );
+  }
+
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID!,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      refresh_token: tokens.refresh_token,
+      grant_type: "refresh_token",
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new GoogleCalendarError(`Failed to refresh Google token: ${body}`);
+  }
+
+  const refreshed = (await response.json()) as {
+    access_token: string;
+    expires_in: number;
+  };
+
+  const expiresAt = new Date(
+    Date.now() + refreshed.expires_in * 1000,
+  ).toISOString();
+
+  await saveGoogleTokens(supabase, {
+    userId,
+    accessToken: refreshed.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresAt,
+  });
+
+  return refreshed.access_token;
+}
+
+function startOfWeek(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay(); // 0 = Sunday
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - day);
+  return d;
+}
+
+function endOfWeek(date: Date): Date {
+  const start = startOfWeek(date);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  return end;
+}
+
+// Reads the signed-in user's primary calendar events for the current week
+// (Sun-Sat, local server time).
+export async function listCurrentWeekEvents(
+  supabase: SupabaseClient,
+  userId: string,
+) {
+  const accessToken = await getValidAccessToken(supabase, userId);
+
+  const now = new Date();
+  const params = new URLSearchParams({
+    timeMin: startOfWeek(now).toISOString(),
+    timeMax: endOfWeek(now).toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+  });
+
+  const response = await fetch(
+    `${CALENDAR_API}/calendars/primary/events?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new GoogleCalendarError(`Failed to list events: ${body}`);
+  }
+
+  return response.json();
+}
+
+// Creates a short test event ~1 hour from now, to prove the write path
+// works end-to-end.
+export async function createTestEvent(
+  supabase: SupabaseClient,
+  userId: string,
+) {
+  const accessToken = await getValidAccessToken(supabase, userId);
+
+  const start = new Date(Date.now() + 60 * 60 * 1000);
+  const end = new Date(start.getTime() + 30 * 60 * 1000);
+
+  const response = await fetch(
+    `${CALENDAR_API}/calendars/primary/events`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        summary: "Sundae test event",
+        description: "Created by Sundae's Calendar write function (Day 5).",
+        start: { dateTime: start.toISOString() },
+        end: { dateTime: end.toISOString() },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new GoogleCalendarError(`Failed to create event: ${body}`);
+  }
+
+  return response.json();
+}
