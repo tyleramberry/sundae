@@ -18,11 +18,30 @@ import {
 
 const AFFIRMATIVE = /^(y|yes|yeah|yep|correct|right|good|looks good|sounds good|lock it in|confirm)\b/i;
 const NEGATIVE = /^(n|no|nope|not quite|change|edit)\b/i;
+// Distinct from NEGATIVE above: at roles_confirm the question is "anything to
+// add/cut/rename?", so a plain decline ("no", "nothing", "looks good") means
+// *proceed with the current list* -- it must NOT fall through to "treat this
+// message as a replacement role list" the way any other reply does. NEGATIVE
+// isn't reused here because it also matches "change"/"edit", which at this
+// prompt mean the opposite (the user does want to revise the list).
+const DECLINE_TO_EDIT =
+  /^(n|no|nope|none|nothing|all good|looks good|good to go|that'?s (?:it|all|fine|good))\b/i;
+
+// Strips conversational lead-ins off the front of a single item -- someone
+// answering "what are your roles?" in a full sentence ("I am a founder, a
+// husband, and an athlete") shouldn't end up with "I am a founder" as one
+// role and "a husband" / "an athlete" as the others just because only the
+// first item carried "I am". Applied per item (post-split), not once on the
+// whole message, since every item can carry its own leading article.
+const FILLER_PREFIX = /^(?:i\s*['’]?m|i\s+am)\s+/i;
+const LEADING_ARTICLE = /^(?:an?|the)\s+/i;
 
 function splitList(message: string): string[] {
   return message
     .split(/[,\n]|(?:\band\b)/i)
-    .map((s) => s.trim())
+    .map((s) =>
+      s.trim().replace(FILLER_PREFIX, "").replace(LEADING_ARTICLE, "").trim(),
+    )
     .filter(Boolean);
 }
 
@@ -79,7 +98,7 @@ export function processMessage(input: EngineInput): EngineOutput {
     }
 
     case "roles_confirm": {
-      if (AFFIRMATIVE.test(message)) {
+      if (AFFIRMATIVE.test(message) || DECLINE_TO_EDIT.test(message)) {
         const next: ConversationState = {
           ...state,
           stage: "role_goals",
