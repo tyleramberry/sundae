@@ -37,10 +37,11 @@ const SYSTEM_PROMPT = `You are running Sundae's onboarding conversation with a n
 The flow, in order:
 
 1. Ask what roles/hats the person wears day to day (e.g. "Founder", "Husband", "Athlete"). They may list several in one message, in a full sentence, with filler words -- extract only the actual roles, not the sentence structure around them ("I am a", "and", "day to day" when it's just echoing the question, etc).
-2. Read the list back and ask if anything should be added, cut, or renamed. A plain decline ("no", "looks good", "that's it") means proceed with the list as-is -- it is NOT a replacement role list.
-3. For each role, in the order given, ask (a) the 2-3 things that matter most to them right now for that role (big-picture, not this week's tasks), and (b) anything already on their calendar or in motion for that role that these should work around (optional -- a blank or "no" answer is fine). Then read back a short summary for that one role and confirm before moving to the next.
-4. Once every role has been through step 3, give a full summary across all roles and ask if they're ready to lock it in.
-5. Only mark the conversation done once the user has explicitly confirmed that final full summary -- not a per-role confirmation, the final one.
+2. Read the list back once and ask if anything should be added, cut, or renamed. A plain decline ("no", "looks good", "that's it") means proceed with the list as-is -- it is NOT a replacement role list.
+3. For each role, in the order given, ask the 2-3 things that matter most to them right now for that role (big-picture, not this week's tasks). Accept whatever they give you and move straight to the next role's question. Do NOT read back a per-role summary or ask "sound right?" after each individual role -- that loop is intentionally gone, it made the flow feel like an interrogation. Do NOT ask what's already on their calendar or in motion for a role, either: Sundae reads the user's Google Calendar directly (a separate feature, already built) specifically so the person never has to describe their own calendar back to the app. Asking would be redundant and undercut the product's whole pitch.
+4. Once every role has been asked about, give ONE full summary across every role and ask if it's right, or if there's a role name or a goal they'd like to change. This is the only confirmation step in the entire conversation.
+5. If they ask to change something at that point, apply the edit, show the updated full summary again, and ask again if it's right. Keep looping this step -- editing, re-showing, re-asking -- for as many rounds as they want.
+6. Only mark the conversation done on the turn where they explicitly confirm the full summary with nothing left to change.
 
 Rules for actually understanding the user, not just parsing their words:
 - If someone corrects you, is telling you that something you inferred is wrong, or is clarifying rather than answering the literal question you just asked, apply the correction and continue naturally -- do not record their correction as if it were a literal answer to your last question.
@@ -49,10 +50,10 @@ Rules for actually understanding the user, not just parsing their words:
 - Never invent a role, goal, or piece of context the user didn't actually say.
 
 On every turn you must call the onboarding_turn tool exactly once. Its fields:
-- reply: what you say back to the user next (a question, a confirmation, or the final locked-in message).
-- done: true only on the turn where the user has just confirmed the final full summary. False on every other turn, including per-role confirmations.
+- reply: what you say back to the user next (a question, the one final summary/confirmation, an edit acknowledgment, or the final locked-in message).
+- done: true only on the turn where the user has just confirmed the final full summary with nothing left to change. False on every other turn -- there is no per-role "done".
 - roles: the full, current list of roles as the user has settled on them so far (not necessarily final until done is true).
-- answers: one entry per role that has actually been asked about so far, each with the role name, the goal strings captured for it (as separate strings, not one blob), and free-text context (empty string if none given). Roles not yet reached should not appear here.`;
+- answers: one entry per role that has actually been asked about so far, each with the role name and the goal strings captured for it (as separate strings, not one blob). Roles not yet reached should not appear here. Leave context as an empty string unless the user volunteers something calendar-related completely unprompted -- never ask for it.`;
 
 const TOOL: Anthropic.Tool = {
   name: "onboarding_turn",
@@ -64,7 +65,8 @@ const TOOL: Anthropic.Tool = {
       reply: { type: "string", description: "What to say back to the user next." },
       done: {
         type: "boolean",
-        description: "True only once the user has confirmed the final full summary.",
+        description:
+          "True only once the user has confirmed the final full summary with nothing left to edit. There is no per-role confirmation step.",
       },
       roles: {
         type: "array",
@@ -78,7 +80,11 @@ const TOOL: Anthropic.Tool = {
           properties: {
             role: { type: "string" },
             goals: { type: "array", items: { type: "string" } },
-            context: { type: "string" },
+            context: {
+              type: "string",
+              description:
+                "Leave empty. Sundae reads the calendar directly -- never ask for this.",
+            },
           },
           required: ["role", "goals", "context"],
           additionalProperties: false,

@@ -17,6 +17,11 @@ export default function EngineDebugPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function send(message: string) {
+    // Same optimistic-send fix as the real onboarding page: show the user's
+    // message immediately instead of waiting for the round trip.
+    if (message) {
+      setTurns((t) => [...t, { from: "user" as const, text: message }]);
+    }
     setSending(true);
     setError(null);
     try {
@@ -30,11 +35,7 @@ export default function EngineDebugPage() {
         setError(body.error ?? "Unknown error");
         return;
       }
-      setTurns((t) => [
-        ...t,
-        ...(message ? [{ from: "user" as const, text: message }] : []),
-        { from: "engine" as const, text: body.reply },
-      ]);
+      setTurns((t) => [...t, { from: "engine" as const, text: body.reply }]);
       setState(body.state);
       setDone(body.action?.type === "complete");
     } finally {
@@ -88,6 +89,13 @@ export default function EngineDebugPage() {
             {turn.text}
           </div>
         ))}
+        {sending && (
+          <div className="flex max-w-2xl items-center gap-1 self-start rounded-lg bg-zinc-200 px-4 py-3 dark:bg-zinc-800">
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.3s] dark:bg-zinc-400" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.15s] dark:bg-zinc-400" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 dark:bg-zinc-400" />
+          </div>
+        )}
       </div>
 
       {!done && turns.length > 0 && (

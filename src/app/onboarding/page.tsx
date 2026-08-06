@@ -58,6 +58,12 @@ export default function OnboardingPage() {
   }, []);
 
   async function send(message: string) {
+    // Show the user's own message the instant they hit send -- don't wait
+    // for the round trip. The "engine is typing" state below covers the gap
+    // until the reply actually comes back.
+    if (message) {
+      setTurns((t) => [...t, { from: "user" as const, text: message }]);
+    }
     setSending(true);
     setError(null);
     try {
@@ -71,11 +77,7 @@ export default function OnboardingPage() {
         setError(body.error ?? "Something went wrong. Try again.");
         return;
       }
-      setTurns((t) => [
-        ...t,
-        ...(message ? [{ from: "user" as const, text: message }] : []),
-        { from: "engine" as const, text: body.reply },
-      ]);
+      setTurns((t) => [...t, { from: "engine" as const, text: body.reply }]);
       setState(body.state);
 
       if (body.action?.type === "complete") {
@@ -187,6 +189,13 @@ export default function OnboardingPage() {
               {turn.text}
             </div>
           ))}
+          {sending && (
+            <div className="flex max-w-md items-center gap-1 self-start rounded-lg bg-zinc-200 px-4 py-3 dark:bg-zinc-800">
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.3s] dark:bg-zinc-400" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.15s] dark:bg-zinc-400" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 dark:bg-zinc-400" />
+            </div>
+          )}
           {load === "saving" && (
             <p className="self-start text-sm text-zinc-500 dark:text-zinc-400">Saving…</p>
           )}
