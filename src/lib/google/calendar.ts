@@ -68,7 +68,10 @@ async function getValidAccessToken(
   return refreshed.access_token;
 }
 
-function startOfWeek(date: Date): Date {
+// Exported so callers that need the same Sun-Sat window boundaries (e.g.
+// the block-proposal logic, which works off the same current-week events
+// this file fetches) don't redefine week-boundary math of their own.
+export function startOfWeek(date: Date): Date {
   const d = new Date(date);
   const day = d.getDay(); // 0 = Sunday
   d.setHours(0, 0, 0, 0);
@@ -76,7 +79,7 @@ function startOfWeek(date: Date): Date {
   return d;
 }
 
-function endOfWeek(date: Date): Date {
+export function endOfWeek(date: Date): Date {
   const start = startOfWeek(date);
   const end = new Date(start);
   end.setDate(end.getDate() + 7);
