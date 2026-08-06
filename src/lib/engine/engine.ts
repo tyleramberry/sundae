@@ -27,6 +27,11 @@ import {
 
 const client = new Anthropic();
 
+// Overridable without a code change: set ANTHROPIC_MODEL in .env.local to
+// swap models (e.g. up to claude-opus-5 for quality, down to claude-haiku-4-5
+// for cost). Starting on Sonnet 4.6 while validating this rewrite live.
+const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+
 const SYSTEM_PROMPT = `You are running Sundae's onboarding conversation with a new user. Your job is to actually understand what they say, not pattern-match keywords -- this replaces an earlier version of this engine that broke on ordinary phrasing (treating a stray word as a role name, treating "no" as a new answer instead of a decline).
 
 The flow, in order:
@@ -83,7 +88,12 @@ const TOOL: Anthropic.Tool = {
     required: ["reply", "done", "roles", "answers"],
     additionalProperties: false,
   },
-  strict: true,
+  // `strict: true` (hard schema-validation guarantee) is only documented as
+  // supported on a specific model list that doesn't include Sonnet 4.6 --
+  // omitted here so this works on whichever model MODEL points at. Forced
+  // tool_choice below still guarantees the tool gets called; the schema
+  // itself (required fields, additionalProperties: false) still guides the
+  // model even without the hard strict-mode guarantee.
 };
 
 type ToolInput = {
@@ -104,7 +114,7 @@ export async function processMessage(input: EngineInput): Promise<EngineOutput> 
     : state.turns;
 
   const response = await client.messages.create({
-    model: "claude-opus-5",
+    model: MODEL,
     max_tokens: 1024,
     thinking: { type: "disabled" },
     system: SYSTEM_PROMPT,
