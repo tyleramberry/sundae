@@ -1,44 +1,39 @@
 // Channel-agnostic planning engine types.
 //
-// The engine is deliberately I/O-free: no Supabase, no fetch, no knowledge
-// of HTTP/SMS/voice. A caller (the web UI today, SMS/voice later per the
-// MVP spec's Phase 2 roadmap) owns persistence and just round-trips
-// `ConversationState` between calls.
+// The engine is deliberately I/O-free from the caller's perspective: no
+// Supabase, no knowledge of HTTP/SMS/voice. A caller (the web UI today,
+// SMS/voice later per the MVP spec's Phase 2 roadmap) owns persistence and
+// just round-trips `ConversationState` between calls. Internally the engine
+// does call the Claude API to actually understand what the user said --
+// that's the whole point (see engine.ts) -- but that's an implementation
+// detail the caller never sees.
 
-export type RoleAnswers = {
+export type RoleAnswer = {
+  role: string;
   goals: string[];
   context: string;
 };
 
-export type OnboardingStage =
-  | "roles" // collecting the role list (Q1)
-  | "roles_confirm" // confirming the role list (Q2)
-  | "role_goals" // "what matters most" for the current role (Q3)
-  | "role_context" // "anything already in motion" for the current role (Q4)
-  | "role_confirm" // per-role confirmation (Q5)
-  | "final_confirm" // full summary confirmation (Q6)
-  | "done"; // onboarding complete, ready to persist
+export type Turn = {
+  role: "user" | "assistant";
+  content: string;
+};
 
+// State is just the conversation transcript. Understanding "what stage are
+// we at, what's been confirmed, what's still open" is the model's job every
+// turn, not something a hand-rolled stage machine tracks -- that's what
+// broke under real conversational input (see the Day 7 build recap).
 export type ConversationState = {
-  stage: OnboardingStage;
-  roles: string[];
-  currentRoleIndex: number;
-  answers: Record<string, RoleAnswers>;
-  // Role name currently being revised via the Q6 "no, revisit X" path.
-  revisiting: string | null;
+  turns: Turn[];
 };
 
 export const initialConversationState: ConversationState = {
-  stage: "roles",
-  roles: [],
-  currentRoleIndex: 0,
-  answers: {},
-  revisiting: null,
+  turns: [],
 };
 
 export type EngineAction =
   | { type: "ask" } // engine has a follow-up question, nothing to persist yet
-  | { type: "complete"; roles: string[]; answers: Record<string, RoleAnswers> }; // onboarding finished, caller should persist
+  | { type: "complete"; roles: string[]; answers: RoleAnswer[] }; // onboarding finished, caller should persist
 
 export type EngineInput = {
   message: string;

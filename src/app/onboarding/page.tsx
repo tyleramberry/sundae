@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { ConversationState, RoleAnswers } from "@/lib/engine/types";
+import type { ConversationState, RoleAnswer } from "@/lib/engine/types";
 
 type Turn = { from: "engine" | "user"; text: string };
 
@@ -11,7 +11,7 @@ type LoadState = "checking" | "signed-out" | "in-progress" | "already-done" | "s
 
 type ExistingAnswers = {
   roles: string[];
-  answers: Record<string, RoleAnswers>;
+  answers: RoleAnswer[];
 };
 
 // Real onboarding UI (Day 7): role input -> per-role goals/context -> final
@@ -86,7 +86,7 @@ export default function OnboardingPage() {
     }
   }
 
-  async function persist(roles: string[], answers: Record<string, RoleAnswers>) {
+  async function persist(roles: string[], answers: RoleAnswer[]) {
     setLoad("saving");
     const res = await fetch("/api/onboarding/complete", {
       method: "POST",
@@ -134,17 +134,20 @@ export default function OnboardingPage() {
             You&apos;re already onboarded
           </h1>
           <div className="flex flex-col gap-4">
-            {existing.roles.map((role) => (
-              <div
-                key={role}
-                className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
-              >
-                <p className="text-sm font-medium text-black dark:text-zinc-50">{role}</p>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                  {existing.answers[role]?.goals.join(", ") || "(no goals captured)"}
-                </p>
-              </div>
-            ))}
+            {existing.roles.map((role) => {
+              const answer = existing.answers.find((a) => a.role === role);
+              return (
+                <div
+                  key={role}
+                  className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+                >
+                  <p className="text-sm font-medium text-black dark:text-zinc-50">{role}</p>
+                  <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                    {answer?.goals.join(", ") || "(no goals captured)"}
+                  </p>
+                </div>
+              );
+            })}
           </div>
           <button
             onClick={restart}

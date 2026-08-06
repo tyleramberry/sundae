@@ -19,6 +19,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = processMessage({ message: body.message, state: body.state });
-  return NextResponse.json(result);
+  try {
+    const result = await processMessage({ message: body.message, state: body.state });
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("Engine step failed:", error);
+    return NextResponse.json(
+      { error: "The planning engine had trouble with that — try again." },
+      { status: 502 },
+    );
+  }
 }

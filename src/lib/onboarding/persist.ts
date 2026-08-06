@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { RoleAnswers } from "@/lib/engine/types";
+import type { RoleAnswer } from "@/lib/engine/types";
 
 export type OnboardingAnswersRow = {
   user_id: string;
   roles: string[];
-  answers: Record<string, RoleAnswers>;
+  answers: RoleAnswer[];
   completed_at: string;
   updated_at: string;
 };
@@ -12,7 +12,7 @@ export type OnboardingAnswersRow = {
 type SaveOnboardingAnswersInput = {
   userId: string;
   roles: string[];
-  answers: Record<string, RoleAnswers>;
+  answers: RoleAnswer[];
 };
 
 // Persists the engine's `complete` action for a finished onboarding run.
