@@ -8,7 +8,7 @@ import { saveGoogleTokens } from "@/lib/google/tokens";
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/debug/calendar";
+  const next = searchParams.get("next") ?? "/onboarding";
 
   if (!code) {
     return NextResponse.redirect(`${origin}/login?error=missing_code`);
