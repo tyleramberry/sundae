@@ -11,7 +11,10 @@ import type { ProposedAction } from "@/lib/planning/blocks";
 // engine itself never touches Supabase (channel-agnostic, same boundary as
 // onboarding's engine) -- this is the web caller's job.
 
-function toDateOnly(date: Date): string {
+// Exported so the Day 11 reconciliation cron computes "this week" the exact
+// same way this module does when it wrote the rows in the first place --
+// one definition of week_start's string format, not two that could drift.
+export function toDateOnly(date: Date): string {
   return date.toISOString().slice(0, 10); // week_start is a `date` column
 }
 
