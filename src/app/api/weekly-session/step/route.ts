@@ -3,6 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { processWeeklySessionMessage } from "@/lib/engine/weeklySession";
 import { getLastWeekContext } from "@/lib/weeklySession/persist";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
+import {
+  SESSION_THROTTLE_MESSAGE,
+  TURN_CAP_MESSAGE,
+  hasHitTurnCap,
+  hasStartedSessionToday,
+  recordSessionStart,
+} from "@/lib/weeklySession/throttle";
 import type { ConversationState } from "@/lib/engine/weeklySessionTypes";
 
 // Thin HTTP wrapper around the weekly-session engine, same shape as
@@ -41,6 +48,23 @@ export async function POST(request: Request) {
     );
   }
 
+  // Day 11 rate limiting -- see src/lib/weeklySession/throttle.ts for why
+  // both guards exist. Turn cap first since it's a pure check against what
+  // the client already sent; the session-start throttle needs a query, so
+  // it only runs once we know this call would actually need it.
+  const turnCount = body.state?.turns.length ?? 0;
+  if (hasHitTurnCap(turnCount)) {
+    return NextResponse.json({ error: TURN_CAP_MESSAGE }, { status: 429 });
+  }
+
+  const isFreshStart = turnCount === 0;
+  if (isFreshStart) {
+    const alreadyStartedToday = await hasStartedSessionToday(supabase, user.id);
+    if (alreadyStartedToday) {
+      return NextResponse.json({ error: SESSION_THROTTLE_MESSAGE }, { status: 429 });
+    }
+  }
+
   try {
     const lastWeek = await getLastWeekContext(supabase, user.id);
     const result = await processWeeklySessionMessage({
@@ -49,6 +73,17 @@ export async function POST(request: Request) {
       roles: onboarding.roles,
       lastWeek,
     });
+
+    if (isFreshStart) {
+      // Best-effort: the user's real reply already succeeded, so a logging
+      // hiccup here shouldn't fail their request -- worst case is one
+      // extra start slipping through if this insert is the thing that
+      // fails, which is an acceptable edge case for an MVP guard.
+      await recordSessionStart(supabase, user.id).catch((err) => {
+        console.error("Failed to record weekly session start:", err);
+      });
+    }
+
     return NextResponse.json(result);
   } catch (error) {
     console.error("Weekly session step failed:", error);
