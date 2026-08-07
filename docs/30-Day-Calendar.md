@@ -2,7 +2,7 @@
 
 Goal: 50 paying free-trial users by September 1 — counted once a user has started the card-backed 7-day trial, completed onboarding, and completed their first guided weekly planning session.
 
-Day numbering starts Aug 1 (Day 1); today is Day 3 (Aug 3).
+Day numbering starts Aug 1 (Day 1); today is Day 6 (Aug 6).
 
 **Operating principle:** Every Sunday is a full rest day — no development, content, or ad-ops work. Tasks originally scheduled on Sundays have been redistributed across other days that week (noted inline as "moved from original Sunday plan" so nothing is lost, just relocated).
 
@@ -89,7 +89,8 @@ No development, content, or ad work. Full day off.
 **Development**
 - Draft the full onboarding question tree on paper/Figma: roles → per-role big three → confirmation
 - Architect the planning engine as a channel-agnostic service (input = user message + conversation state, output = next question/action)
-- *Outcome:* A written question flow, plus a defined engine interface in code (even if stubbed)
+- **Write `docs/weekly-session-flow.md`** — the spec for the *recurring* weekly session, distinct from onboarding above. Covers: the 3-stage flow (Accountability → Goal Setting → Planning), the Habit/Goal/Project classification rule, the cadence-parsing rule ("every morning" → 7 blocks, no separate "how many times?" question), and the pooled per-role KPI formula. Mirrors `docs/MVP-spec.md`'s "Goal types & KPI logic" section — this doc is the engine-level detail underneath it, written now so Day 10 has something concrete to build against.
+- *Outcome:* A written onboarding question flow, a written weekly-session flow spec, plus a defined engine interface in code (even if stubbed)
 
 **Content**
 - Post: share the actual onboarding questions, ask audience "what would you add/change?"
@@ -122,6 +123,7 @@ No development, content, or ad work. Full day off.
 **Development**
 - Build the logic that takes stated big three per role and proposes specific calendar time blocks based on existing calendar gaps
 - *Outcome:* Given a list of goals, the system outputs proposed calendar slots (not yet written to calendar)
+- **Note (added Day 6, after the MVP spec's KPI logic was finalized):** this logic predates that spec — it proposes one flat block per onboarding goal, with no type or cadence awareness. `src/lib/planning/blocks.ts` and `src/lib/engine/types.ts` get real rework on Day 10 against `docs/weekly-session-flow.md`, not just wiring.
 
 **Content**
 - Dogfood manually: run your own weekly plan by hand on paper using the Day 6 question flow
@@ -140,9 +142,43 @@ No development, content, or ad work. Full day off.
 
 ### Day 10 — Mon 8/10 — End-to-end wiring
 **Development**
-- Connect onboarding → guided session → block proposal → confirmation screen → calendar write, all through the channel-agnostic engine
-- **Build the daily follow-up email v1** (Resend or Supabase functions), listing yesterday's items marked done/not done *(moved from original Sunday plan, Day 9)*
-- *Outcome:* A single user can go from account creation to a real event on their Google Calendar, fully within the app; first version of the daily email exists
+- **Schema:** add a `weekly_items` table (new migration, e.g. `supabase/migrations/20260810000000_weekly_items.sql`), following the exact RLS + grants pattern already used by `onboarding_answers` (`supabase/migrations/20260806000000_onboarding_answers.sql`) — select/insert/update policies scoped to `auth.uid() = user_id`, plus explicit grants to `authenticated` and `service_role`:
+  ```sql
+  create table if not exists public.weekly_items (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users (id) on delete cascade,
+    role text not null,
+    week_start date not null, -- Sunday-anchored; reuse startOfWeek() from src/lib/google/calendar.ts
+    type text not null check (type in ('habit', 'goal', 'project')),
+    title text not null,
+    google_event_id text,      -- set once the block is confirmed & written; null for 'project'
+    done boolean not null default false, -- used by habit/goal
+    percent integer,           -- used by project only, 0-100
+    removed_at timestamptz,    -- set by Day 11's reconciliation job; excluded from all KPI counts once set
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  ```
+  Rows are **never deleted** once a week ends — only `removed_at` gets set, and only for not-yet-done items. That persistence is what makes Day 15's 6-week trend possible.
+- **Engine:** add the weekly-session flow as a new module alongside the existing onboarding one — don't overload it. New file `src/lib/engine/weeklySession.ts` (types alongside it or in a sibling file), same philosophy as `src/lib/engine/types.ts`: state is the transcript, Claude does the understanding, the caller owns persistence. It drives all three stages per `docs/weekly-session-flow.md`:
+  - **Accountability** (once): reads last week's `weekly_items` + last week's roles/goals, asks the wins/improvements questions, captures the rollover decision.
+  - **Goal setting** (once per role): one question per role, in role order from `onboarding_answers.roles`.
+  - **Planning** (once per role, looping per distinct action): for each action inside a role's answer, output a structured classification — `{ role, description, type: "habit" | "goal" | "project", cadenceCount?: number }` (`cadenceCount` = 7 for "every day", 1 for a Goal, omitted for Project). This classification is the engine's job, not `blocks.ts`'s — keeps `blocks.ts` pure per its existing file-header philosophy.
+- **Rework `src/lib/planning/blocks.ts`:** replace the current "one block per onboarding goal" logic with a version that takes the engine's classified actions instead of raw goal strings:
+  ```ts
+  export type ActionType = "habit" | "goal" | "project";
+
+  export type ProposedAction = {
+    role: string;
+    description: string;
+    type: ActionType;
+    blocks: TimeRange[]; // one per cadenceCount for habit, exactly one for goal, empty for project
+  };
+  ```
+  For `habit`/`goal` actions, propose `cadenceCount` (or 1) slots against existing calendar gaps, same gap-finding logic as today. `project` actions pass through with an empty `blocks` array — no calendar involvement at all.
+- **Wire it end to end:** Accountability → Goal Setting → Planning → confirmation screen → calendar write, through the new weekly-session engine. On confirm: for each written block, create its `weekly_items` row with `google_event_id` set to the real event ID the write call returns; for each Project action, create one `weekly_items` row with `type: 'project'`, `percent: 0`, `google_event_id: null`.
+- **Build the daily follow-up email v1** (Resend or Supabase functions) *(moved from original Sunday plan, Day 9)* — simpler than originally scoped: a single CTA ("Log your progress → [app link]"), no reply-based done/not-done list, since logging is in-app only per the spec.
+- *Outcome:* A single user can go through a full weekly session (all three stages) and land real, correctly-typed events on their Google Calendar, with `weekly_items` rows created per block/project; first version of the daily nudge email exists.
 
 **Content**
 - Post: teaser demo GIF of the flow working (blur any personal calendar details)
@@ -156,9 +192,13 @@ No development, content, or ad work. Full day off.
 
 ### Day 11 — Tue 8/11 — Polish the core moment
 **Development**
-- Improve UI/UX specifically on the guided session screen
+- UI/UX polish across all three session stages, not just one screen:
+  - Accountability: last week's goals/KPIs recap, rollover decision control, 3-wins / 3-improvements input
+  - Goal setting: per-role prompt, that role's context visible
+  - Planning: per-action drill-down — Habit/Goal actions show an editable proposed-blocks list before confirm, Project actions show a 0–100% slider input instead of a calendar block
 - **Set up the cron trigger (Vercel Cron) for the daily follow-up email**, fixed morning send time *(moved from original Sunday plan, Day 9)*
-- *Outcome:* The guided session feels conversational and smooth, and the daily email now sends automatically on schedule
+- **Add the KPI reconciliation job to the same cron.** New route, e.g. `src/app/api/cron/reconcile-kpis/route.ts`: for every user, query `weekly_items` where `week_start` = the current week, `type in ('habit', 'goal')`, `done = false`, `removed_at is null`, `google_event_id is not null`; for each, fetch that specific event by ID via the existing Google Calendar read path (`src/lib/google/calendar.ts`) — if it's missing or `status: "cancelled"`, set `removed_at = now()`. Only touches the current week's not-yet-done items; already-done items and past weeks are never revisited.
+- *Outcome:* The guided session feels conversational and smooth across all three stages; the daily email sends automatically on schedule; a deleted-but-unfinished calendar block stops counting toward that week's KPI automatically, once a day.
 
 **Content**
 - Post: "What would you want an AI planner to ask you?" — open question to audience
@@ -168,10 +208,13 @@ No development, content, or ad work. Full day off.
 
 ---
 
-### Day 12 — Wed 8/12 — Daily brief
+### Day 12 — Wed 8/12 — Daily brief + KPI dashboard (current week)
 **Development**
 - Build the "today" half of the daily email: today's big three + carryover tasks
-- *Outcome:* Daily email now shows yesterday's recap and today's focus in one send
+- **Build the KPI dashboard**, e.g. `src/app/dashboard/page.tsx`: one tile per role from `onboarding_answers.roles`, current week only. Query `weekly_items` for `user_id` + `week_start` = current week and `removed_at is null`, grouped by role: denominator = row count, numerator = count where (`type in ('habit','goal')` and `done`) or (`type = 'project'` and `percent = 100`). A role with zero rows still renders a tile showing 0/0, not a missing tile.
+- **Build the in-app logging UI** that the daily nudge links to: a checkbox per habit/goal `weekly_items` row (toggles `done`), a slider per project row (writes `percent`; only counts toward the numerator at exactly 100).
+- *Outcome:* Daily email shows yesterday's recap and today's focus in one send; the KPI dashboard shows this week's live completion per role; logging a habit, goal, or project in-app immediately moves its role's KPI.
+- **Not in scope today:** the 6-week trend view (clicking into a KPI) — that's Day 15, so today doesn't get overloaded on top of the daily brief work.
 
 **Content**
 - Film: screen-record the daily brief email rendering with real (your own) data
@@ -185,6 +228,7 @@ No development, content, or ad work. Full day off.
 ### Day 13 — Thu 8/13 — Bug bash
 **Development**
 - Run the full flow yourself 5+ times end to end, log every break, glitch, or confusing moment
+- Explicitly exercise: Habit/Goal/Project classification on ambiguous inputs, KPI math (including 0/0 roles), and the Day 11 reconciliation job (delete a confirmed block mid-week, confirm its KPI adjusts on the next cron run)
 - *Outcome:* A prioritized bug list ranked by how much it blocks the core loop
 
 **Content**
@@ -212,11 +256,12 @@ No development, content, or ad work. Full day off.
 
 ## WEEK 3: Beta testing + ads setup (Aug 15–21)
 
-### Day 15 — Sat 8/15 — Dogfood #2 + beta recruitment
+### Day 15 — Sat 8/15 — Dogfood #2 + beta recruitment + KPI trend view
 **Development**
 - Buffer day — catch up on anything slipping from week 2
+- **Build the 6-week KPI trend view.** Clicking a dashboard tile opens a per-role view (e.g. `src/app/dashboard/[role]/trend/page.tsx`) showing completion **percentage** — not raw count, since role size varies week to week — for the last 6 `week_start` values, current week included and live. Groups `weekly_items` by `week_start` for that role, same numerator/denominator math as the dashboard tile, computed per week. A week with 0 rows (nothing planned) renders as "no data," not 0%. A user active fewer than 6 weeks sees only the weeks that actually exist — no padded empty weeks.
 - **DM 10-15 people in your network to recruit 5-10 committed beta testers; prepare a short beta-tester instructions doc**, using yesterday's DM script *(moved from original Sunday plan, Day 16)*
-- *Outcome:* Week 2 scope fully closed out, and 5-10 beta testers committed ahead of Monday's onboarding
+- *Outcome:* Week 2 scope fully closed out, the KPI trend view is live, and 5-10 beta testers committed ahead of Monday's onboarding
 
 **Content**
 - Run your own weekly session inside the real app now (not paper)
@@ -302,8 +347,8 @@ No development, content, or ad work. Full day off.
 
 ### Day 21 — Fri 8/21 — Analytics + first ad spend
 **Development**
-- Set up basic product analytics: signups, onboarding completion rate, session completion rate, follow-up email open rate
-- *Outcome:* You can answer "how many people actually activate" starting today
+- Set up basic product analytics: signups, onboarding completion rate, session completion rate, follow-up nudge click-through rate (email → app open), per-role KPI completion rate
+- *Outcome:* You can answer "how many people actually activate, and are they actually completing their weekly KPIs" starting today
 
 **Content**
 - Light day: repost/share a beta user's organic reaction if one exists
@@ -321,7 +366,7 @@ No development, content, or ad work. Full day off.
 **Development**
 - Run your own weekly session #3 in-app; review analytics from the week
 - Check Twilio A2P registration status **and Google OAuth verification status** (no action needed if still pending, not blocking anything else this week)
-- **Declare feature freeze — polish and bug-fixes only from here** *(moved from original Sunday plan, Day 23)*
+- **Declare feature freeze — polish and bug-fixes only from here** *(moved from original Sunday plan, Day 23)*. Freeze scope explicitly covers all of it equally: the 3-stage weekly session, Habit/Goal/Project classification, the KPI dashboard, the 6-week trend view, and the reconciliation cron
 - **Write launch-day copy: post copy, landing page hero copy, email announcement** *(moved from original Sunday plan, Day 23)*
 - *Outcome:* Clear read on whether beta activation numbers look healthy before public launch, and feature freeze in effect a day earlier — nothing new gets built that could introduce late-breaking bugs before launch
 
@@ -345,7 +390,7 @@ No development, content, or ad work. Full day off. (Feature freeze from Day 22 c
 ### Day 24 — Mon 8/24 — Final prep
 **Development**
 - Final bug pass, deploy production build
-- Smoke-test the entire flow one more time end to end
+- Smoke-test the entire flow one more time end to end, explicitly including: a full weekly session (all 3 stages, at least one Habit, one Goal, and one Project), the KPI dashboard, the 6-week trend view, and deleting a confirmed block to confirm the reconciliation job catches it
 - *Outcome:* Production stable and deployed, nothing left to change before go-live
 
 **Content**
