@@ -158,6 +158,42 @@ export async function createCalendarEvent(
   return response.json();
 }
 
+export type GoogleCalendarEventDetail = {
+  id: string;
+  status?: string;
+  [key: string]: unknown;
+};
+
+// Fetches a single event by ID, for the Day 11 KPI reconciliation job --
+// it needs to know whether one specific confirmed block still exists, not
+// the whole week's events. Google keeps a deleted event around with
+// status: "cancelled" rather than dropping it immediately, so callers must
+// check both: a null return (genuinely gone/404/410) and a "cancelled"
+// status both mean "this block no longer counts."
+export async function getCalendarEvent(
+  supabase: SupabaseClient,
+  userId: string,
+  eventId: string,
+): Promise<GoogleCalendarEventDetail | null> {
+  const accessToken = await getValidAccessToken(supabase, userId);
+
+  const response = await fetch(
+    `${CALENDAR_API}/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+
+  if (response.status === 404 || response.status === 410) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new GoogleCalendarError(`Failed to fetch event ${eventId}: ${body}`);
+  }
+
+  return response.json();
+}
+
 // Creates a short test event ~1 hour from now, to prove the write path
 // works end-to-end. Kept as a thin wrapper around createCalendarEvent
 // (Day 10) for the existing Day 5 debug screen (/debug/calendar).
