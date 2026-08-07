@@ -4,6 +4,12 @@ import { useState } from "react";
 import type { ClassifiedAction, ConversationState } from "@/lib/engine/weeklySessionTypes";
 
 type Turn = { from: "engine" | "user"; text: string };
+type UsageLogEntry = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+};
 
 // Raw debug view for the weekly-session engine (Day 10), same spirit as
 // /debug/engine for onboarding: play through Accountability -> Goal
@@ -21,6 +27,7 @@ export default function WeeklySessionDebugPage() {
   const [actions, setActions] = useState<ClassifiedAction[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usageLog, setUsageLog] = useState<UsageLogEntry[]>([]);
 
   function roles() {
     return rolesInput
@@ -62,6 +69,7 @@ export default function WeeklySessionDebugPage() {
       setState(body.state);
       setActions(body.actionsSoFar ?? []);
       setDone(body.action?.type === "complete");
+      if (body.usage) setUsageLog((u) => [...u, body.usage]);
     } finally {
       setSending(false);
     }
@@ -72,6 +80,7 @@ export default function WeeklySessionDebugPage() {
     setState(null);
     setDone(false);
     setActions([]);
+    setUsageLog([]);
     void send("");
   }
 
@@ -164,6 +173,38 @@ export default function WeeklySessionDebugPage() {
           Weekly session complete for this run.
         </p>
       )}
+
+      <div>
+        <h2 className="font-sans text-sm font-medium text-zinc-500">
+          Prompt cache usage, per turn
+        </h2>
+        <table className="mt-1 w-full max-w-2xl border-collapse text-xs">
+          <thead>
+            <tr className="text-left text-zinc-500">
+              <th className="pr-4 pb-1">turn</th>
+              <th className="pr-4 pb-1">input</th>
+              <th className="pr-4 pb-1">output</th>
+              <th className="pr-4 pb-1">cache write</th>
+              <th className="pr-4 pb-1">cache read</th>
+            </tr>
+          </thead>
+          <tbody>
+            {usageLog.map((u, i) => (
+              <tr key={i} className="text-black dark:text-zinc-100">
+                <td className="pr-4 py-0.5">{i + 1}</td>
+                <td className="pr-4 py-0.5">{u.inputTokens}</td>
+                <td className="pr-4 py-0.5">{u.outputTokens}</td>
+                <td className="pr-4 py-0.5">{u.cacheCreationInputTokens}</td>
+                <td
+                  className={`pr-4 py-0.5 ${u.cacheReadInputTokens > 0 ? "font-semibold text-emerald-600" : ""}`}
+                >
+                  {u.cacheReadInputTokens}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div>
         <h2 className="font-sans text-sm font-medium text-zinc-500">

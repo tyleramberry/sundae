@@ -71,4 +71,16 @@ export type WeeklySessionOutput = {
   // progress mid-session, and means a dropped connection doesn't lose
   // everything captured so far. Equal to `action.actions` once `done`.
   actionsSoFar: ClassifiedAction[];
+  // Raw token usage for this turn's API call, straight from
+  // response.usage -- surfaced so callers (debug tooling today, real
+  // per-user cost logging per the Day 11 rate-limiting plan later) can see
+  // whether prompt caching is actually landing. cacheReadInputTokens > 0
+  // means the cached system prompt / prior transcript was served cheap
+  // instead of reprocessed at full price.
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationInputTokens: number;
+    cacheReadInputTokens: number;
+  };
 };

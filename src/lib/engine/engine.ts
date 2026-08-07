@@ -123,7 +123,11 @@ export async function processMessage(input: EngineInput): Promise<EngineOutput> 
     model: MODEL,
     max_tokens: 1024,
     thinking: { type: "disabled" },
-    system: SYSTEM_PROMPT,
+    // Fully static, byte-identical across every onboarding turn for every
+    // user -- a straightforward cache breakpoint, same win as
+    // weeklySession.ts's system prompt (see that file for the version with
+    // per-session dynamic content that has to stay out of the cached block).
+    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     tools: [TOOL],
     tool_choice: { type: "tool", name: "onboarding_turn" },
     messages:

@@ -116,14 +116,28 @@ function formatLastWeek(lastWeek: LastWeekContext | null | undefined): string {
   return `Last week's data (week of ${lastWeek.weekStart}):\n${lines.join("\n")}`;
 }
 
-function buildSystemPrompt(roles: string[], lastWeek: LastWeekContext | null | undefined): string {
-  return `${BASE_SYSTEM_PROMPT}
-
-## This session's actual data
+// Two blocks, not one concatenated string -- caching is a strict prefix
+// match, so the per-session dynamic tail (roles + last week's data, which
+// differ by user and change week to week) has to live *after* the cache
+// breakpoint as its own block. Put it on the static block instead and the
+// dynamic tail would bust the cache for every user, every session -- the
+// one thing actually worth caching here is the several-hundred-line static
+// instruction block above, which is byte-identical across every turn, every
+// session, every user.
+function buildSystemBlocks(
+  roles: string[],
+  lastWeek: LastWeekContext | null | undefined,
+): Anthropic.TextBlockParam[] {
+  const dynamic = `## This session's actual data
 
 Roles this week, in the exact order to run Stage 2+3: ${roles.map((r) => `"${r}"`).join(", ")}
 
 ${formatLastWeek(lastWeek)}`;
+
+  return [
+    { type: "text", text: BASE_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+    { type: "text", text: dynamic },
+  ];
 }
 
 const TOOL: Anthropic.Tool = {
@@ -179,17 +193,39 @@ export async function processWeeklySessionMessage(
     ? [...state.turns, { role: "user" as const, content: message }]
     : state.turns;
 
+  // Second cache breakpoint, on the last message's content block: caches
+  // the growing conversation prefix itself, not just the system prompt.
+  // Each turn appends one new message and re-marks the (now-different)
+  // last block -- the next turn's request reads everything up through the
+  // previous breakpoint from cache and only pays full price for what's
+  // actually new. Matters here specifically because a real session runs
+  // many turns (Stage 1 + a SMART drill-down per role), so the resent
+  // prefix keeps growing turn over turn without this.
+  const messages =
+    turnsWithUserMessage.length > 0
+      ? turnsWithUserMessage.map((t, i) => ({
+          role: t.role,
+          content:
+            i === turnsWithUserMessage.length - 1
+              ? [
+                  {
+                    type: "text" as const,
+                    text: t.content,
+                    cache_control: { type: "ephemeral" as const },
+                  },
+                ]
+              : t.content,
+        }))
+      : [{ role: "user" as const, content: "(start the session)" }];
+
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 1536,
     thinking: { type: "disabled" },
-    system: buildSystemPrompt(input.roles, input.lastWeek),
+    system: buildSystemBlocks(input.roles, input.lastWeek),
     tools: [TOOL],
     tool_choice: { type: "tool", name: "weekly_session_turn" },
-    messages:
-      turnsWithUserMessage.length > 0
-        ? turnsWithUserMessage.map((t) => ({ role: t.role, content: t.content }))
-        : [{ role: "user", content: "(start the session)" }],
+    messages,
   });
 
   const toolUse = response.content.find(
@@ -211,5 +247,11 @@ export async function processWeeklySessionMessage(
     state: nextState,
     action: result.done ? { type: "complete", actions: result.actions } : { type: "ask" },
     actionsSoFar: result.actions,
+    usage: {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? 0,
+      cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
+    },
   };
 }
