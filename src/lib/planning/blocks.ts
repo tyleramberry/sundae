@@ -1,25 +1,36 @@
-// Block-proposal logic (Day 8).
+// Block-proposal logic (Day 8, reworked Day 10).
 //
 // Channel-agnostic and Google-agnostic on purpose, same spirit as the
-// engine (src/lib/engine): this module is pure data-in/data-out. It takes
-// the role goals captured during onboarding plus the user's existing
-// calendar events, and returns a list of *proposed* time blocks. Per the
+// engine (src/lib/engine): this module is pure data-in/data-out. Per the
 // MVP spec's permissions model ("Read calendar -> propose blocks -> user
 // confirms -> write"), nothing here ever touches the Google Calendar API —
-// that write step is Day 10's job, gated on user confirmation.
+// that write step is Day 10's wiring, gated on user confirmation.
+//
+// Day 8 shipped this against raw onboarding goal strings — one flat block
+// per goal, no notion of Habit/Goal/Project or cadence. That predates the
+// weekly-session engine (docs/weekly-session-flow.md) and its
+// classification step. This version consumes the engine's typed
+// `ClassifiedAction[]` output instead: Habit/Goal actions get slotted
+// against calendar gaps same as before, Project actions get no calendar
+// involvement at all — their progress lives entirely in the in-app percent
+// slider (Day 12), not on the calendar.
 
-import type { RoleAnswer } from "@/lib/engine/types";
+import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
 
 export type TimeRange = {
   start: Date;
   end: Date;
 };
 
-export type ProposedBlock = {
+// One role/type-classified action, with the calendar slot(s) proposed for
+// it: `cadenceCount` slots for a Habit, exactly one for a Goal, none at all
+// for a Project (empty array, never populated — Projects are never given
+// calendar time).
+export type ProposedAction = {
   role: string;
-  goal: string;
-  start: string; // ISO 8601
-  end: string; // ISO 8601
+  description: string;
+  type: ClassifiedAction["type"];
+  blocks: TimeRange[];
 };
 
 // A Google Calendar API event is either timed (start.dateTime/end.dateTime)
@@ -139,20 +150,26 @@ export function findFreeGaps(
     .filter((g) => g.start < g.end);
 }
 
-// Slots each role's stated goals into the available gaps, one block per
-// goal, `blockMinutes` long. Roles are interleaved round-robin (role 1's
-// first goal, role 2's first goal, ... role 1's second goal, ...) rather
-// than exhausted one at a time, so the earliest/best slots in the week
-// don't all go to whichever role happened to be listed first. Goals that
-// run out of gap room are simply omitted — the guided session (Day 10+) is
-// where the user gets to see and adjust what didn't fit.
-export function proposeBlocks(
-  answers: RoleAnswer[],
+// Slots the weekly session's classified actions into the available
+// calendar gaps, `blockMinutes` long each. Actions are consumed in the
+// order the engine produced them — which is already role-by-role in this
+// week's role order (see weeklySession.ts), so the earliest slots in the
+// week naturally go to whichever role the user worked through first in the
+// conversation, not to a fixed priority order. A Habit action consumes
+// `cadenceCount` (or 1) consecutive slots off the queue; a Goal consumes
+// exactly one; a Project consumes none — it gets `blocks: []` and is never
+// given calendar time at all, per the MVP spec's Project definition.
+// Actions that run out of gap room get whatever blocks did fit (fewer than
+// `cadenceCount` for a Habit, possibly zero) — the confirmation screen
+// (Day 10's wiring step) is where the user sees and adjusts what didn't
+// fit, same as Day 8's original "omitted, not silently dropped" stance.
+export function proposeActionBlocks(
+  actions: ClassifiedAction[],
   events: GoogleCalendarEvent[],
   windowStart: Date,
   windowEnd: Date,
   options: ProposeBlocksOptions = {},
-): ProposedBlock[] {
+): ProposedAction[] {
   const now = options.now ?? new Date();
   const blockMinutes = options.blockMinutes ?? DEFAULT_BLOCK_MINUTES;
 
@@ -167,7 +184,7 @@ export function proposeBlocks(
   ).sort((a, b) => a.start.getTime() - b.start.getTime());
 
   // Flatten each gap into a queue of blockMinutes-long candidate slots so
-  // we can hand them out one at a time as goals are interleaved.
+  // we can hand them out in order as actions are processed.
   const slotQueue: TimeRange[] = [];
   for (const gap of gaps) {
     let slotStart = new Date(gap.start);
@@ -179,26 +196,19 @@ export function proposeBlocks(
     }
   }
 
-  const goalQueue: { role: string; goal: string }[] = [];
-  const maxGoals = Math.max(0, ...answers.map((a) => a.goals.length));
-  for (let i = 0; i < maxGoals; i++) {
-    for (const answer of answers) {
-      if (answer.goals[i]) {
-        goalQueue.push({ role: answer.role, goal: answer.goals[i] });
-      }
+  let slotIndex = 0;
+  return actions.map((action): ProposedAction => {
+    if (action.type === "project") {
+      return { role: action.role, description: action.description, type: action.type, blocks: [] };
     }
-  }
 
-  const proposed: ProposedBlock[] = [];
-  for (let i = 0; i < goalQueue.length && i < slotQueue.length; i++) {
-    const slot = slotQueue[i];
-    proposed.push({
-      role: goalQueue[i].role,
-      goal: goalQueue[i].goal,
-      start: slot.start.toISOString(),
-      end: slot.end.toISOString(),
-    });
-  }
+    const wanted = action.type === "habit" ? Math.max(1, action.cadenceCount ?? 1) : 1;
+    const blocks: TimeRange[] = [];
+    for (let i = 0; i < wanted && slotIndex < slotQueue.length; i++) {
+      blocks.push(slotQueue[slotIndex]);
+      slotIndex++;
+    }
 
-  return proposed;
+    return { role: action.role, description: action.description, type: action.type, blocks };
+  });
 }

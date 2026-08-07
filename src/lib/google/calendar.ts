@@ -115,33 +115,40 @@ export async function listCurrentWeekEvents(
   return response.json();
 }
 
-// Creates a short test event ~1 hour from now, to prove the write path
-// works end-to-end.
-export async function createTestEvent(
+export type CreateCalendarEventInput = {
+  summary: string;
+  description?: string;
+  start: Date;
+  end: Date;
+};
+
+export type GoogleCalendarWriteResult = {
+  id: string;
+  [key: string]: unknown;
+};
+
+// General-purpose write, used by the weekly session's confirm step (Day 10)
+// to actually put a confirmed Habit/Goal block on the user's calendar.
+export async function createCalendarEvent(
   supabase: SupabaseClient,
   userId: string,
-) {
+  input: CreateCalendarEventInput,
+): Promise<GoogleCalendarWriteResult> {
   const accessToken = await getValidAccessToken(supabase, userId);
 
-  const start = new Date(Date.now() + 60 * 60 * 1000);
-  const end = new Date(start.getTime() + 30 * 60 * 1000);
-
-  const response = await fetch(
-    `${CALENDAR_API}/calendars/primary/events`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        summary: "Sundae test event",
-        description: "Created by Sundae's Calendar write function (Day 5).",
-        start: { dateTime: start.toISOString() },
-        end: { dateTime: end.toISOString() },
-      }),
+  const response = await fetch(`${CALENDAR_API}/calendars/primary/events`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
     },
-  );
+    body: JSON.stringify({
+      summary: input.summary,
+      description: input.description,
+      start: { dateTime: input.start.toISOString() },
+      end: { dateTime: input.end.toISOString() },
+    }),
+  });
 
   if (!response.ok) {
     const body = await response.text();
@@ -149,4 +156,22 @@ export async function createTestEvent(
   }
 
   return response.json();
+}
+
+// Creates a short test event ~1 hour from now, to prove the write path
+// works end-to-end. Kept as a thin wrapper around createCalendarEvent
+// (Day 10) for the existing Day 5 debug screen (/debug/calendar).
+export async function createTestEvent(
+  supabase: SupabaseClient,
+  userId: string,
+) {
+  const start = new Date(Date.now() + 60 * 60 * 1000);
+  const end = new Date(start.getTime() + 30 * 60 * 1000);
+
+  return createCalendarEvent(supabase, userId, {
+    summary: "Sundae test event",
+    description: "Created by Sundae's Calendar write function (Day 5).",
+    start,
+    end,
+  });
 }
