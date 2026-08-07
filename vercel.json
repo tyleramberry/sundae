@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/cron/daily-follow-up", "schedule": "0 14 * * *" },
+    { "path": "/api/cron/reconcile-kpis", "schedule": "0 14 * * *" }
+  ]
+}
