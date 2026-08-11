@@ -25,7 +25,10 @@ function resolveAppUrl(appUrl?: string): string {
 }
 
 export function buildDailyFollowUpEmail(appUrl?: string): DailyFollowUpEmail {
-  const url = resolveAppUrl(appUrl);
+  const base = resolveAppUrl(appUrl);
+  // Deep-link straight to the in-app logging surface, not the app root, so
+  // the nudge lands the user exactly where they check things off.
+  const url = `${base.replace(/\/$/, "")}/daily-follow-ups`;
 
   return {
     subject: "Log today's progress",
