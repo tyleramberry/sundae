@@ -11,11 +11,30 @@ import type { ProposedAction } from "@/lib/planning/blocks";
 // engine itself never touches Supabase (channel-agnostic, same boundary as
 // onboarding's engine) -- this is the web caller's job.
 
+export type WeeklyItemRow = {
+  id: string;
+  user_id: string;
+  role: string;
+  week_start: string;
+  type: ActionType;
+  title: string;
+  google_event_id: string | null;
+  done: boolean;
+  percent: number | null;
+  removed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 // Exported so the Day 11 reconciliation cron computes "this week" the exact
 // same way this module does when it wrote the rows in the first place --
 // one definition of week_start's string format, not two that could drift.
 export function toDateOnly(date: Date): string {
   return date.toISOString().slice(0, 10); // week_start is a `date` column
+}
+
+export function currentWeekStart(referenceDate: Date = new Date()): string {
+  return toDateOnly(startOfWeek(referenceDate));
 }
 
 // Reads last week's not-removed items for Stage 1 (Accountability). Returns
@@ -79,13 +98,17 @@ export async function createWeeklyItems(
   supabase: SupabaseClient,
   userId: string,
   referenceDate: Date,
-  actions: (ProposedAction & { eventIds: string[] })[],
+  actions: (ProposedAction & { eventIds: string[]; percent?: number | null })[],
 ): Promise<number> {
   const weekStart = toDateOnly(startOfWeek(referenceDate));
 
   const rows: WeeklyItemInsert[] = [];
   for (const action of actions) {
     if (action.type === "project") {
+      const percent =
+        typeof action.percent === "number"
+          ? Math.max(0, Math.min(100, Math.round(action.percent)))
+          : 0;
       rows.push({
         user_id: userId,
         role: action.role,
@@ -93,7 +116,7 @@ export async function createWeeklyItems(
         type: "project",
         title: action.description,
         google_event_id: null,
-        percent: 0,
+        percent,
       });
       continue;
     }

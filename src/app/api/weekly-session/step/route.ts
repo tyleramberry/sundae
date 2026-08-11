@@ -40,10 +40,15 @@ export async function POST(request: Request) {
     );
   }
 
+  // Day 7 redesign: roles/goals no longer come from /onboarding -- the
+  // weekly-session page runs that conversation itself (Stage 0) the first
+  // time a user gets here with no row yet, and only calls this route once
+  // that's saved. This guard is now a safety net against a client that
+  // skipped straight here, not the expected first-run path.
   const onboarding = await getOnboardingAnswers(supabase, user.id);
   if (!onboarding || onboarding.roles.length === 0) {
     return NextResponse.json(
-      { error: "No onboarding answers on file. Complete onboarding first." },
+      { error: "No roles on file yet. Start at /weekly-session to set them up first." },
       { status: 400 },
     );
   }

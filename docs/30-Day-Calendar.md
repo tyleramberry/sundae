@@ -107,6 +107,14 @@ No development, content, or ad work. Full day off.
 - Build the onboarding screen(s): role input, per-role question flow, confirmation step
 - Wire it to save roles + answers to Supabase
 - *Outcome:* A user can go through onboarding and their roles/answers persist in the DB (UI can be ugly)
+- **Revised same day, after a fresh look:** the chat-transcript v1 above got scrapped, not shipped as
+  planned. Rebuilt instead as a survey → live demo → hype flow modeled on Wispr Flow's onboarding
+  (see [docs/onboarding-flow.md](../docs/onboarding-flow.md)) — no chat UI, no "Your onboard." dead
+  end. The role/goal data capture didn't disappear, it moved into the weekly session's new Stage 0
+  (see [docs/weekly-session-flow.md](../docs/weekly-session-flow.md)), since there's no product reason
+  it has to happen before the user has seen the app do anything. *Outcome:* onboarding now sells the
+  product in under a minute instead of just collecting data; roles/goals get captured at the moment
+  they're actually needed instead of up front.
 
 **Content**
 - Light day: engage with 2-3 other builders' posts

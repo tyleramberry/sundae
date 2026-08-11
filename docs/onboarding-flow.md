@@ -1,130 +1,93 @@
-# Sundae — Onboarding Question Tree (Day 6 draft, revised Day 7)
+# Sundae — Onboarding Flow (Day 7 redesign)
 
-Written before any UI exists (per the 30-day calendar) so it can be shared for
-feedback and used directly as the spec for the engine's onboarding
-conversation ([src/lib/engine](../src/lib/engine)) and the UI (Day 7).
+Replaces the original Day 6/7 question-tree draft below this line's git
+history (`git log -p` on this file for the old version, if it's ever
+useful). The old flow was a single free-text chat conversation that
+captured roles + per-role goals and ended on a flat "Your onboard."
+confirmation. Two problems with that, found by actually using it:
 
-**Revised after the first real run-through (Day 7):** the original draft had
-a confirmation step after *every* role and a per-role question about
-existing calendar commitments. Both got cut based on actually using it —
-see "Revision notes" at the bottom for why.
+1. **No hook.** Nothing about it built any excitement for what the app
+   actually does — it was pure data entry before the product ever showed
+   itself.
+2. **It front-loaded the hardest conversation in the whole app.** Getting a
+   real, SMART-quality goal out of someone (see
+   [weekly-session-flow.md](weekly-session-flow.md)'s "SMART bar") is
+   real work, and asking a brand-new user to do it before they've seen any
+   payoff was backwards.
 
-Flow shape: **roles → per-role big three → one final confirmation.**
+This version, studied against how Wispr Flow structures its own onboarding
+(signup → permissions → setup → learn → personalize, opening on "which of
+these resonate with you?" and proving the product hands-on rather than
+telling you about it in a stats screen): **survey → live demo → hype →
+straight into the user's first real weekly session.**
 
----
+## What moved out of onboarding entirely
 
-## 1. Roles
+The functional roles + goals capture — the actual free-text conversation,
+engine, and persistence that used to live here — did not get deleted. It
+moved to the weekly session's new **Stage 0**, which only runs the first
+time a user starts a session with no `onboarding_answers` row yet. See
+[weekly-session-flow.md](weekly-session-flow.md#stage-0-roles--goals-first-session-only).
+Reasoning: that conversation is real functional data the planning engine
+depends on, but there's no product reason it has to happen *before* the
+user has seen the product work. Letting it happen at the natural moment —
+right as their first real session needs it — means onboarding itself can be
+short, and the survey/demo/hype screens below never block on it.
 
-**Q1.** "What are the different hats you wear day to day? Add as many as
-apply — you can always change these later."
+## The flow, in order
 
-- Free-text chips, user adds one at a time (e.g. "Founder", "Husband",
-  "Athlete", "Board member").
-- Minimum 1 role, no hard maximum — soft nudge ("most people land on 3-5") if
-  they try to add a 7th.
-- No preset list. Forcing a taxonomy here would flatten exactly the kind of
-  personal framing ("Dad" vs "Parent" vs "Family") that makes the weekly
-  session feel like it's about *their* life.
+Implemented in [src/app/onboarding/page.tsx](../src/app/onboarding/page.tsx).
+**No skip on any screen** — same lesson pulled from studying Wispr's
+onboarding: removing the option to bail early means nobody exits having
+only half-seen the product.
 
-**Q2 (confirm).** "Here's what I've got: {role list}. Anything to add, cut,
-or rename before we go role by role?"
+### 1–3. Survey (context only, not functional data)
 
-- Edit loop until the user says the list is right.
-- Exit condition: explicit "looks good" / equivalent affirmative.
+Three single/multi-select screens, chips only, no free text except an
+"Other" catch-all on the first question:
 
----
+1. **"How did you hear about Sundae?"** — single-select. Attribution.
+2. **"What roles do you fill every week?"** — multi-select, ~16 presets
+   (Founder, Parent, Manager, Athlete, etc.). **Survey/context only** — this
+   is a different question from Stage 0's role capture and is never written
+   to `onboarding_answers`. It exists to prime the user's own mental model
+   before the demo, same purpose as Wispr's opening "which of these
+   resonate?" screen, and to give personalization/marketing context.
+3. **"What's Sundae going to solve for you?"** — multi-select (productivity,
+   accountability, time-saving, motivation, planning my week, organization,
+   time-saving during my planning session, etc.).
 
-## 2. Per-role big three
+All three persist incrementally via `POST /api/onboarding/survey` — one
+call per screen, not one call at the end — into the new `onboarding_survey`
+table (`supabase/migrations/20260807000000_onboarding_survey.sql`),
+deliberately separate from `onboarding_answers` so a user who answers the
+survey but drops off before finishing the rest of onboarding still leaves
+usable funnel data.
 
-Runs once per role, in the order the user listed them. Same question each
-time — repetition is intentional, it's what makes the engine's logic
-reusable across roles instead of bespoke per role.
+### 4. Live demo
 
-For role `{role}`:
+One real text input — "What's on your mind this week?" — then a scripted,
+deterministic animation (not a live model call) shows that exact text turn
+into a concrete action item and land on a calendar block, ending on a
+running counter. Deliberately **not** a live engine call: this is the most
+important screen in onboarding, and a live model call risks latency or an
+odd result on a first impression. It still reads as personal because the
+derived action item is templated off what the user actually typed (see
+`deriveActionItem` in the page), not a generic canned example.
 
-**Q3.** "As {role}, what are the 2-3 things that matter most to you right
-now? These don't have to be this week's tasks — think bigger picture."
+### 5. Hype
 
-- Free text, engine parses into discrete goal strings.
-- If the user gives more than 3, ask: "Want to narrow that to your top three
-  for {role}, or keep all {n}?" — don't force a cut.
-- If the user gives 0 or clearly punts ("not sure"), engine offers one
-  gentle prompt with an example ("For a lot of founders that's something
-  like 'ship the MVP' or 'close the seed round' — anything like that for
-  you?") then accepts whatever comes back, including "skip."
-- Whatever they say, move straight to the next role's Q3. **No per-role
-  confirmation and no calendar question** — see Revision notes.
+Picks up exactly where the demo left off — the elapsed real time from typed
+goal to calendar block is genuine (not a fabricated marketing stat),
+extrapolated into a "this is what a full week of goals would save you"
+line. Ends on the CTA straight into `/weekly-session`.
 
----
+## Design notes carried over from the old flow
 
-## 3. Overall confirmation (the only confirmation step)
-
-**Q4.** Full summary across all roles:
-
-```
-{role A}: {goal 1}, {goal 2}, {goal 3}
-{role B}: {goal 1}, {goal 2}
-...
-```
-
-"That's your starting point. Does this look right, or is there a role or a
-goal you'd like to change?"
-
-- Yes → persist roles + per-role goals to Supabase, onboarding marked
-  complete.
-- Wants a change → apply the edit (rename a role, add/cut/reword a goal),
-  re-show the full summary, ask again. Repeat until confirmed. Edits are
-  named directly against the summary ("change Founder's second goal to
-  X") rather than routing back into a role-specific sub-loop — there's
-  only one loop now, not one per role.
-
----
-
-## Design notes
-
-- **No skipping roles once named.** If a user adds a role in Q1, they go
-  through its big-three loop — cutting a role happens explicitly in Q2's
-  edit loop, or as an edit at the final Q4 summary.
-- **Everything editable until Q4 is confirmed.** Nothing is "locked" (i.e.
-  written to Supabase) until final confirmation, so early mistakes are
-  cheap to fix.
-- **State is just the transcript.** The engine understands the conversation
-  by reading it, not by tracking a hand-maintained stage/index — see
-  [src/lib/engine/types.ts](../src/lib/engine/types.ts) and the "why" in
-  [src/lib/engine/engine.ts](../src/lib/engine/engine.ts)'s file header.
-- **Out of scope for this flow:** block proposals. This is pure
-  conversation — Day 8 is where roles/goals turn into calendar slots.
-  Calendar *reads* are explicitly **in** scope for context, not out of
-  scope — see Revision notes.
-
-## Revision notes (Day 7, after the first real run-through)
-
-The original draft above (Q3 → Q4 → Q5 per role) read fine on paper but was
-rough in an actual conversation, twice:
-
-1. **Per-role confirmation (old Q5) felt like an interrogation.** Confirming
-   after every single role, on top of the one overall confirmation at the
-   end, was one confirmation too many — it made a 3-role onboarding feel
-   like 4 separate approval gates instead of one conversation. Cut down to
-   a single confirmation at the very end (now Q4), with edits handled there
-   directly rather than by revisiting each role's own sub-loop.
-2. **The per-role calendar question (old Q4) worked against the product's
-   own premise.** Sundae reads the user's Google Calendar directly — that
-   integration already exists (Day 5,
-   [src/lib/google/calendar.ts](../src/lib/google/calendar.ts)). Asking the
-   user to manually describe what's already on their calendar, once per
-   role, made them do by hand exactly what the app exists to do for them.
-   Dropped entirely; the `context` field stays in the data model in case a
-   user volunteers something relevant unprompted, but the engine never asks
-   for it.
-
-## Open questions for audience feedback (from the original Day 6 post)
-
-1. Is three questions per role the right depth, or does it feel like too
-   much friction for someone with 5 roles?
-2. ~~Should the existing-commitments question be per-role or asked once up
-   front?~~ Resolved (Day 7): dropped entirely — calendar reads already
-   happen automatically.
-3. Is "big three" the right framing, or should roles with genuinely one
-   priority be allowed to stop at one/two without the engine nudging for a
-   third?
+- **State is still just the transcript** for whatever conversational engine
+  work remains (now living in Stage 0) — no hand-maintained stage machine.
+  See [src/lib/engine/engine.ts](../src/lib/engine/engine.ts)'s file header
+  for the failure mode this avoids.
+- **Calendar reads stay automatic.** Neither the survey nor Stage 0 ever
+  asks the user to describe their own calendar back to the app — Sundae
+  reads Google Calendar directly.

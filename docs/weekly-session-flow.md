@@ -12,6 +12,36 @@ Setting → Planning.** Same engine philosophy as onboarding — state is the
 transcript, Claude does the understanding, the caller owns persistence (see
 [src/lib/engine/types.ts](../src/lib/engine/types.ts)).
 
+**Day 7 addition: a zeroth stage.** Onboarding (see
+[onboarding-flow.md](onboarding-flow.md)) was redesigned into a
+survey/demo/hype flow that captures no functional data of its own. The
+roles + goals conversation that used to run during onboarding didn't go
+away — it moved here, as **Stage 0**, gated to a user's first-ever session.
+See below.
+
+## Stage 0: Roles & Goals (first session only)
+
+Runs before everything else, and only once per user — the same instant a
+user reaches `/weekly-session` with no `onboarding_answers` row yet (`GET
+/api/onboarding/complete` returns nothing). This is *exactly* the free-text
+roles/goals conversation the old onboarding chat used to run: same engine
+(`src/lib/engine/engine.ts`, unchanged), same `/api/engine/step` route,
+same "roles → confirm list → per-role big three → one final summary"
+shape. Nothing about the conversation itself changed — only when it runs.
+
+- Driven client-side by `src/app/weekly-session/page.tsx`'s `roles-setup`
+  stage, reusing the exact chat UI treatment onboarding used to own.
+- On completion (`action.type === "complete"`), the page calls `POST
+  /api/onboarding/complete` — the same persistence route and
+  `onboarding_answers` table as before — then resets the transcript and
+  immediately starts the real session (Stage 1 below) with the roles just
+  captured.
+- Every session after the first skips this entirely: `onboarding_answers`
+  already exists, so the page goes straight to Stage 1/2.
+- `/api/weekly-session/step` still hard-requires `onboarding_answers` to
+  exist before it'll run Stage 1-3 — that's now a safety net against a
+  client that skipped Stage 0, not the expected first-run path.
+
 ## This is the product
 
 Sundae's value isn't "type your goals into a form and get a calendar back."

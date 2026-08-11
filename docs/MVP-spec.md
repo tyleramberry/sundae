@@ -18,8 +18,15 @@
 
 ## Core loop (in scope)
 
-1. **Onboarding** — user defines their roles (founder, husband, athlete, etc.)
-2. **Guided weekly session** — three stages, run once per sitting:
+1. **Onboarding** — a short survey (attribution + motivation, context only)
+   plus a live scripted demo of the goal → action → calendar drill-down,
+   ending on a hype screen and a handoff straight into the user's first
+   weekly session. Captures no functional data of its own — see
+   [docs/onboarding-flow.md](../docs/onboarding-flow.md).
+2. **Guided weekly session** — a zeroth stage the first time only (defines
+   the user's roles — founder, husband, athlete, etc. — and per-role goals,
+   exactly what onboarding used to capture directly), then three stages run
+   every sitting:
    - **Accountability** (once, at the top of the session): follow up on last week's goals, follow up on last week's KPIs, decide what rolls into this week, capture 3 wins and 3 things to improve
    - **Goal setting** (once per role, in the order the user listed them): "What's the most important thing you can do this week as {role}?"
    - **Planning** (once per role, looping over each distinct action inside that role's answer — a compound goal like "work out every day and stretch every night" gets two drill-downs, not one): classify each action as a Habit, a Goal, or a Project, then propose calendar block(s) (Habit/Goal) or start a slider (Project) — see Goal types & KPI logic below
