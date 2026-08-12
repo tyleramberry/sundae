@@ -305,8 +305,27 @@ Once the action items for a role's goal are captured, each gets its own
 classification:
 
 ```ts
-{ role: string, description: string, type: "habit" | "goal" | "project", cadenceCount?: number }
+{ role: string, description: string, type: "habit" | "goal" | "project", cadenceCount?: number, preferredTime?: string }
 ```
+
+### The time drill-down (Habit/Goal only)
+
+A day is not enough — the point of the session is a real calendar block, not
+a vague "sometime Thursday." Before a Habit or Goal action item counts as
+captured, the agent asks until it has an actual clock time, not a day-part:
+"make a block on Thursday afternoon" gets one more question — **"What time
+Thursday afternoon works best?"** — until the reply is a real time ("2pm") or
+a tight window it can anchor a start to ("2-3pm" → 14:00). Recorded as
+`preferredTime`, `"HH:MM"` 24-hour local time. `src/lib/planning/blocks.ts`
+then tries to honor it directly — it looks for a free slot at or after that
+time on the target day before falling back to whatever's earliest, so the
+time asked for in the conversation is the time that actually lands on the
+calendar, not just conversational color that gets dropped at scheduling.
+
+The only way to skip this is the user explicitly saying they have no
+preference after being asked ("whenever works") — never by the agent
+assuming a day-part is close enough. Project items never get this question;
+they never get calendar time regardless of when the user meant.
 
 ### Classification rule
 
@@ -325,17 +344,22 @@ The engine classifies — the user is never asked to pick a type directly:
 
 ### Cadence-parsing rule
 
-Cadence language is parsed straight into a block count — **there is no
-separate "how many times?" question**:
+When the user's own words already say how often — cadence language parses
+straight into a block count, no need to ask again:
 
 - "every morning" / "every day" → 7
 - "every night" → 7
 - A stated N times/week ("3x a week") → N
-- Anything that isn't recurring language at all → Goal, not Habit (single
-  block)
+- An explicit one-time mention ("just once") → Goal, single block
 
-This parsing happens inside the classification step itself, same turn as
-the habit/goal/project decision — not a follow-up question to the user.
+**But a bare action that gives no cadence signal either way does get asked
+about** — "make a block on Thursday afternoon" doesn't say if that's once or
+recurring, so the agent asks: *"Is that a one-time thing this week, or do you
+want it more than once — and if so, how many times?"* The engine never
+defaults a cadence-less action to a single Goal-type block just because
+that's the fallback shape; a real answer is what decides Habit-vs-Goal and
+the resulting `cadenceCount`, the same way the time drill-down above decides
+`preferredTime` rather than leaving it to chance.
 
 ### Per-action drill-down (Habit/Goal only)
 

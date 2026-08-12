@@ -18,10 +18,18 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     redirect("/login");
   }
 
+  // `min-h-0` on both this row and `main` caps them at the height the root
+  // layout's `<body class="h-full overflow-hidden">` actually gives them
+  // instead of letting a flex item grow to fit its content (the default
+  // `min-height: auto` behavior) -- without it, a long weekly-session chat
+  // pushes this whole shell taller than the viewport and the *page* scrolls,
+  // dragging AppSidebar's bottom-anchored login/sign-out off screen with it.
+  // `overflow-hidden` on `main` then forces any page that wants to scroll
+  // (the chat transcript) to do it in its own inner scroll region instead.
   return (
-    <div className="flex flex-1 flex-col md:flex-row">
+    <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <AppSidebar email={user.email ?? null} />
-      <main className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-50 dark:bg-black">
         {children}
       </main>
     </div>

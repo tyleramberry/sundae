@@ -10,7 +10,8 @@ function isClassifiedAction(value: unknown): value is ClassifiedAction {
     typeof v.role === "string" &&
     typeof v.description === "string" &&
     (v.type === "habit" || v.type === "goal" || v.type === "project") &&
-    (v.cadenceCount === undefined || typeof v.cadenceCount === "number")
+    (v.cadenceCount === undefined || typeof v.cadenceCount === "number") &&
+    (v.preferredTime === undefined || typeof v.preferredTime === "string")
   );
 }
 
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Body must include a non-empty string `message` and `actions: {role, description, type, cadenceCount?}[]`.",
+          "Body must include a non-empty string `message` and `actions: {role, description, type, cadenceCount?, preferredTime?}[]`.",
       },
       { status: 400 },
     );

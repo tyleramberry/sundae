@@ -26,6 +26,13 @@ export type ClassifiedAction = {
   // 1 (may be omitted -- callers should treat a missing cadenceCount on a
   // Goal as 1). Project: always omitted -- no calendar block at all.
   cadenceCount?: number;
+  // Habit/Goal only, "HH:MM" 24-hour local time -- the actual clock time
+  // the user asked for ("2pm", "first thing in the morning" -> "07:00"),
+  // captured by the Stage 3 drill-down instead of left to whichever gap
+  // /propose finds first. Omitted only if the user genuinely has no
+  // preference after being asked. Project: always omitted, same as
+  // cadenceCount -- no calendar block to time.
+  preferredTime?: string;
 };
 
 // What the caller already knows about last week, read from `weekly_items`

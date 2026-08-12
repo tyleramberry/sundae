@@ -182,13 +182,25 @@ export function weekdayFromText(text: string): number | null {
   return best ? best.index : null;
 }
 
-// One day's worth of candidate slots, plus a pointer to the next unused one
-// so multiple actions competing for the same day don't collide.
+// One day's worth of still-available candidate slots, chronologically
+// ordered. Taking a slot splices it out (see takeOnDay/takeAtOrAfterTime)
+// so multiple actions competing for the same day don't collide -- an index
+// pointer would only work for in-order consumption, and preferredTime
+// below needs to pull a slot out of the middle of the list.
 type DaySlots = {
   weekday: number; // 0-6
   slots: TimeRange[];
-  used: number;
 };
+
+// "HH:MM" -> minutes since local midnight, or null if it's not a parseable
+// 24-hour time. Defensive: preferredTime ultimately comes from a model
+// tool call (or a client request body), never something to trust blindly.
+function parseTimeToMinutes(time: string | undefined): number | null {
+  if (!time) return null;
+  const match = /^([0-1]?\d|2[0-3]):([0-5]\d)$/.exec(time.trim());
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
 
 // Slots the weekly session's classified actions onto the week's real free
 // time. Two rules drive placement, both fixing the Day 10 behavior where
@@ -241,7 +253,7 @@ export function proposeActionBlocks(
       const key = `${slotStart.getFullYear()}-${slotStart.getMonth()}-${slotStart.getDate()}`;
       let day = dayByKey.get(key);
       if (!day) {
-        day = { weekday: slotStart.getDay(), slots: [], used: 0 };
+        day = { weekday: slotStart.getDay(), slots: [] };
         dayByKey.set(key, day);
         dayList.push(day);
       }
@@ -250,8 +262,22 @@ export function proposeActionBlocks(
     }
   }
 
-  const takeOnDay = (day: DaySlots): TimeRange | null =>
-    day.used < day.slots.length ? day.slots[day.used++] : null;
+  // Removes and returns the day's earliest remaining slot, or null once
+  // the day is exhausted. `day.slots` stays chronologically ordered (built
+  // that way above), so `shift()` is always "earliest first".
+  const takeOnDay = (day: DaySlots): TimeRange | null => day.slots.shift() ?? null;
+
+  // Removes and returns the day's earliest remaining slot that starts at
+  // or after `minutesOfDay` (local time-of-day), or null if every
+  // remaining slot on this day is earlier than that. Splices out of the
+  // middle of the list rather than shifting, since the target slot isn't
+  // necessarily the day's first one left.
+  const takeAtOrAfterTime = (day: DaySlots, minutesOfDay: number): TimeRange | null => {
+    const idx = day.slots.findIndex(
+      (s) => s.start.getHours() * 60 + s.start.getMinutes() >= minutesOfDay,
+    );
+    return idx === -1 ? null : day.slots.splice(idx, 1)[0];
+  };
 
   // Earliest still-unused slot across every day, in chronological order.
   const takeEarliest = (): TimeRange | null => {
@@ -264,7 +290,23 @@ export function proposeActionBlocks(
 
   // First day matching `weekday` that still has a free slot, or null.
   const dayForWeekday = (weekday: number): DaySlots | null =>
-    dayList.find((d) => d.weekday === weekday && d.used < d.slots.length) ?? null;
+    dayList.find((d) => d.weekday === weekday && d.slots.length > 0) ?? null;
+
+  // A specific day plus an optional preferred clock time -> the best slot
+  // on THAT day only (never crosses to another day -- the caller falls
+  // back to takeEarliest() itself when this comes back empty). Tries the
+  // preferred time first so a drilled-down "2pm Thursday" actually lands
+  // at 2pm when that's open, instead of whatever gap happened to be free
+  // first; falls back to the day's earliest slot if the preferred time
+  // itself isn't free (or wasn't given).
+  const pickFromDay = (day: DaySlots | null, preferredMinutes: number | null): TimeRange | null => {
+    if (!day) return null;
+    if (preferredMinutes !== null) {
+      const atTime = takeAtOrAfterTime(day, preferredMinutes);
+      if (atTime) return atTime;
+    }
+    return takeOnDay(day);
+  };
 
   return actions.map((action): ProposedAction => {
     const base = { role: action.role, description: action.description, type: action.type };
@@ -274,15 +316,14 @@ export function proposeActionBlocks(
     }
 
     const targetWeekday = weekdayFromText(action.description);
+    const preferredMinutes = parseTimeToMinutes(action.preferredTime);
     const blocks: TimeRange[] = [];
 
     if (action.type === "goal") {
-      // One block. On its named day if it has one, else the earliest slot.
-      const slot =
-        targetWeekday !== null
-          ? (dayForWeekday(targetWeekday) && takeOnDay(dayForWeekday(targetWeekday)!)) ||
-            takeEarliest()
-          : takeEarliest();
+      // One block. On its named day (at its preferred time if it has one)
+      // if it has one, else the earliest slot.
+      const day = targetWeekday !== null ? dayForWeekday(targetWeekday) : null;
+      const slot = pickFromDay(day, preferredMinutes) ?? takeEarliest();
       if (slot) blocks.push(slot);
     } else {
       // Habit: cadenceCount occurrences, one per distinct day.
@@ -294,16 +335,17 @@ export function proposeActionBlocks(
         // once that day is full.
         for (let i = 0; i < wanted; i++) {
           const day = dayForWeekday(targetWeekday);
-          const slot = (day && takeOnDay(day)) || takeEarliest();
+          const slot = pickFromDay(day, preferredMinutes) ?? takeEarliest();
           if (slot) blocks.push(slot);
         }
       } else if (dayList.length > 0) {
         // "Every day" / "3x a week": one block per day, cycling through the
         // days that have free time so a 7x cadence over 6 open days lands
-        // six-then-one rather than all-on-one-day.
+        // six-then-one rather than all-on-one-day. Same day still honors a
+        // preferred time if one was given.
         for (let i = 0; i < wanted; i++) {
           const day = dayList[i % dayList.length];
-          const slot = takeOnDay(day) ?? takeEarliest();
+          const slot = pickFromDay(day, preferredMinutes) ?? takeEarliest();
           if (slot) blocks.push(slot);
         }
       }

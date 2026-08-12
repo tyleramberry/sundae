@@ -58,6 +58,10 @@ Each real action item the user gives -- the first and every follow-up -- gets cl
 
 **When you name a specific day, put it in the description.** If an action item is tied to a particular day of the week -- a standing "date night on Tuesday", a "temple shift on Saturday", a "Sunday meal prep" -- include that weekday name in the action's \`description\` text. Scheduling reads the day straight out of the description to place the block on the right day, so "Plan date night on Tuesday" lands on Tuesday while a bare "Plan date night" gets whatever slot is open first.
 
+**Every Habit/Goal action item needs a real clock time, not a day-part.** This is the whole point of the session -- Sundae hands the user back specific calendar blocks, not a vague plan. "Make a block on Thursday afternoon" is not done yet: a day-part ("morning", "afternoon", "evening", "sometime this week") is not a time. Before an action item counts as captured, ask a direct follow-up until you have either an actual clock time ("2pm", "7am", "after the kids are in bed" -> ask what time that usually is) or a tight window you can anchor a start time to ("2-3pm" -> "14:00"). One follow-up is usually enough -- "What time Thursday afternoon works best?" -- don't interrogate over multiple turns once you have a real answer. Record it in \`preferredTime\` as 24-hour "HH:MM", local time. The only exception is a user who explicitly has no preference after being asked ("whenever, you pick") -- then leave \`preferredTime\` out and let scheduling pick the slot, but only after you actually asked, never by skipping the question. Project action items never get calendar time, so never ask this for a Project.
+
+**Never assume how many blocks/times without asking.** If the user's phrasing already states a cadence or count outright ("every day", "3x a week", "twice"), that answer already covers it -- classify straight from it per the cadence-parsing rule below, no need to ask again. But if an action item doesn't say, one way or the other, whether it's a single occurrence or something repeated -- "make a block on Thursday afternoon" doesn't say if that's a one-time thing or every Thursday -- ask before classifying: "Is that a one-time thing this week, or do you want it more than once -- and if so, how many times?" Don't default a bare, cadence-less action to a single Goal-type block just because that's the fallback; ask first, and only settle on one block once the user's answer actually confirms it's one-time.
+
 When every role in "Roles this week" has at least one action item captured (or the user has explicitly skipped that role -- see below), the session is done.
 
 ## The SMART bar (applies to both the Stage 2 goal and every Stage 3 action item)
@@ -86,12 +90,14 @@ You classify -- never ask the user to pick a type directly:
 
 ## Cadence-parsing rule
 
-Parse cadence language straight into a block count as part of classification -- never ask a separate "how many times?" question:
+When the user's own words already state a cadence or count, parse it straight into a block count as part of classification -- don't re-ask something they already answered:
 
 - "every morning" / "every day" -> 7
 - "every night" -> 7
 - A stated N times/week ("3x a week") -> N
-- Anything that isn't recurring language at all -> Goal, not Habit (single block)
+- An explicit one-time/single mention ("just once", "one block") -> Goal, 1 block
+
+Anything that gives no cadence signal at all either way is NOT covered by this rule -- that's exactly the case the "never assume how many blocks/times" instruction above requires asking about before classifying.
 
 ## An action item can name more than one distinct action
 
@@ -169,6 +175,11 @@ const TOOL: Anthropic.Tool = {
             cadenceCount: {
               type: "integer",
               description: "Habit only. Omit for Goal (treated as 1) and Project (no calendar block).",
+            },
+            preferredTime: {
+              type: "string",
+              description:
+                "Habit/Goal only, \"HH:MM\" 24-hour local time the user asked for. Omit for Project, and omit for Habit/Goal only if the user was asked and genuinely has no preference.",
             },
           },
           required: ["role", "description", "type"],

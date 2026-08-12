@@ -530,9 +530,14 @@ export default function WeeklySessionPage() {
     stage === "confirming" || stage === "writing" || stage === "proposing";
 
   return (
-    <div className="flex flex-1 flex-col bg-zinc-50 font-sans dark:bg-black md:flex-row">
+    // `min-h-0` here (and again one level down on the messages wrapper)
+    // is what makes the transcript scroll *inside* its own pane instead of
+    // growing the whole page -- `main` upstream (see (app)/layout.tsx) is
+    // already clamped to the viewport, but a flex child's default
+    // `min-height: auto` still lets it expand past that unless overridden.
+    <div className="flex min-h-0 flex-1 flex-col bg-zinc-50 font-sans dark:bg-black md:flex-row">
       {/* LEFT: conversation. */}
-      <div className="flex flex-1 flex-col overflow-hidden md:max-w-xl md:border-r md:border-zinc-200 md:dark:border-zinc-800">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:max-w-xl md:border-r md:border-zinc-200 md:dark:border-zinc-800">
         <div className="flex items-start justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <div>
             <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
@@ -563,7 +568,7 @@ export default function WeeklySessionPage() {
         </div>
 
         {/* Mobile: when the panel is open, hide the chat behind it. */}
-        <div className={`flex flex-1 flex-col ${mobilePanelOpen ? "hidden md:flex" : "flex"}`}>
+        <div className={`flex min-h-0 flex-1 flex-col ${mobilePanelOpen ? "hidden md:flex" : "flex"}`}>
           <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-6 py-4">
             {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -678,20 +683,28 @@ export default function WeeklySessionPage() {
       <div
         className={`${
           mobilePanelOpen ? "flex" : "hidden"
-        } flex-1 flex-col overflow-hidden bg-zinc-50 md:flex md:max-w-2xl md:bg-white md:dark:bg-zinc-950`}
+        } min-h-0 flex-1 flex-col overflow-hidden bg-zinc-50 md:flex md:max-w-2xl md:bg-white md:dark:bg-zinc-950`}
       >
         {showCalendarPanel ? (
-          <>
-            <WeekCalendarGrid
-              events={calendarEvents}
-              proposed={flattenProposedForGrid()}
-              weekStart={weekStart}
-            />
+          // `min-h-0` on the grid wrapper + `overflow-y-auto` on the list
+          // below it split this column into two independently-scrollable
+          // regions (grid gets a fair, non-greedy share via flex-1/min-h-0
+          // instead of its own `h-full` claiming the whole column) so the
+          // proposed-items list stays reachable instead of being pushed
+          // below the fold by the calendar grid above it.
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 flex-1">
+              <WeekCalendarGrid
+                events={calendarEvents}
+                proposed={flattenProposedForGrid()}
+                weekStart={weekStart}
+              />
+            </div>
             {/* Below the grid: the same per-action list the old confirm
                 screen showed, so exact ranges + partial-fit warnings stay
                 visible -- a pixel grid is easier to scan for shape, a text
                 list is easier for exact times. */}
-            <div className="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
+            <div className="max-h-[45%] overflow-y-auto border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
               <p className="text-[11px] font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
                 Proposed items
               </p>
@@ -730,7 +743,7 @@ export default function WeeklySessionPage() {
                 ))}
               </ul>
             </div>
-          </>
+          </div>
         ) : (
           <WeeklyPlanPanel roles={roles} actionsSoFar={actionsSoFar} />
         )}

@@ -52,6 +52,19 @@ function cadenceLabel(action: ClassifiedAction): string | null {
   return `${n}× this week`;
 }
 
+// "14:00" -> "2:00 PM", local-time display of the drilled-down clock time
+// the Stage 3 time question captured -- shown so the user can see Sundae
+// actually picked up the specific time, not just the day, while the chat
+// is still going. Falls back to null (chip hidden) for anything malformed.
+function timeLabel(action: ClassifiedAction): string | null {
+  if (!action.preferredTime) return null;
+  const match = /^([0-1]?\d|2[0-3]):([0-5]\d)$/.exec(action.preferredTime.trim());
+  if (!match) return null;
+  const d = new Date();
+  d.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 export default function WeeklyPlanPanel({
   roles,
   actionsSoFar,
@@ -104,6 +117,7 @@ export default function WeeklyPlanPanel({
                 {items.map((action, i) => {
                   const dayIdx = weekdayFromText(action.description);
                   const cadence = cadenceLabel(action);
+                  const time = timeLabel(action);
                   return (
                     <li
                       key={`${role}-${i}`}
@@ -122,7 +136,7 @@ export default function WeeklyPlanPanel({
                           {action.type}
                         </span>
                       </div>
-                      {(cadence || dayIdx !== null) && (
+                      {(cadence || dayIdx !== null || time) && (
                         <div className="flex flex-wrap gap-1.5">
                           {cadence && (
                             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
@@ -132,6 +146,11 @@ export default function WeeklyPlanPanel({
                           {dayIdx !== null && (
                             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                               {WEEKDAY_NAMES[dayIdx]}
+                            </span>
+                          )}
+                          {time && (
+                            <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                              {time}
                             </span>
                           )}
                         </div>
