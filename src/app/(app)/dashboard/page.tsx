@@ -123,6 +123,13 @@ export default function DashboardPage() {
                 />
               </Link>
 
+              <Link
+                href={`/dashboard/${encodeURIComponent(tile.role)}/trend`}
+                className="text-xs font-medium text-zinc-400 underline-offset-2 transition hover:text-emerald-600 hover:underline dark:text-zinc-500 dark:hover:text-emerald-400"
+              >
+                6-week trend →
+              </Link>
+
               {tile.items.length > 0 && (
                 <ul className="flex w-full max-w-xs flex-col gap-1">
                   {tile.items.map((item) => {

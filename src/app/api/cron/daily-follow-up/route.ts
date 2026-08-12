@@ -47,7 +47,11 @@ export async function GET(request: Request) {
         continue;
       }
 
-      await sendDailyFollowUpEmail({ to: userResult.user.email });
+      await sendDailyFollowUpEmail({
+        to: userResult.user.email,
+        userId,
+        supabase,
+      });
       sent += 1;
     } catch (err) {
       // One bad address or a transient Resend error shouldn't stop the rest

@@ -18,7 +18,11 @@ export async function POST() {
   }
 
   try {
-    const result = await sendDailyFollowUpEmail({ to: user.email });
+    const result = await sendDailyFollowUpEmail({
+      to: user.email,
+      userId: user.id,
+      supabase,
+    });
     return NextResponse.json({ ok: true, id: result.id });
   } catch (error) {
     if (error instanceof EmailError) {

@@ -1,14 +1,21 @@
-// Daily follow-up nudge email (Day 10 v1) -- the reminder to open the app
-// and log progress against this week's plan. Per the MVP spec, logging is
-// in-app only: this is a single CTA, not a reply-based done/not-done
-// channel, and deliberately simpler than the daily brief (Day 12, which
-// adds yesterday's recap + today's big three on top of this).
+// Daily follow-up nudge email. Day 10 shipped a single generic CTA; this
+// version (built alongside the Day 15 trend view) makes it an actual daily
+// brief -- today's date, what's on the calendar today, and any ongoing
+// project that still needs a push -- per the MVP spec's "today's big
+// three + carryover" daily-brief goal.
+//
+// The item/project lists here are always real data from
+// src/lib/dailyBrief/gather.ts, rendered deterministically. Only the short
+// greeting + focus line at the top come from the separate agent in
+// src/lib/agents/dailyNudgeAgent.ts -- see that file's header for why it's
+// split out rather than folded in here.
 //
 // Raw fetch against Resend's REST API, same style as calendar.ts's Google
 // Calendar calls -- no SDK dependency for a one-endpoint integration.
-// Wiring this to send automatically every morning is Day 11's job (Vercel
-// Cron); this module is just render + send, and /api/email/daily-follow-up
-// is a manual trigger for now.
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getTodayBrief, type TodayBrief } from "@/lib/dailyBrief/gather";
+import { getNudgeCopy, type NudgeCopy } from "@/lib/agents/dailyNudgeAgent";
 
 const RESEND_API = "https://api.resend.com/emails";
 
@@ -24,35 +31,119 @@ function resolveAppUrl(appUrl?: string): string {
   return appUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 }
 
-export function buildDailyFollowUpEmail(appUrl?: string): DailyFollowUpEmail {
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export function buildDailyFollowUpEmail(
+  brief: TodayBrief,
+  copy: NudgeCopy,
+  appUrl?: string,
+): DailyFollowUpEmail {
   const base = resolveAppUrl(appUrl);
   // Deep-link straight to the in-app logging surface, not the app root, so
   // the nudge lands the user exactly where they check things off.
   const url = `${base.replace(/\/$/, "")}/daily-follow-ups`;
 
-  return {
-    subject: "Log today's progress",
-    text: `Quick one — open Sundae and check off what you got done today, so this week's plan stays accurate.\n\n${url}`,
-    html: `<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
-  <p style="font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; margin: 0 0 12px;">Sundae</p>
-  <p style="font-size: 16px; color: #18181b; line-height: 1.5; margin: 0 0 24px;">
-    Quick one — take a minute to check off what you got done today, so this week's plan stays accurate.
+  const subject = `${brief.weekdayLabel.split(",")[0]} — your Sundae brief`;
+
+  const itemLines = brief.todayItems.map((i) => `- [${i.role}] ${i.title}`).join("\n");
+  const projectLines = brief.ongoingProjects
+    .map((p) => `- [${p.role}] ${p.title} — ${p.percent}%`)
+    .join("\n");
+
+  const text = [
+    brief.weekdayLabel,
+    "",
+    copy.greeting,
+    copy.focusLine,
+    "",
+    "Scheduled today:",
+    brief.todayItems.length > 0 ? itemLines : "  Nothing on the calendar today.",
+    "",
+    "Ongoing project" + (brief.ongoingProjects.length === 1 ? "" : "s") + ":",
+    brief.ongoingProjects.length > 0 ? projectLines : "  None in progress this week.",
+    "",
+    `Log your progress → ${url}`,
+  ].join("\n");
+
+  const itemsHtml =
+    brief.todayItems.length > 0
+      ? `<ul style="margin:0;padding:0;list-style:none;">
+      ${brief.todayItems
+        .map(
+          (i) => `<li style="padding:9px 0;border-top:1px solid #eee;font-size:14.5px;color:#18181b;">
+        <span style="font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;color:#71717a;">${escapeHtml(i.role)}</span><br/>
+        ${escapeHtml(i.title)}
+      </li>`,
+        )
+        .join("")}
+    </ul>`
+      : `<p style="font-size:14px;color:#71717a;margin:0;">Nothing on the calendar today.</p>`;
+
+  const projectsHtml =
+    brief.ongoingProjects.length > 0
+      ? `<ul style="margin:0;padding:0;list-style:none;">
+      ${brief.ongoingProjects
+        .map(
+          (p) => `<li style="padding:9px 0;border-top:1px solid #eee;font-size:14.5px;color:#18181b;">
+        <span style="font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;color:#71717a;">${escapeHtml(p.role)}</span><br/>
+        ${escapeHtml(p.title)} — <strong>${p.percent}%</strong>
+      </li>`,
+        )
+        .join("")}
+    </ul>`
+      : `<p style="font-size:14px;color:#71717a;margin:0;">None in progress this week.</p>`;
+
+  const html = `<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
+  <p style="font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; margin: 0 0 4px;">Sundae</p>
+  <p style="font-size: 13px; color: #a1a1aa; margin: 0 0 20px;">${escapeHtml(brief.weekdayLabel)}</p>
+
+  <p style="font-size: 16px; color: #18181b; line-height: 1.5; margin: 0 0 4px; font-weight: 600;">
+    ${escapeHtml(copy.greeting)}
   </p>
-  <a href="${url}" style="display: inline-block; background: #000000; color: #ffffff; text-decoration: none; padding: 10px 22px; border-radius: 999px; font-size: 14px; font-weight: 500;">
+  <p style="font-size: 15px; color: #3f3f46; line-height: 1.5; margin: 0 0 24px;">
+    ${escapeHtml(copy.focusLine)}
+  </p>
+
+  <p style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; margin: 0 0 6px;">Scheduled today</p>
+  ${itemsHtml}
+
+  <p style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; margin: 24px 0 6px;">Ongoing project${brief.ongoingProjects.length === 1 ? "" : "s"}</p>
+  ${projectsHtml}
+
+  <a href="${url}" style="display: inline-block; margin-top: 28px; background: #000000; color: #ffffff; text-decoration: none; padding: 10px 22px; border-radius: 999px; font-size: 14px; font-weight: 500;">
     Log your progress &rarr;
   </a>
-</div>`,
-  };
+</div>`;
+
+  return { subject, html, text };
 }
 
 export type SendDailyFollowUpInput = {
   to: string;
+  userId: string;
+  supabase: SupabaseClient;
   appUrl?: string;
+  referenceDate?: Date;
 };
 
 export async function sendDailyFollowUpEmail(
   input: SendDailyFollowUpInput,
 ): Promise<{ id: string }> {
+  // Gather + generate first, check for a Resend key last -- this is the
+  // part worth actually exercising (and worth failing loudly on, via
+  // getTodayBrief/getNudgeCopy's own error paths) regardless of whether
+  // sending is configured yet. A missing RESEND_API_KEY shouldn't hide a
+  // real bug in the brief or the agent behind an earlier, unrelated error.
+  const brief = await getTodayBrief(input.supabase, input.userId, input.referenceDate);
+  const copy = await getNudgeCopy(brief);
+  const { subject, html, text } = buildDailyFollowUpEmail(brief, copy, input.appUrl);
+
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     throw new EmailError(
@@ -61,7 +152,6 @@ export async function sendDailyFollowUpEmail(
   }
 
   const from = process.env.RESEND_FROM_EMAIL ?? "Sundae <onboarding@resend.dev>";
-  const { subject, html, text } = buildDailyFollowUpEmail(input.appUrl);
 
   const response = await fetch(RESEND_API, {
     method: "POST",
