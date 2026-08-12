@@ -20,6 +20,19 @@ type DebugResult = {
   text: string;
 };
 
+type RoleKpi = { role: string; numerator: number; denominator: number; percent: number | null };
+type SessionRecap = { wins: string[]; improvements: string[] };
+type RecapDebugResult = {
+  note?: string;
+  transcriptSource?: string;
+  weekStart?: string;
+  roleKpis: RoleKpi[];
+  recap?: SessionRecap;
+  subject?: string;
+  html?: string;
+  text?: string;
+};
+
 // Raw debug view for the daily follow-up email. Three things live here:
 // 1. A real send to your own signed-in address via Resend.
 // 2. A static example-data preview (no auth, no model call -- what
@@ -36,6 +49,10 @@ export default function EmailDebugPage() {
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugResult, setDebugResult] = useState<DebugResult | null>(null);
   const [debugError, setDebugError] = useState<string | null>(null);
+
+  const [recapLoading, setRecapLoading] = useState(false);
+  const [recapResult, setRecapResult] = useState<RecapDebugResult | null>(null);
+  const [recapError, setRecapError] = useState<string | null>(null);
 
   async function sendTest() {
     setSending(true);
@@ -68,6 +85,23 @@ export default function EmailDebugPage() {
       setDebugResult(body as DebugResult);
     } finally {
       setDebugLoading(false);
+    }
+  }
+
+  async function generateRecap() {
+    setRecapLoading(true);
+    setRecapResult(null);
+    setRecapError(null);
+    try {
+      const res = await fetch("/api/email/session-recap/debug");
+      const body = await res.json();
+      if (!res.ok) {
+        setRecapError(body.error ?? "Unknown error");
+        return;
+      }
+      setRecapResult(body as RecapDebugResult);
+    } finally {
+      setRecapLoading(false);
     }
   }
 
@@ -144,6 +178,64 @@ export default function EmailDebugPage() {
               <iframe
                 srcDoc={debugResult.html}
                 title="Real daily brief preview"
+                className="mt-1 h-64 w-full rounded-lg border border-zinc-200 bg-white dark:border-zinc-800"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 border-t border-zinc-200 pt-6 dark:border-zinc-800">
+        <h2 className="font-sans text-sm font-medium text-zinc-500">
+          Session-recap email — real KPIs, real agent, no send
+        </h2>
+        <p className="mt-1 max-w-lg font-sans text-xs text-zinc-500 dark:text-zinc-400">
+          KPI numbers are your real last week. Wins/improvements run the real
+          agent against a labeled example transcript — sessions aren&apos;t
+          persisted server-side, so there&apos;s no real past transcript to
+          fetch (see the route&apos;s file header).
+        </p>
+        <button
+          onClick={generateRecap}
+          disabled={recapLoading}
+          className="mt-2 rounded-full border border-zinc-300 px-4 py-2 font-sans text-sm text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
+        >
+          {recapLoading ? "Computing + generating…" : "Generate my real recap"}
+        </button>
+
+        {recapError && <p className="mt-3 font-sans text-sm text-red-600">{recapError}</p>}
+
+        {recapResult?.note && (
+          <p className="mt-3 font-sans text-sm text-zinc-500 dark:text-zinc-400">{recapResult.note}</p>
+        )}
+
+        {recapResult?.recap && (
+          <div className="mt-4 flex max-w-2xl flex-col gap-4">
+            <div>
+              <h3 className="font-sans text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Extracted recap (raw) — {recapResult.transcriptSource}
+              </h3>
+              <pre className="mt-1 overflow-x-auto rounded-lg border border-zinc-200 bg-white p-3 text-xs dark:border-zinc-800 dark:bg-zinc-950">
+{JSON.stringify(recapResult.recap, null, 2)}
+              </pre>
+            </div>
+
+            <div>
+              <h3 className="font-sans text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Real role KPIs — week of {recapResult.weekStart}
+              </h3>
+              <pre className="mt-1 overflow-x-auto rounded-lg border border-zinc-200 bg-white p-3 text-xs dark:border-zinc-800 dark:bg-zinc-950">
+{JSON.stringify(recapResult.roleKpis, null, 2)}
+              </pre>
+            </div>
+
+            <div>
+              <h3 className="font-sans text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Rendered email — subject: {recapResult.subject}
+              </h3>
+              <iframe
+                srcDoc={recapResult.html}
+                title="Session-recap email preview"
                 className="mt-1 h-64 w-full rounded-lg border border-zinc-200 bg-white dark:border-zinc-800"
               />
             </div>

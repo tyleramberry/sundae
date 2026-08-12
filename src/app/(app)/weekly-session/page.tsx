@@ -91,6 +91,7 @@ export default function WeeklySessionPage() {
   const [sessionActions, setSessionActions] = useState<ClassifiedAction[]>([]);
   const [proposed, setProposed] = useState<ProposedAction[] | null>(null);
   const [itemsCreated, setItemsCreated] = useState<number | null>(null);
+  const [recapEmailSent, setRecapEmailSent] = useState(false);
 
   // Real Google Calendar events for this week -- powers the WeekCalendarGrid
   // background layer, so proposed blocks show up on top of what's actually
@@ -379,7 +380,11 @@ export default function WeeklySessionPage() {
     const res = await fetch("/api/weekly-session/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ proposed }),
+      // `state?.turns` is the completed session's full transcript -- sent
+      // along so the confirm route can extract real wins/improvements for
+      // the recap email (see sessionRecapAgent.ts). Optional on the server
+      // side; an empty array just means that section gets skipped.
+      body: JSON.stringify({ proposed, transcript: state?.turns ?? [] }),
     });
     const body = await res.json();
     if (!res.ok) {
@@ -388,6 +393,7 @@ export default function WeeklySessionPage() {
       return;
     }
     setItemsCreated(body.itemsCreated);
+    setRecapEmailSent(Boolean(body.recapEmailSent));
     setStage("done");
   }
 
@@ -436,6 +442,12 @@ export default function WeeklySessionPage() {
             {itemsCreated} item{itemsCreated === 1 ? "" : "s"} written for this week. Habit and Goal
             blocks are on your Google Calendar; Project items are ready to track in the dashboard.
           </p>
+          {recapEmailSent && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              A recap of last week — wins, what to improve, and how each role landed — just went
+              out to your inbox.
+            </p>
+          )}
           <Link
             href="/dashboard"
             className="mt-2 rounded-full bg-black px-5 py-2.5 text-sm text-white dark:bg-white dark:text-black"
