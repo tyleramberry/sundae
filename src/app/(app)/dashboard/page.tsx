@@ -141,14 +141,6 @@ export default function DashboardPage() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <DashboardStats summary={summary} />
-
-        {roleInsight && (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">{roleInsight}</p>
-        )}
-
-        <TypeBreakdown rows={typeBreakdown} />
-
         {roles.length === 0 && (
           <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
             No roles yet. Start a weekly session to set them up.
@@ -240,6 +232,14 @@ export default function DashboardPage() {
             );
           })}
         </div>
+
+        <DashboardStats summary={summary} />
+
+        {roleInsight && (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">{roleInsight}</p>
+        )}
+
+        <TypeBreakdown rows={typeBreakdown} />
       </div>
     </div>
   );
