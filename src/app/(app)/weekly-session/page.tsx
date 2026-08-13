@@ -29,8 +29,7 @@ type Stage =
   | "chatting"
   | "proposing"
   | "confirming"
-  | "writing"
-  | "done";
+  | "writing";
 
 // Real weekly-session UI. Accountability -> Goal Setting -> Planning,
 // driven by src/lib/engine/weeklySession.ts, then a confirmation screen
@@ -45,9 +44,8 @@ type Stage =
 // proposed blocks on top of the user's real Google Calendar so nothing
 // gets confirmed sight-unseen.
 //
-// Full-width stages (roles-setup, done, checking, signed-out) skip the
-// split -- there's nothing to render on the right until roles + actions
-// exist.
+// Full-width stages (roles-setup, checking, signed-out) skip the split --
+// there's nothing to render on the right until roles + actions exist.
 //
 // Day 7 redesign added a "roles-setup" stage in front of the real session:
 // onboarding is now a survey/demo/hype flow with no functional data
@@ -60,8 +58,20 @@ type Stage =
 //
 // The confirm screen is no longer take-it-or-leave-it: the user can talk
 // to Sundae about the proposed plan (/api/weekly-session/revise) and the
-// blocks re-propose in place, and the "done" screen links into the
-// dashboard so the flow doesn't dead-end.
+// blocks re-propose in place.
+//
+// Day 16: the chat persists and stays active. The server (not this
+// component) now owns the conversation -- /api/weekly-session/step reads
+// and writes weekly_session_transcripts on every turn, keyed to the
+// current week, so a page reload resumes exactly where the user left off
+// through Sunday night (see that table's migration for why no separate
+// expiry logic is needed). There's no more terminal "done" screen: once
+// /confirm writes a plan, this page drops straight back into "chatting"
+// with `weekConfirmed` set, and the *same* chat keeps taking messages --
+// each one now runs the engine's lightweight "addendum" mode (see
+// WeeklySessionMode) instead of the full Accountability/Goal-Setting arc,
+// so something that comes up mid-week goes through the same
+// drill-down -> propose -> confirm pipeline without restarting the week.
 export default function WeeklySessionPage() {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>("checking");
@@ -90,8 +100,13 @@ export default function WeeklySessionPage() {
   // the whole conversation.
   const [sessionActions, setSessionActions] = useState<ClassifiedAction[]>([]);
   const [proposed, setProposed] = useState<ProposedAction[] | null>(null);
-  const [itemsCreated, setItemsCreated] = useState<number | null>(null);
-  const [recapEmailSent, setRecapEmailSent] = useState(false);
+
+  // Day 16: true once this week's plan has been confirmed at least once --
+  // flips the chat from "the one and only weekly session" into "still open
+  // for whatever comes up mid-week" (addendum mode server-side). Hydrated
+  // from GET /api/weekly-session/transcript on mount, and set locally the
+  // moment a confirm succeeds so the UI doesn't wait on a round-trip.
+  const [weekConfirmed, setWeekConfirmed] = useState(false);
 
   // Real Google Calendar events for this week -- powers the WeekCalendarGrid
   // background layer, so proposed blocks show up on top of what's actually
@@ -150,7 +165,26 @@ export default function WeeklySessionPage() {
         setRoles(body.answers.roles ?? []);
         setStage("chatting");
         void loadCalendarEvents();
-        void send("");
+
+        // Day 16: resume this week's chat if one already exists instead of
+        // always starting fresh -- see GET /api/weekly-session/transcript.
+        // A transcript with turns already in it means the server has real
+        // conversation history; calling send("") again would re-send an
+        // empty message on top of that (harmless server-side, since /step
+        // ignores a blank message when there's already history) so it's
+        // gated here mainly to avoid the visible "..." typing flash on
+        // every reload of an already-open chat.
+        const transcriptRes = await fetch("/api/weekly-session/transcript");
+        const transcriptBody = await transcriptRes.json().catch(() => ({}));
+        const transcript = transcriptRes.ok ? transcriptBody.transcript : null;
+
+        if (transcript && transcript.displayTurns?.length > 0) {
+          setTurns(transcript.displayTurns);
+          setActionsSoFar(transcript.actionsSoFar ?? []);
+          setWeekConfirmed(Boolean(transcript.completedThisWeek));
+        } else {
+          void send("");
+        }
       } else {
         setStage("roles-setup");
         void sendRoles("");
@@ -234,31 +268,28 @@ export default function WeeklySessionPage() {
         setError(body.error ?? "Couldn't save your roles — try confirming again.");
         return;
       }
-      // Clean handoff into the real session: fresh transcript, fresh engine
-      // state, one short bridging line so the switch from "roles" to
-      // "planning" doesn't feel like a hard cut.
+      // Clean handoff into the real session: fresh transcript, one short
+      // bridging line so the switch from "roles" to "planning" doesn't
+      // feel like a hard cut. No engine state to reset here anymore (Day
+      // 16) -- the weekly-session engine's conversation lives server-side
+      // in weekly_session_transcripts, not in this component, and a
+      // brand-new user has no row yet, so send("") below starts fresh.
       setTurns([{ from: "engine", text: "Roles are set. Let's plan your week." }]);
-      setState(null);
       setRoles(rolesFromEngine);
       setStage("chatting");
       void loadCalendarEvents();
-      // Explicit null start-state — the weekly session begins fresh, not
-      // from the roles transcript still sitting in the stale `state` closure.
-      void send("", null);
+      void send("");
     } finally {
       setSending(false);
     }
   }
 
-  // `fromState` defaults to the current closure `state`, but the roles->
-  // planning handoff must pass an explicit `null`: it calls setState(null)
-  // and send("") back-to-back, and setState is async, so the closure `state`
-  // is still the (assistant-ending) roles transcript at call time. Sending
-  // that to the weekly engine makes the conversation end on an assistant
-  // message, which the API rejects ("does not support assistant message
-  // prefill"). Passing the starting state explicitly sidesteps the stale
-  // closure entirely.
-  async function send(message: string, fromState: ConversationState | null = state) {
+  // Day 16: the server owns the weekly-session conversation (see
+  // /api/weekly-session/step) -- this just sends the user's message and
+  // renders whatever comes back. No client-side ConversationState
+  // round-trip anymore, which also removes the stale-closure hazard the
+  // old roles->planning handoff used to need an explicit workaround for.
+  async function send(message: string) {
     if (message) {
       setTurns((t) => [...t, { from: "user" as const, text: message }]);
     }
@@ -268,7 +299,7 @@ export default function WeeklySessionPage() {
       const res = await fetch("/api/weekly-session/step", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, state: fromState }),
+        body: JSON.stringify({ message }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -276,11 +307,10 @@ export default function WeeklySessionPage() {
         return;
       }
       setTurns((t) => [...t, { from: "engine" as const, text: body.reply }]);
-      setState(body.state);
 
       // Keep the audit-trail panel current with whatever the engine has
-      // classified so far -- even before the session is complete, so the
-      // user sees each new item land as it happens.
+      // classified so far this round -- even before the round is
+      // complete, so the user sees each new item land as it happens.
       if (Array.isArray(body.actionsSoFar)) {
         setActionsSoFar(body.actionsSoFar as ClassifiedAction[]);
       }
@@ -377,14 +407,13 @@ export default function WeeklySessionPage() {
     if (!proposed) return;
     setStage("writing");
     setError(null);
+    // No transcript in the body anymore (Day 16) -- the confirm route
+    // reads this round's transcript itself from weekly_session_transcripts,
+    // since the server is now the source of truth for it too.
     const res = await fetch("/api/weekly-session/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // `state?.turns` is the completed session's full transcript -- sent
-      // along so the confirm route can extract real wins/improvements for
-      // the recap email (see sessionRecapAgent.ts). Optional on the server
-      // side; an empty array just means that section gets skipped.
-      body: JSON.stringify({ proposed, transcript: state?.turns ?? [] }),
+      body: JSON.stringify({ proposed }),
     });
     const body = await res.json();
     if (!res.ok) {
@@ -392,9 +421,29 @@ export default function WeeklySessionPage() {
       setStage("confirming");
       return;
     }
-    setItemsCreated(body.itemsCreated);
-    setRecapEmailSent(Boolean(body.recapEmailSent));
-    setStage("done");
+    // Day 16: no dead-end "done" screen -- drop back into the same chat,
+    // ready for whatever comes up mid-week. Mirrors the confirmation
+    // bubble the server itself appended to display_turns (see
+    // recordWeeklySessionConfirmed) so the user sees it land immediately
+    // rather than waiting on a refetch.
+    const created = body.itemsCreated as number;
+    const confirmationBubbles: Turn[] = [
+      { from: "engine", text: `${created} item${created === 1 ? "" : "s"} written to your calendar.` },
+    ];
+    if (body.recapEmailSent) {
+      confirmationBubbles.push({
+        from: "engine",
+        text: "A recap of last week — wins, what to improve, and how each role landed — just went out to your inbox.",
+      });
+    }
+    setTurns((t) => [...t, ...confirmationBubbles]);
+    setWeekConfirmed(true);
+    setActionsSoFar([]);
+    setSessionActions([]);
+    setProposed(null);
+    setReviseTurns([]);
+    void loadCalendarEvents();
+    setStage("chatting");
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -429,32 +478,6 @@ export default function WeeklySessionPage() {
     return (
       <div className="flex flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
-      </div>
-    );
-  }
-
-  if (stage === "done") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-6 font-sans dark:bg-black">
-        <div className="flex max-w-lg flex-col items-center gap-4 text-center">
-          <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">This week is set.</h1>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            {itemsCreated} item{itemsCreated === 1 ? "" : "s"} written for this week. Habit and Goal
-            blocks are on your Google Calendar; Project items are ready to track in the dashboard.
-          </p>
-          {recapEmailSent && (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              A recap of last week — wins, what to improve, and how each role landed — just went
-              out to your inbox.
-            </p>
-          )}
-          <Link
-            href="/dashboard"
-            className="mt-2 rounded-full bg-black px-5 py-2.5 text-sm text-white dark:bg-white dark:text-black"
-          >
-            View your dashboard
-          </Link>
-        </div>
       </div>
     );
   }
@@ -554,17 +577,34 @@ export default function WeeklySessionPage() {
                 what to change below, before it writes anything.
               </p>
             )}
+            {/* Day 16: this week's plan is live but the chat stays open --
+                make clear the compose box below is now for whatever comes
+                up mid-week, not a second full session. */}
+            {stage === "chatting" && weekConfirmed && (
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                This week&apos;s plan is set. Anything else you want to plan
+                for, just ask.
+              </p>
+            )}
           </div>
-          <button
-            onClick={() => setMobilePanelOpen((v) => !v)}
-            className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 md:hidden dark:border-zinc-700 dark:text-zinc-300"
-          >
-            {mobilePanelOpen
-              ? "Back to chat"
-              : showCalendarPanel
-                ? "View calendar"
-                : "View plan so far"}
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/dashboard"
+              className="hidden rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 md:inline-block dark:border-zinc-700 dark:text-zinc-300"
+            >
+              Dashboard
+            </Link>
+            <button
+              onClick={() => setMobilePanelOpen((v) => !v)}
+              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 md:hidden dark:border-zinc-700 dark:text-zinc-300"
+            >
+              {mobilePanelOpen
+                ? "Back to chat"
+                : showCalendarPanel
+                  ? "View calendar"
+                  : "View plan so far"}
+            </button>
+          </div>
         </div>
 
         {/* Mobile: when the panel is open, hide the chat behind it. */}
@@ -660,7 +700,9 @@ export default function WeeklySessionPage() {
                   autoFocus
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Type your answer…"
+                  placeholder={
+                    weekConfirmed ? "What else is on your mind this week?" : "Type your answer…"
+                  }
                   disabled={sending || stage !== "chatting"}
                   className="flex-1 rounded-full border border-zinc-300 px-4 py-2 text-sm text-black disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 />

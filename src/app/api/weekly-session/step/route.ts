@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { processWeeklySessionMessage } from "@/lib/engine/weeklySession";
-import { getLastWeekContext } from "@/lib/weeklySession/persist";
+import {
+  currentWeekStart,
+  getLastWeekContext,
+  getWeeklySessionTranscript,
+  saveWeeklySessionTranscript,
+  type DisplayTurn,
+} from "@/lib/weeklySession/persist";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
 import {
   SESSION_THROTTLE_MESSAGE,
@@ -10,14 +16,18 @@ import {
   hasStartedSessionToday,
   recordSessionStart,
 } from "@/lib/weeklySession/throttle";
-import type { ConversationState } from "@/lib/engine/weeklySessionTypes";
+import type { WeeklySessionMode } from "@/lib/engine/weeklySessionTypes";
 
 // Thin HTTP wrapper around the weekly-session engine, same shape as
-// /api/engine/step for onboarding. The one real difference: this engine
-// needs read-only context it can't derive from the transcript alone (this
-// week's role order, last week's weekly_items) -- fetched fresh here on
-// every step rather than trusted from the client, same "any request body is
-// untrusted" stance as onboarding/complete.
+// /api/engine/step for onboarding, with one structural change (Day 16):
+// the server, not the client, now owns the conversation. The client only
+// ever sends `message` -- the current round's ConversationState is loaded
+// from weekly_session_transcripts here and saved back after every turn, so
+// the chat survives a refresh/lost connection/closed tab (persistence),
+// and picking "full" vs. "addendum" mode (see WeeklySessionMode) is a
+// server-side decision the client doesn't have to track either. This also
+// removes the class of stale-closure bug the old client-round-tripped
+// `state` was prone to -- see weekly-session/page.tsx's git history.
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -28,10 +38,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => null)) as {
-    message?: string;
-    state?: ConversationState | null;
-  } | null;
+  const body = (await request.json().catch(() => null)) as { message?: string } | null;
 
   if (!body || typeof body.message !== "string") {
     return NextResponse.json(
@@ -53,17 +60,33 @@ export async function POST(request: Request) {
     );
   }
 
+  const weekStart = currentWeekStart();
+  const transcript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
+
+  // Day 16: once this week's first full session has been confirmed, every
+  // later message in the same chat is a lightweight mid-week addition, not
+  // a restart of Accountability/Goal Setting -- see WeeklySessionMode and
+  // recordWeeklySessionConfirmed (called from /confirm).
+  const mode: WeeklySessionMode = transcript?.completed_at ? "addendum" : "full";
+  const engineState = transcript?.active_state ?? null;
+
   // Day 11 rate limiting -- see src/lib/weeklySession/throttle.ts for why
-  // both guards exist. Turn cap first since it's a pure check against what
-  // the client already sent; the session-start throttle needs a query, so
-  // it only runs once we know this call would actually need it.
-  const turnCount = body.state?.turns.length ?? 0;
+  // both guards exist. Turn cap is scoped to the current *round* now
+  // (active_state resets on every confirm), which is more generous than
+  // before for a real multi-role full session and correctly gives every
+  // addendum round its own budget rather than sharing one across the week.
+  const turnCount = engineState?.turns.length ?? 0;
   if (hasHitTurnCap(turnCount)) {
     return NextResponse.json({ error: TURN_CAP_MESSAGE }, { status: 429 });
   }
 
   const isFreshStart = turnCount === 0;
-  if (isFreshStart) {
+  // The once-a-day throttle only guards *starting a brand-new full
+  // session* -- the scripted-abuse case it was built for on Day 11. It
+  // deliberately does not gate starting a new addendum round: the whole
+  // point of Day 16 is letting the user come back and plan something else
+  // the moment it comes up, possibly more than once in a day.
+  if (isFreshStart && mode === "full") {
     const alreadyStartedToday = await hasStartedSessionToday(supabase, user.id);
     if (alreadyStartedToday) {
       return NextResponse.json({ error: SESSION_THROTTLE_MESSAGE }, { status: 429 });
@@ -71,15 +94,37 @@ export async function POST(request: Request) {
   }
 
   try {
-    const lastWeek = await getLastWeekContext(supabase, user.id);
+    const lastWeek = mode === "full" ? await getLastWeekContext(supabase, user.id) : null;
     const result = await processWeeklySessionMessage({
       message: body.message,
-      state: body.state,
+      state: engineState,
       roles: onboarding.roles,
       lastWeek,
+      mode,
+      // Bug fix: the engine used to re-derive `actions` from scratch every
+      // turn with no memory of what was already locked in earlier this
+      // round, so an item could silently flip role/type/cadence turn to
+      // turn. Feeding back what's already persisted for this round closes
+      // that loop.
+      lockedActions: transcript?.actions_so_far ?? [],
     });
 
-    if (isFreshStart) {
+    const trimmedMessage = body.message.trim();
+    const displayTurns: DisplayTurn[] = [
+      ...(transcript?.display_turns ?? []),
+      ...(trimmedMessage ? [{ from: "user" as const, text: trimmedMessage }] : []),
+      { from: "engine", text: result.reply },
+    ];
+
+    await saveWeeklySessionTranscript(supabase, {
+      userId: user.id,
+      weekStart,
+      displayTurns,
+      activeState: result.state,
+      actionsSoFar: result.actionsSoFar,
+    });
+
+    if (isFreshStart && mode === "full") {
       // Best-effort: the user's real reply already succeeded, so a logging
       // hiccup here shouldn't fail their request -- worst case is one
       // extra start slipping through if this insert is the thing that
@@ -89,7 +134,13 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      reply: result.reply,
+      action: result.action,
+      actionsSoFar: result.actionsSoFar,
+      usage: result.usage,
+      mode,
+    });
   } catch (error) {
     console.error("Weekly session step failed:", error);
     return NextResponse.json(

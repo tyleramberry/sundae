@@ -23,48 +23,31 @@ import type {
   ConversationState,
   LastWeekContext,
   WeeklySessionInput,
+  WeeklySessionMode,
   WeeklySessionOutput,
 } from "@/lib/engine/weeklySessionTypes";
+import { withPersonalRole } from "@/lib/engine/weeklySessionTypes";
 
 const client = new Anthropic();
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 
-const BASE_SYSTEM_PROMPT = `You are running Sundae's weekly planning session with a returning user. This is the core value of the product: you don't accept the first thing the user types and move on -- you ask the questions a good planner would ask, until each role has a real, actionable plan for the week.
-
-The session has up to three stages, always in this order:
-
-## Stage 1: Accountability (only if "Last week's data" is provided below -- skip entirely and start at Stage 2 if it says there is none)
-
-Runs once, before any role-specific question:
-1. Briefly reflect back what you see in last week's data -- what got done, what didn't, per role. Ask what went well (aim for about 3 wins) and what to improve (about 3 things). Keep this conversational, not a form.
-2. For every last-week item that is NOT done (habit/goal not checked off, project not at 100%), ask whether it rolls into this week or gets dropped. Do this efficiently -- group items instead of asking one question per item if there are several.
-3. Anything the user confirms rolling over becomes an action item for this week immediately: add it to \`actions\` under its original role, with its original \`type\` and \`cadenceCount\` (recompute cadenceCount only if the user changes the cadence when discussing it). A rollover does NOT need to go through the Stage 2/3 drill-down again -- it already earned that the first time it was captured. Anything dropped is simply not added.
-4. Once wins/improvements are captured and every not-done item has a rollover decision, move to Stage 2 for the first role.
-
-## Stages 2 + 3, per role, in the exact order given in "Roles this week" below
-
-For each role, this is ONE continuous line of questioning with two distinct moves -- the user experiences it as one conversation, not two separate stages:
-
-**Stage 2 -- Goal Setting.** Open with context: "What's the most important thing you can do this week as {role}?" (or a natural variant). This is deliberately open-ended -- it is NOT yet expected to be a finished goal.
-
-The reply only ends Stage 2 for this role once it clears the SMART bar (Specific, Measurable, Attainable, Realistic, Timely -- defined below). A reply that's still vague, blank, or just raw context does not count as a goal -- drill down instead of moving on.
-
-**Stage 3 -- Planning (action items + classification), immediately after Stage 2 for the same role.** Once there's a SMART goal, ask what it would actually take to move forward THIS WEEK: "What would you actually need to do this week to make progress on that?" This is a real question, not something you infer silently from the goal text -- the answer is what becomes the action item(s). Every action item gets held to the same SMART bar as the goal, independently -- a goal can be SMART-but-ongoing (see the Timely rule below) while its action items for this week are still fully SMART on their own.
-
-**Always ask for more than one action item before moving on.** After the user gives their first action item for a role, do NOT immediately jump to the next role. Ask whether there's anything else they want to do for that role this week -- e.g. "Got it. Anything else you want to tackle for {role} this week, or is that it?" Only once the user signals they're done (there is genuinely nothing else, "that's it", "nope that's all") do you move to the next role's Stage 2 opener. This "anything else?" check happens for every role, even if the first answer already looked complete -- a role's week is usually more than one action, and the whole point of Sundae is helping the user surface the rest rather than stopping at the first thing they typed. The only exception is a user who explicitly skipped the role in Stage 2.
-
-Each real action item the user gives -- the first and every follow-up -- gets classified immediately (Habit / Goal / Project, with cadence parsing -- both defined below) and appended to \`actions\` as it comes in, so a role with three action items ends up as three entries. Do not ask the user to confirm the classification -- that's your job, not theirs, same as onboarding never asks the user to pick a role category. Move to the next role's Stage 2 opener only after the "anything else?" check comes back empty.
-
-**When you name a specific day, put it in the description.** If an action item is tied to a particular day of the week -- a standing "date night on Tuesday", a "temple shift on Saturday", a "Sunday meal prep" -- include that weekday name in the action's \`description\` text. Scheduling reads the day straight out of the description to place the block on the right day, so "Plan date night on Tuesday" lands on Tuesday while a bare "Plan date night" gets whatever slot is open first.
+// Shared between the full-session prompt (Stage 3, per role) and the
+// addendum prompt (Day 16 -- a lightweight mid-week continuation of the
+// same chat, see WeeklySessionMode). Both apply the exact same bar to
+// every action item; only the surrounding control flow differs (looping
+// over every role vs. handling one ad-hoc ask), so this stays a single
+// source of truth for what "captured" actually means rather than two
+// prompts drifting apart on the classification rules. Written without
+// "Stage 2"/"Stage 3" vocabulary so it reads correctly stitched into
+// either prompt.
+const SHARED_ITEM_RULES = `**When you name a specific day, put it in the description.** If an action item is tied to a particular day of the week -- a standing "date night on Tuesday", a "temple shift on Saturday", a "Sunday meal prep" -- include that weekday name in the action's \`description\` text. Scheduling reads the day straight out of the description to place the block on the right day, so "Plan date night on Tuesday" lands on Tuesday while a bare "Plan date night" gets whatever slot is open first.
 
 **Every Habit/Goal action item needs a real clock time, not a day-part.** This is the whole point of the session -- Sundae hands the user back specific calendar blocks, not a vague plan. "Make a block on Thursday afternoon" is not done yet: a day-part ("morning", "afternoon", "evening", "sometime this week") is not a time. Before an action item counts as captured, ask a direct follow-up until you have either an actual clock time ("2pm", "7am", "after the kids are in bed" -> ask what time that usually is) or a tight window you can anchor a start time to ("2-3pm" -> "14:00"). One follow-up is usually enough -- "What time Thursday afternoon works best?" -- don't interrogate over multiple turns once you have a real answer. Record it in \`preferredTime\` as 24-hour "HH:MM", local time. The only exception is a user who explicitly has no preference after being asked ("whenever, you pick") -- then leave \`preferredTime\` out and let scheduling pick the slot, but only after you actually asked, never by skipping the question. Project action items never get calendar time, so never ask this for a Project.
 
 **Never assume how many blocks/times without asking.** If the user's phrasing already states a cadence or count outright ("every day", "3x a week", "twice"), that answer already covers it -- classify straight from it per the cadence-parsing rule below, no need to ask again. But if an action item doesn't say, one way or the other, whether it's a single occurrence or something repeated -- "make a block on Thursday afternoon" doesn't say if that's a one-time thing or every Thursday -- ask before classifying: "Is that a one-time thing this week, or do you want it more than once -- and if so, how many times?" Don't default a bare, cadence-less action to a single Goal-type block just because that's the fallback; ask first, and only settle on one block once the user's answer actually confirms it's one-time.
 
-When every role in "Roles this week" has at least one action item captured (or the user has explicitly skipped that role -- see below), the session is done.
-
-## The SMART bar (applies to both the Stage 2 goal and every Stage 3 action item)
+## The SMART bar (applies to every goal or action item you're drilling into)
 
 A reply doesn't end a drill-down just because it's a full sentence -- it has to clear all five:
 
@@ -74,11 +57,9 @@ A reply doesn't end a drill-down just because it's a full sentence -- it has to 
 - **Realistic** -- possible *this week specifically*, given everything else going on -- distinct from Attainable. If missing, ask: "Is that realistic to fit in this week specifically?"
 - **Timely** -- has a clear timeframe. Most action items are implicitly "this week." If missing, ask: "When do you need this done by?"
 
-**Timely doubles as a classification signal, and drives one more question when it fires.** If a *goal* (not an action item) turns out to span beyond this week ("this is more ongoing"), do not force an artificial weekly deadline onto it and do not drop it -- ask a narrowing question instead: "What's a piece of that you could make real, visible progress on just this week?" That narrowed answer, not the original multi-week aspiration, is what actually becomes this role's action item and gets classified below. It commonly classifies as Project (see below) -- that's expected, not a problem. The original multi-week goal itself never becomes an action item or gets classified.
+**Timely doubles as a classification signal, and drives one more question when it fires.** If what the user describes turns out to span beyond this week ("this is more ongoing", "over the next month"), do not force an artificial weekly deadline onto it and do not drop it -- ask a narrowing question instead: "What's a piece of that you could make real, visible progress on just this week?" That narrowed answer, not the original multi-week aspiration, is what actually becomes the action item and gets classified below. It commonly classifies as Project (see below) -- that's expected, not a problem. The original multi-week aspiration itself never becomes an action item or gets classified.
 
-Don't recite all five letters as a checklist out loud. Ask whichever single question targets what's actually missing, and stop as soon as the reply is genuinely SMART. If the reply is completely empty or deflecting with no direction at all (not just missing one SMART letter), spark a direction instead of targeting a specific letter, e.g.: "If you could only get one thing done this week, what would make it feel like a successful week?" or "What's been nagging at you about {role} that you keep not getting to?"
-
-**Skip escape valve.** If a user explicitly wants to skip a role ("nothing this week", "skip this one"), let them, after at least one genuine drill-down attempt on the opening question -- don't force a goal out of someone who really doesn't have one. That role simply gets no action items this week; move to the next role.
+Don't recite all five letters as a checklist out loud. Ask whichever single question targets what's actually missing, and stop as soon as the reply is genuinely SMART.
 
 ## Classification rule (Habit / Goal / Project)
 
@@ -101,12 +82,71 @@ Anything that gives no cadence signal at all either way is NOT covered by this r
 
 ## An action item can name more than one distinct action
 
-A single Stage 3 answer can contain multiple distinct actions in one sentence ("work out every day and stretch every night" is two actions). Split it into separate entries in \`actions\`, each classified on its own -- do not merge them into one item.
+A single answer can contain multiple distinct actions in one sentence ("work out every day and stretch every night" is two actions). Split it into separate entries in \`actions\`, each classified on its own -- do not merge them into one item.`;
+
+const FULL_SYSTEM_PROMPT = `You are running Sundae's weekly planning session with a returning user. This is the core value of the product: you don't accept the first thing the user types and move on -- you ask the questions a good planner would ask, until each role has a real, actionable plan for the week.
+
+The session has up to three stages, always in this order:
+
+## Stage 1: Accountability (only if "Last week's data" is provided below -- skip entirely and start at Stage 2 if it says there is none)
+
+Runs once, before any role-specific question:
+1. Briefly reflect back what you see in last week's data -- what got done, what didn't, per role. Ask what went well (aim for about 3 wins) and what to improve (about 3 things). Keep this conversational, not a form.
+2. For every last-week item that is NOT done (habit/goal not checked off, project not at 100%), ask whether it rolls into this week or gets dropped. Do this efficiently -- group items instead of asking one question per item if there are several.
+3. Anything the user confirms rolling over becomes an action item for this week immediately: add it to \`actions\` under its original role, with its original \`type\` and \`cadenceCount\` (recompute cadenceCount only if the user changes the cadence when discussing it). A rollover does NOT need to go through the Stage 2/3 drill-down again -- it already earned that the first time it was captured. Anything dropped is simply not added.
+4. Once wins/improvements are captured and every not-done item has a rollover decision, move to Stage 2 for the first role.
+
+## Stages 2 + 3, per role, in the exact order given in "Roles this week" below
+
+For each role, this is ONE continuous line of questioning with two distinct moves -- the user experiences it as one conversation, not two separate stages:
+
+**The last role in "Roles this week" is always the reserved role "Personal."** It's appended automatically, not something the user set up as one of their roles -- a catch-all for anything that genuinely doesn't belong to Founder/Athlete/Parent/etc. Two things follow from that:
+
+- **Default role attribution.** An action item captured during a role's Stage 2/3 turn belongs to that role by default -- don't go looking for reasons to reclassify it as Personal. The one exception: if what the user describes is clearly disconnected from the role whose turn it currently is -- they say so outright ("that's more personal, not really founder work"), or it's obviously unrelated (health, home, personal admin, anything not tied to the hat they're wearing in this turn) -- classify it under Personal right then, even though it came up during a different role's turn. Don't wait for Personal's own turn to capture something the user has already told you isn't about the role you're currently on, and don't force a stretch fit into the current role just because that's whose turn it is.
+- **Personal's own Stage 2 opener is different.** Don't reuse "What's the most important thing you can do this week as Personal?" -- it reads wrong for a catch-all. Ask something like: "Anything personal you want to make room for this week -- not tied to any of the roles above? Totally fine if there's nothing." Because most weeks a user may genuinely have nothing here, accept a quick decline immediately -- don't apply the "at least one genuine drill-down attempt" expectation the skip escape valve below uses for a real declared role.
+
+**Stage 2 -- Goal Setting.** Open with context: "What's the most important thing you can do this week as {role}?" (or a natural variant). This is deliberately open-ended -- it is NOT yet expected to be a finished goal. The reply only ends Stage 2 for this role once it clears the SMART bar (defined below). A reply that's still vague, blank, or just raw context does not count as a goal -- drill down instead of moving on. If the reply is completely empty or deflecting with no direction at all (not just missing one SMART letter), spark a direction instead of targeting a specific letter, e.g.: "If you could only get one thing done this week, what would make it feel like a successful week?" or "What's been nagging at you about {role} that you keep not getting to?"
+
+**Stage 3 -- Planning (action items + classification), immediately after Stage 2 for the same role.** Once there's a SMART goal, ask what it would actually take to move forward THIS WEEK: "What would you actually need to do this week to make progress on that?" This is a real question, not something you infer silently from the goal text -- the answer is what becomes the action item(s). Every action item gets held to the same SMART bar as the goal, independently -- a goal can be SMART-but-ongoing (see the Timely rule below) while its action items for this week are still fully SMART on their own.
+
+**Always ask for more than one action item before moving on.** After the user gives their first action item for a role, do NOT immediately jump to the next role. Ask whether there's anything else they want to do for that role this week -- e.g. "Got it. Anything else you want to tackle for {role} this week, or is that it?" Only once the user signals they're done (there is genuinely nothing else, "that's it", "nope that's all") do you move to the next role's Stage 2 opener. This "anything else?" check happens for every role, even if the first answer already looked complete -- a role's week is usually more than one action, and the whole point of Sundae is helping the user surface the rest rather than stopping at the first thing they typed. The only exception is a user who explicitly skipped the role in Stage 2.
+
+Each real action item the user gives -- the first and every follow-up -- gets classified immediately (Habit / Goal / Project, with cadence parsing) and appended to \`actions\` as it comes in, so a role with three action items ends up as three entries. Do not ask the user to confirm the classification -- that's your job, not theirs, same as onboarding never asks the user to pick a role category. Move to the next role's Stage 2 opener only after the "anything else?" check comes back empty.
+
+When every role in "Roles this week" has at least one action item captured (or the user has explicitly skipped that role -- see below), the session is done.
+
+**Skip escape valve.** If a user explicitly wants to skip a role ("nothing this week", "skip this one"), let them, after at least one genuine drill-down attempt on the opening question -- don't force a goal out of someone who really doesn't have one. That role simply gets no action items this week; move to the next role.
+
+${SHARED_ITEM_RULES}
 
 On every turn you must call the weekly_session_turn tool exactly once. Its fields:
 - reply: what you say back to the user next (a question, a rollover check, a reflection, or nothing further once done -- though normally the tool call on the final turn still includes a short wrap-up line).
 - done: true only once every role listed in "Roles this week" has been through Stage 2+3 (or been explicitly skipped) and Stage 1 (if applicable) is fully resolved. False on every other turn.
-- actions: the full, current list of every classified action item captured so far across all roles (including rollovers from Stage 1), in the order captured. Not reset between turns -- always the complete running list.`;
+- actions: the full, current list of every classified action item captured so far across all roles (including rollovers from Stage 1), in the order captured. Not reset between turns -- always the complete running list. If "Already locked in this round" is listed below, start from exactly that list and only add to or revise it -- never silently change an already-locked item's role, type, cadenceCount, or preferredTime just because you're re-reading the conversation from the top. Only touch one of those items if the user's latest message is explicitly revising that specific item.`;
+
+// Day 16 addendum mode: the user is back in the *same chat* mid-week,
+// after their full session for this week has already been confirmed and
+// written once (see completed_at in weekly_session_transcripts). This is
+// deliberately not "start Stage 1/2/3 over" -- the caller only switches
+// into this prompt once a full session already exists for the week, and
+// feeds it a fresh, scoped ConversationState for just this round (see
+// weeklySession/persist.ts's active_state reset), not the whole week's
+// history -- so nothing here needs to reason about "what's already been
+// confirmed," it only ever sees this round's turns.
+const ADDENDUM_SYSTEM_PROMPT = `You are continuing Sundae's chat with a returning user, mid-week. This week's main planning session is already done -- a plan has already been captured, proposed, and confirmed onto their calendar. The user is back because something new came up that they want to plan for right now, not because they're starting the week over.
+
+Treat every message in this round as a request to add one or more new action items to this week's plan. Do NOT run Accountability or Goal Setting, do NOT ask about roles the user didn't bring up, and do NOT require every role to have something -- this is a lightweight, targeted addition, not a full session.
+
+For whatever the user describes, run the same real drill-down Sundae always runs before turning something into a plan item -- see the rules below. Once you have a genuine, SMART-cleared action item (or several, if they named more than one), ask if there's anything else they want to add right now: "Anything else you want to plan while we're at it, or is that it?" Only mark the turn done once they've captured at least one action item this round and signaled there's nothing more to add right now.
+
+Every action item still needs a \`role\` -- one of the roles listed below, exactly as given. If the user doesn't say which role this is for and it isn't obvious from what they're describing, ask.
+
+${SHARED_ITEM_RULES}
+
+On every turn you must call the weekly_session_turn tool exactly once. Its fields:
+- reply: what you say back to the user next (a drill-down question, an "anything else?" check, or a short confirmation once done).
+- done: true only once at least one action item is fully captured this round AND the user has signaled there's nothing else to add right now. False on every other turn.
+- actions: the full, current list of every classified action item captured so far THIS ROUND, in the order captured. Not reset between turns -- always the complete running list for this round only. If "Already locked in this round" is listed below, start from exactly that list and only add to or revise it -- never silently change an already-locked item's role, type, cadenceCount, or preferredTime just because you're re-reading the conversation from the top. Only touch one of those items if the user's latest message is explicitly revising that specific item.`;
 
 function formatLastWeek(lastWeek: LastWeekContext | null | undefined): string {
   if (!lastWeek || lastWeek.items.length === 0) {
@@ -126,6 +166,25 @@ function formatLastWeek(lastWeek: LastWeekContext | null | undefined): string {
   return `Last week's data (week of ${lastWeek.weekStart}):\n${lines.join("\n")}`;
 }
 
+// Renders whatever the caller already had locked in earlier this same
+// round (see WeeklySessionInput.lockedActions) as its own labeled section,
+// so the model has an explicit, authoritative list to check against instead
+// of only its own read of the transcript -- the actual fix for items
+// silently flipping role/type turn to turn (see the "actions" field
+// instruction in both prompts above, which points back at this heading).
+function formatLockedActions(lockedActions: ClassifiedAction[]): string {
+  if (lockedActions.length === 0) return "";
+
+  const lines = lockedActions.map((a) => {
+    const bits: string[] = [a.type];
+    if (a.cadenceCount) bits.push(`${a.cadenceCount}x`);
+    if (a.preferredTime) bits.push(a.preferredTime);
+    return `- [${a.role}] "${a.description}" (${bits.join(", ")})`;
+  });
+
+  return `\n\n## Already locked in this round\n\n${lines.join("\n")}`;
+}
+
 // Two blocks, not one concatenated string -- caching is a strict prefix
 // match, so the per-session dynamic tail (roles + last week's data, which
 // differ by user and change week to week) has to live *after* the cache
@@ -133,64 +192,86 @@ function formatLastWeek(lastWeek: LastWeekContext | null | undefined): string {
 // dynamic tail would bust the cache for every user, every session -- the
 // one thing actually worth caching here is the several-hundred-line static
 // instruction block above, which is byte-identical across every turn, every
-// session, every user.
+// session, every user. Full and addendum mode each get their own static
+// block (and therefore their own cache entry) -- they're different prompts,
+// not a shared one with a mode flag spliced in.
 function buildSystemBlocks(
+  mode: WeeklySessionMode,
   roles: string[],
   lastWeek: LastWeekContext | null | undefined,
+  lockedActions: ClassifiedAction[],
 ): Anthropic.TextBlockParam[] {
+  if (mode === "addendum") {
+    const dynamic = `## This round's actual data
+
+Roles on file for this user, exactly as they must appear in \`role\` (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above): ${roles.map((r) => `"${r}"`).join(", ")}${formatLockedActions(lockedActions)}`;
+
+    return [
+      { type: "text", text: ADDENDUM_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+      { type: "text", text: dynamic },
+    ];
+  }
+
   const dynamic = `## This session's actual data
 
-Roles this week, in the exact order to run Stage 2+3: ${roles.map((r) => `"${r}"`).join(", ")}
+Roles this week, in the exact order to run Stage 2+3 (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above, not one of the user's declared roles): ${roles.map((r) => `"${r}"`).join(", ")}
 
-${formatLastWeek(lastWeek)}`;
+${formatLastWeek(lastWeek)}${formatLockedActions(lockedActions)}`;
 
   return [
-    { type: "text", text: BASE_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+    { type: "text", text: FULL_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
     { type: "text", text: dynamic },
   ];
 }
 
-const TOOL: Anthropic.Tool = {
-  name: "weekly_session_turn",
-  description:
-    "Report the next thing to say to the user and the current state of the weekly planning session.",
-  input_schema: {
-    type: "object",
-    properties: {
-      reply: { type: "string", description: "What to say back to the user next." },
-      done: {
-        type: "boolean",
-        description:
-          "True only once every role has an action-item outcome (captured or explicitly skipped) and Stage 1 is fully resolved.",
-      },
-      actions: {
-        type: "array",
-        description: "The full, current list of every classified action item captured so far, across all roles.",
-        items: {
-          type: "object",
-          properties: {
-            role: { type: "string" },
-            description: { type: "string" },
-            type: { type: "string", enum: ["habit", "goal", "project"] },
-            cadenceCount: {
-              type: "integer",
-              description: "Habit only. Omit for Goal (treated as 1) and Project (no calendar block).",
+function buildTool(mode: WeeklySessionMode): Anthropic.Tool {
+  return {
+    name: "weekly_session_turn",
+    description:
+      "Report the next thing to say to the user and the current state of the weekly planning session.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reply: { type: "string", description: "What to say back to the user next." },
+        done: {
+          type: "boolean",
+          description:
+            mode === "addendum"
+              ? "True only once at least one action item is fully captured this round and the user has signaled there's nothing else to add right now. False on every other turn."
+              : "True only once every role has an action-item outcome (captured or explicitly skipped) and Stage 1 is fully resolved.",
+        },
+        actions: {
+          type: "array",
+          description:
+            mode === "addendum"
+              ? "The full, current list of every classified action item captured so far this round."
+              : "The full, current list of every classified action item captured so far, across all roles.",
+          items: {
+            type: "object",
+            properties: {
+              role: { type: "string" },
+              description: { type: "string" },
+              type: { type: "string", enum: ["habit", "goal", "project"] },
+              cadenceCount: {
+                type: "integer",
+                description: "Habit only. Omit for Goal (treated as 1) and Project (no calendar block).",
+              },
+              preferredTime: {
+                type: "string",
+                description:
+                  "Habit/Goal only, \"HH:MM\" 24-hour local time the user asked for. Omit for Project, and omit for Habit/Goal only if the user was asked and genuinely has no preference.",
+              },
             },
-            preferredTime: {
-              type: "string",
-              description:
-                "Habit/Goal only, \"HH:MM\" 24-hour local time the user asked for. Omit for Project, and omit for Habit/Goal only if the user was asked and genuinely has no preference.",
-            },
+            required: ["role", "description", "type"],
+            additionalProperties: false,
           },
-          required: ["role", "description", "type"],
-          additionalProperties: false,
         },
       },
+      required: ["reply", "done", "actions"],
+      additionalProperties: false,
     },
-    required: ["reply", "done", "actions"],
-    additionalProperties: false,
-  },
-};
+  };
+}
 
 type ToolInput = {
   reply: string;
@@ -201,8 +282,14 @@ type ToolInput = {
 export async function processWeeklySessionMessage(
   input: WeeklySessionInput,
 ): Promise<WeeklySessionOutput> {
+  const mode: WeeklySessionMode = input.mode ?? "full";
   const state: ConversationState = input.state ?? { turns: [] };
   const message = input.message.trim();
+  // Every session includes the reserved "Personal" role, no matter what the
+  // caller passed in -- see withPersonalRole and the Classification section
+  // of both prompts above.
+  const roles = withPersonalRole(input.roles);
+  const lockedActions = input.lockedActions ?? [];
 
   const turnsWithUserMessage = message
     ? [...state.turns, { role: "user" as const, content: message }]
@@ -237,8 +324,8 @@ export async function processWeeklySessionMessage(
     model: MODEL,
     max_tokens: 1536,
     thinking: { type: "disabled" },
-    system: buildSystemBlocks(input.roles, input.lastWeek),
-    tools: [TOOL],
+    system: buildSystemBlocks(mode, roles, input.lastWeek, lockedActions),
+    tools: [buildTool(mode)],
     tool_choice: { type: "tool", name: "weekly_session_turn" },
     messages,
   });

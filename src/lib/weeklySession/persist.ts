@@ -3,6 +3,7 @@ import { startOfWeek } from "@/lib/google/calendar";
 import type {
   ActionType,
   ClassifiedAction,
+  ConversationState,
   LastWeekContext,
 } from "@/lib/engine/weeklySessionTypes";
 import type { ProposedAction } from "@/lib/planning/blocks";
@@ -152,3 +153,149 @@ export async function createWeeklyItems(
 // used outside this module's own tests, kept here so persist.ts stays the
 // one place that knows the ClassifiedAction <-> weekly_items mapping.
 export type { ClassifiedAction };
+
+// --- weekly_session_transcripts (Day 16 -- chat persistence + mid-week
+// addenda) -----------------------------------------------------------------
+//
+// See the migration's header comment for the full design. Short version:
+// `display_turns` is the whole week's chat, for the user to read back;
+// `active_state` is only the *current round's* conversation, the one
+// actually fed to Claude -- the two diverge the moment a round gets
+// confirmed (recordWeeklySessionConfirmed resets active_state, never
+// display_turns).
+
+// UI turn shape, matching the web page's own `Turn` type exactly -- kept
+// here (not re-exported from a shared module) since it's a display concern
+// specific to this persistence boundary, not part of the channel-agnostic
+// engine's vocabulary the way ConversationState's Turn is.
+export type DisplayTurn = { from: "engine" | "user"; text: string };
+
+export type WeeklySessionTranscriptRow = {
+  id: string;
+  user_id: string;
+  week_start: string;
+  display_turns: DisplayTurn[];
+  active_state: ConversationState;
+  actions_so_far: ClassifiedAction[];
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getWeeklySessionTranscript(
+  supabase: SupabaseClient,
+  userId: string,
+  weekStart: string,
+): Promise<WeeklySessionTranscriptRow | null> {
+  const { data, error } = await supabase
+    .from("weekly_session_transcripts")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("week_start", weekStart)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load weekly session transcript: ${error.message}`);
+  }
+
+  return data;
+}
+
+type SaveTranscriptInput = {
+  userId: string;
+  weekStart: string;
+  displayTurns: DisplayTurn[];
+  activeState: ConversationState;
+  actionsSoFar: ClassifiedAction[];
+};
+
+// Called after every real turn (full-session or addendum-round alike) so a
+// refresh mid-conversation never loses progress. Deliberately never
+// includes `completed_at` in the payload -- Supabase's upsert only issues
+// `SET` for the columns actually sent, so an in-progress round's turns
+// never clobber a completed_at a previous round already set.
+export async function saveWeeklySessionTranscript(
+  supabase: SupabaseClient,
+  { userId, weekStart, displayTurns, activeState, actionsSoFar }: SaveTranscriptInput,
+): Promise<void> {
+  const { error } = await supabase.from("weekly_session_transcripts").upsert(
+    {
+      user_id: userId,
+      week_start: weekStart,
+      display_turns: displayTurns,
+      active_state: activeState,
+      actions_so_far: actionsSoFar,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,week_start" },
+  );
+
+  if (error) {
+    throw new Error(`Failed to save weekly session transcript: ${error.message}`);
+  }
+}
+
+type RecordConfirmedInput = {
+  userId: string;
+  weekStart: string;
+  // A short engine-style bubble appended to display_turns marking what
+  // just got written -- e.g. "5 items written to your calendar." -- so
+  // scrolling back through the week's chat shows exactly where each round
+  // closed out, not just an unexplained gap.
+  confirmationMessage: string;
+};
+
+// Called once /api/weekly-session/confirm actually writes a plan (the
+// original full session, or a later mid-week addendum round) to the
+// calendar + weekly_items. Resets active_state/actions_so_far so the next
+// message starts a fresh, small round instead of replaying this week's
+// whole history back into Claude -- see the migration's header comment for
+// why that's a correctness requirement (avoiding a duplicate re-listing of
+// already-confirmed items), not just a cost one. display_turns is
+// untouched apart from the appended marker -- it never resets.
+export async function recordWeeklySessionConfirmed(
+  supabase: SupabaseClient,
+  { userId, weekStart, confirmationMessage }: RecordConfirmedInput,
+): Promise<{ isFirstConfirmThisWeek: boolean }> {
+  const existing = await getWeeklySessionTranscript(supabase, userId, weekStart);
+  const isFirstConfirmThisWeek = !existing?.completed_at;
+  const displayTurns: DisplayTurn[] = [
+    ...(existing?.display_turns ?? []),
+    { from: "engine", text: confirmationMessage },
+  ];
+
+  const { error } = await supabase.from("weekly_session_transcripts").upsert(
+    {
+      user_id: userId,
+      week_start: weekStart,
+      display_turns: displayTurns,
+      active_state: { turns: [] },
+      actions_so_far: [],
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,week_start" },
+  );
+
+  if (error) {
+    throw new Error(`Failed to record weekly session confirmation: ${error.message}`);
+  }
+
+  // Only the week's first confirm sets completed_at -- scoping the update
+  // to `.is("completed_at", null)` means a later addendum confirm matches
+  // zero rows here and silently no-ops, rather than needing a separate
+  // read-then-branch.
+  if (isFirstConfirmThisWeek) {
+    const { error: completeError } = await supabase
+      .from("weekly_session_transcripts")
+      .update({ completed_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("week_start", weekStart)
+      .is("completed_at", null);
+
+    if (completeError) {
+      throw new Error(`Failed to mark weekly session confirmed: ${completeError.message}`);
+    }
+  }
+
+  return { isFirstConfirmThisWeek };
+}

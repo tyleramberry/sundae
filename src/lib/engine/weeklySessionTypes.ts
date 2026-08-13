@@ -51,18 +51,61 @@ export type LastWeekContext = {
   items: LastWeekItem[];
 };
 
+// "full" is the original Accountability -> Goal Setting -> Planning arc,
+// gated on every role getting an outcome. "addendum" is a lightweight
+// mid-week continuation of the *same chat* (Day 16) -- used once the
+// week's full session has already been confirmed once and the user comes
+// back with one more thing to plan. It skips Stage 1/2 and the per-role
+// gate entirely and applies just the Stage 3-style drill-down to whatever
+// the user describes. Selecting the mode is the caller's job (see
+// src/app/api/weekly-session/step/route.ts) -- the engine itself doesn't
+// infer it from the transcript.
+export type WeeklySessionMode = "full" | "addendum";
+
+// Reserved role the engine itself appends to whatever roles the caller
+// supplies -- see withPersonalRole below. Every session includes it, no
+// matter what; it's a catch-all for anything that doesn't belong to one of
+// the user's actual declared roles, not something set up during onboarding.
+export const PERSONAL_ROLE = "Personal";
+
+// Appends the reserved Personal role, unless the caller's own roles already
+// include something case-insensitively equal to it (rare, but don't create
+// a confusing duplicate if a user genuinely named a real role "Personal").
+// Appended last so declared roles always run their Stage 2/3 drill-down
+// first -- Personal is the catch-all that comes after, not a peer.
+export function withPersonalRole(roles: string[]): string[] {
+  const hasPersonal = roles.some(
+    (r) => r.trim().toLowerCase() === PERSONAL_ROLE.toLowerCase(),
+  );
+  return hasPersonal ? roles : [...roles, PERSONAL_ROLE];
+}
+
 export type WeeklySessionInput = {
   message: string;
-  // Pass null/omit to start a fresh session.
+  // Pass null/omit to start a fresh session (or a fresh addendum round --
+  // see weeklySession/persist.ts's active_state reset on confirm).
   state?: ConversationState | null;
   // This week's roles, in the fixed order to run Goal Setting/Planning in
-  // -- from onboarding_answers.roles. The engine doesn't reorder or invent
-  // roles; that's the caller's job to supply correctly.
+  // -- from onboarding_answers.roles. The caller supplies its own declared
+  // roles; the engine always appends one more of its own -- the reserved
+  // "Personal" role (see withPersonalRole) -- so every session includes it,
+  // no matter what the caller passed in. Still required in "addendum" mode,
+  // so a new action item can be validated against a real role.
   roles: string[];
   // Omitted/null for a user's first-ever weekly session -- there's no
   // prior week to review, so Stage 1 (Accountability) is skipped entirely
-  // and the session opens straight into Stage 2 for the first role.
+  // and the session opens straight into Stage 2 for the first role. Not
+  // read at all in "addendum" mode.
   lastWeek?: LastWeekContext | null;
+  // Defaults to "full" -- see WeeklySessionMode above.
+  mode?: WeeklySessionMode;
+  // Action items already classified and locked in earlier THIS ROUND (i.e.
+  // the caller's persisted `actions_so_far` for the in-progress transcript
+  // row, if any). The engine re-derives `actions` fresh from the transcript
+  // every turn -- without this, nothing stops it from silently
+  // re-classifying an item's role/type/cadence differently turn to turn as
+  // new context arrives. Omit/empty for a fresh round.
+  lockedActions?: ClassifiedAction[];
 };
 
 export type WeeklySessionAction =

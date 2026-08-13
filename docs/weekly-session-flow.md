@@ -399,6 +399,82 @@ from the same records, just grouped differently.
 
 ---
 
+## Chat persistence & mid-week addenda (Day 16)
+
+The chat itself now survives past a single sitting — the whole point being
+that a user can close the tab mid-session, or come back three days later
+with one more thing to plan, and pick up in the same conversation instead
+of starting over.
+
+### Persistence
+
+Every turn (full session or addendum, see below) is written to
+`weekly_session_transcripts` — one row per user per week (`week_start`,
+Sunday-anchored, same convention as `weekly_items`). See the migration
+([supabase/migrations/20260813000000_weekly_session_transcripts.sql](../supabase/migrations/20260813000000_weekly_session_transcripts.sql))
+for the exact columns. On page load, `GET /api/weekly-session/transcript`
+returns this week's row (or null), and the page hydrates from it instead of
+always starting a fresh conversation.
+
+"Persists through Sunday night, or until a new session" falls straight out
+of keying the lookup on the current week's `week_start`: once the app
+computes a new Sunday, last week's row is simply never queried again. No
+cron, no expiry job, nothing gets deleted.
+
+The server, not the browser, now owns the conversation. `/api/weekly-session/step`
+reads and writes the transcript on every turn instead of trusting a
+client-round-tripped `ConversationState` — a page reload mid-turn can't
+lose or corrupt the conversation the way a purely client-held state could.
+
+### Mid-week addenda
+
+Once the week's first full session (Stage 1→2→3, above) has been confirmed
+and written, the *same chat* stays open for whatever comes up mid-week —
+the compose box never dead-ends into a "you're done" screen. A later
+message in that chat runs the engine in **addendum mode**
+(`WeeklySessionMode` in
+[weeklySessionTypes.ts](../src/lib/engine/weeklySessionTypes.ts)) instead
+of the full arc:
+
+- No Accountability, no Goal Setting, no per-role gate — just the same
+  SMART drill-down and Habit/Goal/Project classification applied to
+  whatever the user describes right now (see `ADDENDUM_SYSTEM_PROMPT` in
+  [weeklySession.ts](../src/lib/engine/weeklySession.ts); the
+  classification rules themselves are shared verbatim with the full-session
+  prompt via `SHARED_ITEM_RULES`, not duplicated).
+- Once at least one action item is captured and the user signals nothing
+  else to add, the round is `done` and goes through the exact same
+  propose → review → confirm → write pipeline as the original session
+  (`/propose` and `/confirm` are already generic over "this week's actual
+  calendar gaps," so nothing there needed to change).
+- `weekly_session_transcripts.completed_at` is what picks the mode: null
+  means "still mid the original full session," set means "any further
+  message this week is an addendum." It's set once, on the week's first
+  confirm, and never touched again.
+
+**Why the model never re-reads the whole week's chat.** The transcript
+table tracks two things, not one: `display_turns` (everything the user
+sees, append-only, grows across the whole week) and `active_state` (only
+the *current round's* turns, the one actually sent to Claude).
+`active_state` resets to empty the moment a round is confirmed
+(`recordWeeklySessionConfirmed` in
+[weeklySession/persist.ts](../src/lib/weeklySession/persist.ts)). This is a
+correctness call, not just a cost one: if an addendum round replayed the
+entire week's history back into the model, the model could re-list an
+already-confirmed item in its fresh `actions` array and cause a duplicate
+calendar write. Scoping `active_state` to the current round makes that
+structurally impossible instead of relying on prompt wording to avoid it.
+
+**Rate limiting.** The once-a-day "new session" throttle
+([weeklySession/throttle.ts](../src/lib/weeklySession/throttle.ts)) only
+guards starting a brand-new *full* session — it doesn't gate starting a new
+addendum round, since the entire point is letting the user come back and
+plan something else the moment it comes up, possibly more than once a day.
+The turn cap still applies, now scoped per round rather than shared across
+the whole week.
+
+---
+
 ## Design notes
 
 - **Out of scope for this flow doc:** the confirmation screen and calendar

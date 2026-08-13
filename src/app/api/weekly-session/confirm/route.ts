@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { GoogleCalendarError, createCalendarEvent } from "@/lib/google/calendar";
-import { createWeeklyItems, getLastWeekContext } from "@/lib/weeklySession/persist";
+import {
+  createWeeklyItems,
+  currentWeekStart,
+  getLastWeekContext,
+  getWeeklySessionTranscript,
+  recordWeeklySessionConfirmed,
+} from "@/lib/weeklySession/persist";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
 import { computeKpisForRoles, groupItemsByRole, type KpiItem } from "@/lib/kpi/compute";
 import { getSessionRecap } from "@/lib/agents/sessionRecapAgent";
@@ -36,12 +42,6 @@ function isIncomingAction(value: unknown): value is IncomingAction {
   );
 }
 
-function isTurn(value: unknown): value is Turn {
-  if (!value || typeof value !== "object") return false;
-  const v = value as Record<string, unknown>;
-  return (v.role === "user" || v.role === "assistant") && typeof v.content === "string";
-}
-
 // Best-effort session-recap send: the wins/improvements the user gave
 // during this session's Accountability stage (extracted from the real
 // transcript by src/lib/agents/sessionRecapAgent.ts -- never invented) plus
@@ -64,7 +64,15 @@ async function sendRecapBestEffort(
     if (!lastWeek) return false; // first-ever session -- nothing to recap yet
 
     const onboarding = await getOnboardingAnswers(supabase, userId);
-    const roles = onboarding?.roles ?? [];
+    // Every session now includes the reserved Personal role (see
+    // withPersonalRole), so last week may well have real Personal items --
+    // union with whatever roles actually show up in lastWeek.items (same
+    // pattern /api/dashboard uses) rather than forcing Personal in
+    // unconditionally, so a week with nothing personal doesn't get a
+    // permanent "Personal 0/0" line cluttering the recap email.
+    const roles = [
+      ...new Set([...(onboarding?.roles ?? []), ...lastWeek.items.map((i) => i.role)]),
+    ];
     const kpiItems: (KpiItem & { role: string })[] = lastWeek.items.map((i) => ({
       role: i.role,
       type: i.type,
@@ -106,10 +114,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => null)) as {
-    proposed?: unknown;
-    transcript?: unknown;
-  } | null;
+  const body = (await request.json().catch(() => null)) as { proposed?: unknown } | null;
   const proposed = body?.proposed;
 
   if (!Array.isArray(proposed) || !proposed.every(isIncomingAction)) {
@@ -119,13 +124,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // Optional -- the client's completed ConversationState.turns, sent along
-  // so the recap email can quote the user's real wins/improvements. Never
-  // required: an absent or malformed transcript just means the recap email
-  // (if sent at all) skips that section, same graceful-degradation stance
-  // as everywhere else a best-effort send can partially fail.
-  const transcriptInput = Array.isArray(body?.transcript) ? body.transcript : [];
-  const transcript: Turn[] = transcriptInput.filter(isTurn);
+  const weekStart = currentWeekStart();
 
   try {
     const withEventIds: (ProposedAction & { eventIds: string[] })[] = [];
@@ -166,10 +165,32 @@ export async function POST(request: Request) {
 
     const created = await createWeeklyItems(supabase, user.id, new Date(), withEventIds);
 
+    // Day 16: mark this round confirmed -- resets active_state so the next
+    // message starts a fresh, scoped addendum round instead of replaying
+    // this whole round back into Claude (see recordWeeklySessionConfirmed
+    // and the migration's header comment). Read the round's transcript
+    // *before* this call, since it resets active_state as a side effect --
+    // that transcript is also the source for the recap email below, so the
+    // server no longer trusts a client-supplied transcript for it.
+    const priorTranscript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
+    const roundTurns: Turn[] = priorTranscript?.active_state.turns ?? [];
+
+    const confirmationMessage = `${created} item${created === 1 ? "" : "s"} written to your calendar.`;
+    const { isFirstConfirmThisWeek } = await recordWeeklySessionConfirmed(supabase, {
+      userId: user.id,
+      weekStart,
+      confirmationMessage,
+    });
+
     // The plan is written -- everything after this point is a nice-to-have
     // on top of an already-successful confirm, so its own failure must
     // never surface as an error to the user (see sendRecapBestEffort).
-    const recapEmailSent = await sendRecapBestEffort(supabase, user.id, user.email, transcript);
+    // Recap email is themed around "how did last week go" -- only the
+    // week's first confirm (the real full session) is the right moment for
+    // it; a mid-week addendum confirm skips it entirely.
+    const recapEmailSent = isFirstConfirmThisWeek
+      ? await sendRecapBestEffort(supabase, user.id, user.email, roundTurns)
+      : false;
 
     return NextResponse.json({ ok: true, itemsCreated: created, recapEmailSent });
   } catch (error) {

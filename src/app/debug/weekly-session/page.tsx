@@ -19,6 +19,9 @@ type UsageLogEntry = {
 export default function WeeklySessionDebugPage() {
   const [rolesInput, setRolesInput] = useState("Founder, Athlete");
   const [includeLastWeek, setIncludeLastWeek] = useState(false);
+  // Day 16: exercise the addendum prompt directly, without needing a real
+  // weekly_session_transcripts row with completed_at already set.
+  const [mode, setMode] = useState<"full" | "addendum">("full");
 
   const [state, setState] = useState<ConversationState | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -58,7 +61,18 @@ export default function WeeklySessionDebugPage() {
       const res = await fetch("/api/weekly-session/debug-step", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, state, roles: roles(), lastWeek: lastWeek() }),
+        body: JSON.stringify({
+          message,
+          state,
+          roles: roles(),
+          lastWeek: lastWeek(),
+          mode,
+          // Round-trip this round's own actionsSoFar back in as
+          // lockedActions, the same way the real /step route round-trips
+          // the persisted transcript's actions_so_far -- otherwise this
+          // harness can't exercise the locked-actions stability fix.
+          lockedActions: actions,
+        }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -116,6 +130,15 @@ export default function WeeklySessionDebugPage() {
             disabled={turns.length > 0}
           />
           Include a fake &quot;last week&quot; (exercises Stage 1 / rollover)
+        </label>
+        <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <input
+            type="checkbox"
+            checked={mode === "addendum"}
+            onChange={(e) => setMode(e.target.checked ? "addendum" : "full")}
+            disabled={turns.length > 0}
+          />
+          Addendum mode (Day 16 mid-week continuation, skips Stage 1/2)
         </label>
         <button
           onClick={start}
