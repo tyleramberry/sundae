@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import KpiRing from "@/components/KpiRing";
+import DashboardStats, { type DashboardSummary } from "@/components/DashboardStats";
+import TypeBreakdown, { type TypeBreakdownRow } from "@/components/TypeBreakdown";
+import { isItemComplete } from "@/lib/kpi/compute";
 
 type DashItem = {
   id: string;
@@ -36,6 +39,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [load, setLoad] = useState<Load>("checking");
   const [roles, setRoles] = useState<RoleTile[]>([]);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -52,7 +56,13 @@ export default function DashboardPage() {
       }
 
       setLoad("loading");
-      const res = await fetch("/api/dashboard");
+      // Fired together -- the account-wide stat row isn't on the critical
+      // path for the rings, so a slow /summary shouldn't hold up the rest
+      // of the page. It just fills in its "–" placeholders when it lands.
+      const [res, summaryRes] = await Promise.all([
+        fetch("/api/dashboard"),
+        fetch("/api/dashboard/summary"),
+      ]);
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(body.error ?? "Couldn't load your dashboard.");
@@ -61,9 +71,43 @@ export default function DashboardPage() {
       }
       setRoles(body.roles ?? []);
       setLoad("ready");
+
+      const summaryBody = await summaryRes.json().catch(() => null);
+      if (summaryRes.ok && summaryBody) setSummary(summaryBody);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Both computed straight from the same roles/items /api/dashboard already
+  // returned -- no reason to round-trip for numbers already on the page.
+  const roleInsight = useMemo(() => {
+    const ranked = roles.filter((r) => r.denominator > 0 && r.percent !== null);
+    if (ranked.length < 2) return null;
+    const strongest = ranked.reduce((a, b) => (b.percent! > a.percent! ? b : a));
+    const weakest = ranked.reduce((a, b) => (b.percent! < a.percent! ? b : a));
+    if (strongest.role === weakest.role || strongest.percent === weakest.percent) {
+      return `All roles even at ${strongest.percent}% this week.`;
+    }
+    return `Strongest this week: ${strongest.role} (${strongest.percent}%) · Needs attention: ${weakest.role} (${weakest.percent}%)`;
+  }, [roles]);
+
+  const typeBreakdown = useMemo<TypeBreakdownRow[]>(() => {
+    const totals: Record<string, { total: number; done: number }> = {
+      habit: { total: 0, done: 0 },
+      goal: { total: 0, done: 0 },
+      project: { total: 0, done: 0 },
+    };
+    for (const tile of roles) {
+      for (const item of tile.items) {
+        totals[item.type].total += 1;
+        if (isItemComplete(item)) totals[item.type].done += 1;
+      }
+    }
+    return (["habit", "goal", "project"] as const).map((type) => ({
+      type,
+      ...totals[type],
+    }));
+  }, [roles]);
 
   if (load === "checking" || load === "signed-out" || load === "loading") {
     return (
@@ -96,6 +140,14 @@ export default function DashboardPage() {
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
+
+        <DashboardStats summary={summary} />
+
+        {roleInsight && (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">{roleInsight}</p>
+        )}
+
+        <TypeBreakdown rows={typeBreakdown} />
 
         {roles.length === 0 && (
           <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
