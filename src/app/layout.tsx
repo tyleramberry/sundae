@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   description:
     "An AI-guided weekly planning app that turns your priorities into calendar blocks.",
   verification: {
-    google: "ltNWtRroyVqS3Y1NGdDPsWGb1H5PRmt56seyWToYhBE",
+    google: "vlizNZuaCni9DNRkq0OS7fDXQ1cCS5ODksb1MtH-7GY",
   },
 };
 
