@@ -18,6 +18,7 @@
 // gets classified into a Habit, Goal, or Project.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicModel } from "@/lib/anthropic/model";
 import type {
   ClassifiedAction,
   ConversationState,
@@ -30,7 +31,7 @@ import { withPersonalRole } from "@/lib/engine/weeklySessionTypes";
 
 const client = new Anthropic();
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+const MODEL = getAnthropicModel();
 
 // Shared between the full-session prompt (Stage 3, per role) and the
 // addendum prompt (Day 16 -- a lightweight mid-week continuation of the

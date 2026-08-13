@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { currentWeekStart } from "@/lib/weeklySession/persist";
 
 // In-app progress logging (Day 12's "logging is in-app only" requirement,
 // built during the Day 11 UI pass). The daily follow-ups page and the
@@ -54,11 +55,39 @@ export async function POST(request: Request) {
     patch.percent = Math.max(0, Math.min(100, Math.round(body.percent as number)));
   }
 
+  const weekStart = currentWeekStart();
+  const { data: existing, error: loadError } = await supabase
+    .from("weekly_items")
+    .select("id, type, week_start")
+    .eq("id", body.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (loadError) {
+    return NextResponse.json({ error: loadError.message }, { status: 500 });
+  }
+  if (!existing) {
+    return NextResponse.json({ error: "Item not found." }, { status: 404 });
+  }
+  if (existing.week_start !== weekStart) {
+    return NextResponse.json(
+      { error: "Only this week's items can be logged here." },
+      { status: 400 },
+    );
+  }
+  if (hasDone && existing.type === "project") {
+    return NextResponse.json({ error: "`done` is only valid for habits and goals." }, { status: 400 });
+  }
+  if (hasPercent && existing.type !== "project") {
+    return NextResponse.json({ error: "`percent` is only valid for projects." }, { status: 400 });
+  }
+
   const { data, error } = await supabase
     .from("weekly_items")
     .update(patch)
     .eq("id", body.id)
     .eq("user_id", user.id)
+    .eq("week_start", weekStart)
     .select("id, role, type, title, done, percent")
     .maybeSingle();
 

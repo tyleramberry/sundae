@@ -11,6 +11,8 @@ import WeekCalendarGrid, {
   type CalendarEvent,
   type ProposedBlock as CalendarProposedBlock,
 } from "@/components/WeekCalendarGrid";
+import { ChatBubble, TypingDots } from "@/components/weekly-session/ChatBits";
+import { RolesSetupScreen } from "@/components/weekly-session/RolesSetupScreen";
 
 type Turn = { from: "engine" | "user"; text: string };
 
@@ -506,61 +508,15 @@ export default function WeeklySessionPage() {
   // full-width chat as before.
   if (stage === "roles-setup") {
     return (
-      <div className="flex flex-1 flex-col items-center bg-zinc-50 px-6 py-16 font-sans dark:bg-black">
-        <div className="flex w-full max-w-lg flex-1 flex-col gap-6">
-          <div>
-            <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-              Sundae
-            </span>
-            <h1 className="mt-1 text-2xl font-semibold text-black dark:text-zinc-50">
-              Let&apos;s set up your roles
-            </h1>
-          </div>
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-
-          <div className="flex flex-1 flex-col gap-2">
-            {turns.map((turn, i) => (
-              <div
-                key={i}
-                className={`max-w-md rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ${
-                  turn.from === "engine"
-                    ? "self-start bg-zinc-200 text-black dark:bg-zinc-800 dark:text-zinc-100"
-                    : "self-end bg-black text-white dark:bg-white dark:text-black"
-                }`}
-              >
-                {turn.text}
-              </div>
-            ))}
-            {sending && (
-              <div className="flex max-w-md items-center gap-1 self-start rounded-lg bg-zinc-200 px-4 py-3 dark:bg-zinc-800">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.3s] dark:bg-zinc-400" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.15s] dark:bg-zinc-400" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 dark:bg-zinc-400" />
-              </div>
-            )}
-          </div>
-
-          <form onSubmit={handleSubmit} className="flex gap-3">
-            <input
-              ref={chatInputRef}
-              autoFocus
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your answer…"
-              disabled={sending}
-              className="flex-1 rounded-full border border-zinc-300 px-4 py-2 text-sm text-black disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            />
-            <button
-              type="submit"
-              disabled={sending}
-              className="rounded-full bg-black px-4 py-2 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-black"
-            >
-              Send
-            </button>
-          </form>
-        </div>
-      </div>
+      <RolesSetupScreen
+        turns={turns}
+        sending={sending}
+        error={error}
+        input={input}
+        onInputChange={setInput}
+        onSubmit={handleSubmit}
+        chatInputRef={chatInputRef}
+      />
     );
   }
 
@@ -632,24 +588,9 @@ export default function WeeklySessionPage() {
             {error && <p className="text-sm text-red-600">{error}</p>}
 
             {turns.map((turn, i) => (
-              <div
-                key={i}
-                className={`max-w-md rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ${
-                  turn.from === "engine"
-                    ? "self-start bg-zinc-200 text-black dark:bg-zinc-800 dark:text-zinc-100"
-                    : "self-end bg-black text-white dark:bg-white dark:text-black"
-                }`}
-              >
-                {turn.text}
-              </div>
+              <ChatBubble key={i} turn={turn} />
             ))}
-            {(sending || stage === "proposing") && (
-              <div className="flex max-w-md items-center gap-1 self-start rounded-lg bg-zinc-200 px-4 py-3 dark:bg-zinc-800">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.3s] dark:bg-zinc-400" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.15s] dark:bg-zinc-400" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 dark:bg-zinc-400" />
-              </div>
-            )}
+            {(sending || stage === "proposing") && <TypingDots />}
 
             {/* Confirm-screen revision transcript sits inline below the main
                 chat, same conversational spirit -- the divider makes clear
@@ -662,24 +603,9 @@ export default function WeeklySessionPage() {
                   </p>
                 </div>
                 {reviseTurns.map((turn, i) => (
-                  <div
-                    key={i}
-                    className={`max-w-md rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ${
-                      turn.from === "engine"
-                        ? "self-start bg-zinc-200 text-black dark:bg-zinc-800 dark:text-zinc-100"
-                        : "self-end bg-black text-white dark:bg-white dark:text-black"
-                    }`}
-                  >
-                    {turn.text}
-                  </div>
+                  <ChatBubble key={i} turn={turn} />
                 ))}
-                {revising && (
-                  <div className="flex max-w-md items-center gap-1 self-start rounded-lg bg-zinc-200 px-4 py-3 dark:bg-zinc-800">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.3s] dark:bg-zinc-400" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.15s] dark:bg-zinc-400" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 dark:bg-zinc-400" />
-                  </div>
-                )}
+                {revising && <TypingDots />}
               </>
             )}
           </div>

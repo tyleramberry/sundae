@@ -18,11 +18,12 @@
 // below -- so a Claude outage never blocks the actual email from sending.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicModel } from "@/lib/anthropic/model";
 import type { OngoingProject, TodayBrief, TodayItem } from "@/lib/dailyBrief/gather";
 
 const client = new Anthropic();
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+const MODEL = getAnthropicModel();
 
 const SYSTEM_PROMPT = `You write the one or two lines of copy at the top of Sundae's daily follow-up email -- the short, warm bit before the actual list of today's items. You are given today's date, a list of items scheduled on the user's calendar today (could be empty), and a list of ongoing projects that still need work (could be empty).
 

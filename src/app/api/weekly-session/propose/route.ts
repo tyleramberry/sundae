@@ -8,19 +8,8 @@ import {
 } from "@/lib/google/calendar";
 import { proposeActionBlocks } from "@/lib/planning/blocks";
 import { currentWeekStart, savePendingProposal } from "@/lib/weeklySession/persist";
+import { isClassifiedAction } from "@/lib/weeklySession/parseActions";
 import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
-
-function isClassifiedAction(value: unknown): value is ClassifiedAction {
-  if (!value || typeof value !== "object") return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.role === "string" &&
-    typeof v.description === "string" &&
-    (v.type === "habit" || v.type === "goal" || v.type === "project") &&
-    (v.cadenceCount === undefined || typeof v.cadenceCount === "number") &&
-    (v.preferredTime === undefined || typeof v.preferredTime === "string")
-  );
-}
 
 // Day 10's real proposal step: takes the weekly session engine's classified
 // actions (once the conversation reports `action.type === "complete"`) and

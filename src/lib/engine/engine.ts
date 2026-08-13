@@ -17,6 +17,7 @@
 // unchanged -- only what happens inside `processMessage` is different.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicModel } from "@/lib/anthropic/model";
 import {
   type ConversationState,
   type EngineInput,
@@ -27,10 +28,7 @@ import {
 
 const client = new Anthropic();
 
-// Overridable without a code change: set ANTHROPIC_MODEL in .env.local to
-// swap models (e.g. up to claude-opus-5 for quality, down to claude-haiku-4-5
-// for cost). Starting on Sonnet 4.6 while validating this rewrite live.
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+const MODEL = getAnthropicModel();
 
 const SYSTEM_PROMPT = `You are running Sundae's onboarding conversation with a new user. Your job is to actually understand what they say, not pattern-match keywords -- this replaces an earlier version of this engine that broke on ordinary phrasing (treating a stray word as a role name, treating "no" as a new answer instead of a decline).
 

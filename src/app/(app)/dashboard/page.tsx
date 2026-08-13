@@ -272,10 +272,7 @@ export default function DashboardPage() {
                       ) : (
                         <ul className="flex flex-col gap-1">
                           {tile.items.map((item) => {
-                            const complete =
-                              item.type === "project"
-                                ? (item.percent ?? 0) >= 100
-                                : item.done;
+                            const complete = isItemComplete(item);
                             return (
                               <li
                                 key={item.id}

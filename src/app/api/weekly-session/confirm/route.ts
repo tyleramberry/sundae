@@ -11,7 +11,9 @@ import {
   getWeeklySessionTranscript,
   recordWeeklySessionConfirmed,
   tryBeginConfirm,
+  type PendingProposedAction,
 } from "@/lib/weeklySession/persist";
+import { isIncomingAction } from "@/lib/weeklySession/parseActions";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
 import { computeKpisForRoles, groupItemsByRole, type KpiItem } from "@/lib/kpi/compute";
 import { getSessionRecap } from "@/lib/agents/sessionRecapAgent";
@@ -19,32 +21,6 @@ import { EmailError, sendSessionRecapEmail } from "@/lib/email/sessionRecap";
 import type { ProposedAction } from "@/lib/planning/blocks";
 import type { Turn } from "@/lib/engine/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-type IncomingBlock = { start: string; end: string };
-type IncomingAction = {
-  role: string;
-  description: string;
-  type: "habit" | "goal" | "project";
-  blocks: IncomingBlock[];
-};
-
-function isIncomingAction(value: unknown): value is IncomingAction {
-  if (!value || typeof value !== "object") return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.role === "string" &&
-    typeof v.description === "string" &&
-    (v.type === "habit" || v.type === "goal" || v.type === "project") &&
-    Array.isArray(v.blocks) &&
-    v.blocks.every(
-      (b) =>
-        b &&
-        typeof b === "object" &&
-        typeof (b as Record<string, unknown>).start === "string" &&
-        typeof (b as Record<string, unknown>).end === "string",
-    )
-  );
-}
 
 // Best-effort session-recap send: the wins/improvements the user gave
 // during this session's Accountability stage (extracted from the real
@@ -129,7 +105,7 @@ export async function POST(request: Request) {
   }
 
   const weekStart = currentWeekStart();
-  const fingerprint = fingerprintProposed(proposed as IncomingAction[]);
+  const fingerprint = fingerprintProposed(proposed as PendingProposedAction[]);
   let wroteAnyEvent = false;
 
   try {
@@ -140,7 +116,7 @@ export async function POST(request: Request) {
 
     const withEventIds: (ProposedAction & { eventIds: string[] })[] = [];
 
-    for (const action of proposed as IncomingAction[]) {
+    for (const action of proposed as PendingProposedAction[]) {
       if (action.type === "project") {
         withEventIds.push({
           role: action.role,
