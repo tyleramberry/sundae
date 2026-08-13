@@ -54,6 +54,10 @@ export default function EmailDebugPage() {
   const [recapResult, setRecapResult] = useState<RecapDebugResult | null>(null);
   const [recapError, setRecapError] = useState<string | null>(null);
 
+  const [recapSending, setRecapSending] = useState(false);
+  const [recapSendResult, setRecapSendResult] = useState<string | null>(null);
+  const [recapSendError, setRecapSendError] = useState<string | null>(null);
+
   async function sendTest() {
     setSending(true);
     setSendResult(null);
@@ -85,6 +89,23 @@ export default function EmailDebugPage() {
       setDebugResult(body as DebugResult);
     } finally {
       setDebugLoading(false);
+    }
+  }
+
+  async function sendRecapTest() {
+    setRecapSending(true);
+    setRecapSendResult(null);
+    setRecapSendError(null);
+    try {
+      const res = await fetch("/api/email/session-recap", { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) {
+        setRecapSendError(body.error ?? "Unknown error");
+        return;
+      }
+      setRecapSendResult(`Sent — Resend id ${body.id}`);
+    } finally {
+      setRecapSending(false);
     }
   }
 
@@ -195,13 +216,25 @@ export default function EmailDebugPage() {
           persisted server-side, so there&apos;s no real past transcript to
           fetch (see the route&apos;s file header).
         </p>
-        <button
-          onClick={generateRecap}
-          disabled={recapLoading}
-          className="mt-2 rounded-full border border-zinc-300 px-4 py-2 font-sans text-sm text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
-        >
-          {recapLoading ? "Computing + generating…" : "Generate my real recap"}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={generateRecap}
+            disabled={recapLoading}
+            className="mt-2 rounded-full border border-zinc-300 px-4 py-2 font-sans text-sm text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
+          >
+            {recapLoading ? "Computing + generating…" : "Generate my real recap"}
+          </button>
+          <button
+            onClick={sendRecapTest}
+            disabled={recapSending}
+            className="mt-2 rounded-full bg-black px-4 py-2 font-sans text-sm text-white disabled:opacity-50 dark:bg-white dark:text-black"
+          >
+            {recapSending ? "Sending…" : "Send test email to my account"}
+          </button>
+        </div>
+
+        {recapSendResult && <p className="mt-3 font-sans text-sm text-emerald-600">{recapSendResult}</p>}
+        {recapSendError && <p className="mt-3 font-sans text-sm text-red-600">{recapSendError}</p>}
 
         {recapError && <p className="mt-3 font-sans text-sm text-red-600">{recapError}</p>}
 
