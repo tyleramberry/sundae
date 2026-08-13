@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -27,6 +27,21 @@ type RoleTile = {
 
 type Load = "checking" | "signed-out" | "loading" | "ready" | "error";
 
+// Small drag-handle glyph (Day 17 manual reorder) -- six dots, the
+// conventional "grab this" affordance. Always visible rather than
+// hover-revealed like the trend link/tooltip elsewhere on this page: a
+// drag control that only appears once you're already hovering it isn't
+// discoverable.
+function GripIcon() {
+  return (
+    <svg viewBox="0 0 12 20" width={10} height={16} aria-hidden fill="currentColor">
+      {[3, 9, 15].map((cy) =>
+        [3, 9].map((cx) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={1.4} />),
+      )}
+    </svg>
+  );
+}
+
 // Current-week KPI dashboard (Day 16 all-rings-at-once redesign). Every
 // role's ring is visible at once with nothing underneath it -- what's
 // planned for a role is tucked behind a hover on that role's title instead
@@ -41,6 +56,13 @@ export default function DashboardPage() {
   const [roles, setRoles] = useState<RoleTile[]>([]);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [draggedRole, setDraggedRole] = useState<string | null>(null);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  // Snapshot of `roles` from right before a drag starts -- if the save
+  // below fails, this is what the tiles revert to, so a rejected reorder
+  // (say, someone else's edit changed the role list mid-drag) can't leave
+  // the page showing an order the server never actually accepted.
+  const dragStartOrderRef = useRef<RoleTile[] | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -109,6 +131,58 @@ export default function DashboardPage() {
     }));
   }, [roles]);
 
+  // Drag-to-reorder (Day 17): reorders `roles` live as you drag over other
+  // tiles (native HTML5 DnD, no library), then persists the final order to
+  // /api/onboarding/roles on drop -- the same array /api/dashboard already
+  // reads its tile order from, so the new order shows up everywhere this
+  // account signs in, not just this browser.
+  function handleDragStart(role: string) {
+    dragStartOrderRef.current = roles;
+    setDraggedRole(role);
+  }
+
+  function handleDragOver(e: React.DragEvent, overRole: string) {
+    e.preventDefault();
+    if (!draggedRole || draggedRole === overRole) return;
+    setRoles((prev) => {
+      const from = prev.findIndex((r) => r.role === draggedRole);
+      const to = prev.findIndex((r) => r.role === overRole);
+      if (from === -1 || to === -1 || from === to) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }
+
+  async function handleDragEnd() {
+    const dragged = draggedRole;
+    setDraggedRole(null);
+    if (!dragged) return;
+
+    const startOrder = dragStartOrderRef.current;
+    dragStartOrderRef.current = null;
+    // Nothing actually moved -- no need to hit the network.
+    if (startOrder && startOrder.every((r, i) => r.role === roles[i]?.role)) return;
+
+    setOrderError(null);
+    try {
+      const res = await fetch("/api/onboarding/roles", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roles: roles.map((r) => r.role) }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setOrderError(body.error ?? "Couldn't save the new order.");
+        if (startOrder) setRoles(startOrder);
+      }
+    } catch {
+      setOrderError("Couldn't save the new order.");
+      if (startOrder) setRoles(startOrder);
+    }
+  }
+
   if (load === "checking" || load === "signed-out" || load === "loading") {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -140,6 +214,7 @@ export default function DashboardPage() {
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
+        {orderError && <p className="text-sm text-red-600">{orderError}</p>}
 
         {roles.length === 0 && (
           <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
@@ -161,15 +236,34 @@ export default function DashboardPage() {
           {roles.map((tile) => {
             const trendHref = `/dashboard/${encodeURIComponent(tile.role)}/trend`;
             return (
-              <div key={tile.role} className="flex flex-col items-center gap-2">
-                {/* Hover target: the role title itself. Nothing renders
-                    underneath the ring anymore -- this popover is the only
-                    place this week's items still show, on demand. */}
-                <div className="group/role relative">
-                  <span className="line-clamp-1 max-w-[10rem] cursor-default select-none text-center text-sm font-semibold text-black dark:text-zinc-50">
-                    {tile.role}
+              <div
+                key={tile.role}
+                onDragOver={(e) => handleDragOver(e, tile.role)}
+                className={[
+                  "flex flex-col items-center gap-2 rounded-xl transition",
+                  draggedRole === tile.role ? "opacity-40" : "",
+                ].join(" ")}
+              >
+                {/* Drag handle + hover target: the role title itself.
+                    Nothing renders underneath the ring anymore -- the
+                    tooltip below is the only place this week's items
+                    still show, on demand. */}
+                <div className="flex items-center gap-1">
+                  <span
+                    draggable
+                    onDragStart={() => handleDragStart(tile.role)}
+                    onDragEnd={handleDragEnd}
+                    aria-label={`Drag to reorder ${tile.role}`}
+                    title="Drag to reorder"
+                    className="cursor-grab touch-none rounded p-0.5 text-zinc-300 transition hover:text-zinc-500 active:cursor-grabbing dark:text-zinc-700 dark:hover:text-zinc-400"
+                  >
+                    <GripIcon />
                   </span>
-                  <div className="pointer-events-none absolute left-1/2 top-full z-20 w-60 -translate-x-1/2 pt-2 opacity-0 transition duration-150 group-hover/role:pointer-events-auto group-hover/role:opacity-100">
+                  <div className="group/role relative">
+                    <span className="line-clamp-1 max-w-[10rem] cursor-default select-none text-center text-sm font-semibold text-black dark:text-zinc-50">
+                      {tile.role}
+                    </span>
+                    <div className="pointer-events-none absolute left-1/2 top-full z-20 w-60 -translate-x-1/2 pt-2 opacity-0 transition duration-150 group-hover/role:pointer-events-auto group-hover/role:opacity-100">
                     <div className="rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
                       {tile.items.length === 0 ? (
                         <p className="text-xs text-zinc-400 dark:text-zinc-500">
@@ -209,6 +303,7 @@ export default function DashboardPage() {
                         </ul>
                       )}
                     </div>
+                  </div>
                   </div>
                 </div>
 

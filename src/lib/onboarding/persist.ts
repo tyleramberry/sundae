@@ -38,6 +38,32 @@ export async function saveOnboardingAnswers(
   }
 }
 
+type UpdateRoleOrderInput = {
+  userId: string;
+  roles: string[];
+};
+
+// Persists a pure reorder of the existing role list (dashboard drag-to-
+// reorder, Day 17) -- never adds, removes, or renames a role, only changes
+// the order they come back in, which is exactly what /api/dashboard's tile
+// order already keys off of (see its `allRoles` union). Membership
+// validation -- the new list must be exactly a permutation of the old one
+// -- lives in the route, not here; this stays a plain persistence function
+// like its siblings above.
+export async function updateRoleOrder(
+  supabase: SupabaseClient,
+  { userId, roles }: UpdateRoleOrderInput,
+) {
+  const { error } = await supabase
+    .from("onboarding_answers")
+    .update({ roles, updated_at: new Date().toISOString() })
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Failed to save role order: ${error.message}`);
+  }
+}
+
 export async function getOnboardingAnswers(
   supabase: SupabaseClient,
   userId: string,
