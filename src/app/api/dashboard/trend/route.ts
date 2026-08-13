@@ -43,12 +43,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing `role` query param." }, { status: 400 });
   }
 
-  // Earliest week this user has ever had ANY item (any role) -- clamps the
-  // 6-week window so we never show weeks from before the user existed.
+  // Earliest week THIS ROLE has ever had an item -- clamps the 6-week
+  // window so we never show weeks from before the role existed. Scoped to
+  // `role`, not just `user_id`: a role that joined later than the rest of
+  // the user's roles (added in a later week's session) has to get its own
+  // start date, or it inherits the account's overall earliest role instead
+  // and ends up padded with "no data" weeks it was never actually part of.
   const { data: earliest, error: earliestError } = await supabase
     .from("weekly_items")
     .select("week_start")
     .eq("user_id", user.id)
+    .eq("role", role)
     .order("week_start", { ascending: true })
     .limit(1)
     .maybeSingle();
