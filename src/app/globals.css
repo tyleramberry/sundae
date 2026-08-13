@@ -55,3 +55,17 @@ body {
     transform: scale(1);
   }
 }
+
+/* Dashboard KPI ring hover-replay (Day 16 redesign). KpiRing sets
+   --ring-circumference/--ring-offset as inline custom properties per role,
+   so this one keyframe animates every ring's fill from empty to its own
+   target percentage -- triggered by group-hover/ring on the wrapping link,
+   see src/components/KpiRing.tsx. */
+@keyframes ring-fill {
+  from {
+    stroke-dashoffset: var(--ring-circumference);
+  }
+  to {
+    stroke-dashoffset: var(--ring-offset);
+  }
+}

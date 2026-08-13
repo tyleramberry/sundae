@@ -24,12 +24,14 @@ type RoleTile = {
 
 type Load = "checking" | "signed-out" | "loading" | "ready" | "error";
 
-// Current-week KPI dashboard (Day 11 redesign). Each role is a filling ring;
-// every number on the page is one click from being logged -- clicking an
-// item deep-links to /daily-follow-ups with that item highlighted, clicking
-// a ring jumps to that role's section there. Read-only itself: all logging
-// happens on the follow-ups page, so there's exactly one place "done" is
-// written.
+// Current-week KPI dashboard (Day 16 all-rings-at-once redesign). Every
+// role's ring is visible at once with nothing underneath it -- what's
+// planned for a role is tucked behind a hover on that role's title instead
+// of being permanently on-page, so the grid stays a single glance instead
+// of a scroll. Clicking a ring (or the number inside it) jumps straight to
+// that role's 6-week trend; logging itself now lives only on
+// /daily-follow-ups (reachable from the sidebar), so this page stays fully
+// read-only.
 export default function DashboardPage() {
   const router = useRouter();
   const [load, setLoad] = useState<Load>("checking");
@@ -75,7 +77,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-1 flex-col items-center px-6 py-12 font-sans sm:py-16">
-      <div className="flex w-full max-w-3xl flex-col gap-8">
+      <div className="flex w-full max-w-5xl flex-col gap-8">
         <div className="flex items-end justify-between">
           <div>
             <span className="text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
@@ -107,66 +109,84 @@ export default function DashboardPage() {
           </p>
         )}
 
-        <div className="grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2">
-          {roles.map((tile) => (
-            <div key={tile.role} className="flex flex-col items-center gap-4">
-              <Link
-                href={`/daily-follow-ups?role=${encodeURIComponent(tile.role)}`}
-                className="rounded-full transition hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-                aria-label={`Log follow-ups for ${tile.role}`}
-              >
-                <KpiRing
-                  role={tile.role}
-                  numerator={tile.numerator}
-                  denominator={tile.denominator}
-                  percent={tile.percent}
-                />
-              </Link>
+        {/* auto-fit rather than fixed breakpoints -- however many roles a
+            user has, the tiles fill the row and wrap only when they truly
+            no longer fit, which is what keeps every ring on-screen at once
+            instead of needing a scroll. */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-x-4 gap-y-8">
+          {roles.map((tile) => {
+            const trendHref = `/dashboard/${encodeURIComponent(tile.role)}/trend`;
+            return (
+              <div key={tile.role} className="flex flex-col items-center gap-2">
+                {/* Hover target: the role title itself. Nothing renders
+                    underneath the ring anymore -- this popover is the only
+                    place this week's items still show, on demand. */}
+                <div className="group/role relative">
+                  <span className="line-clamp-1 max-w-[10rem] cursor-default select-none text-center text-sm font-semibold text-black dark:text-zinc-50">
+                    {tile.role}
+                  </span>
+                  <div className="pointer-events-none absolute left-1/2 top-full z-20 w-60 -translate-x-1/2 pt-2 opacity-0 transition duration-150 group-hover/role:pointer-events-auto group-hover/role:opacity-100">
+                    <div className="rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+                      {tile.items.length === 0 ? (
+                        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+                          Nothing planned this week.
+                        </p>
+                      ) : (
+                        <ul className="flex flex-col gap-1">
+                          {tile.items.map((item) => {
+                            const complete =
+                              item.type === "project"
+                                ? (item.percent ?? 0) >= 100
+                                : item.done;
+                            return (
+                              <li
+                                key={item.id}
+                                className="flex items-center justify-between gap-2 text-xs"
+                              >
+                                <span
+                                  className={
+                                    complete
+                                      ? "truncate text-zinc-400 line-through dark:text-zinc-500"
+                                      : "truncate text-zinc-700 dark:text-zinc-300"
+                                  }
+                                >
+                                  {item.title}
+                                </span>
+                                <span className="shrink-0 text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                                  {item.type === "project"
+                                    ? `${item.percent ?? 0}%`
+                                    : complete
+                                      ? "done"
+                                      : item.type}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
-              <Link
-                href={`/dashboard/${encodeURIComponent(tile.role)}/trend`}
-                className="text-xs font-medium text-zinc-400 underline-offset-2 transition hover:text-emerald-600 hover:underline dark:text-zinc-500 dark:hover:text-emerald-400"
-              >
-                6-week trend →
-              </Link>
-
-              {tile.items.length > 0 && (
-                <ul className="flex w-full max-w-xs flex-col gap-1">
-                  {tile.items.map((item) => {
-                    const complete =
-                      item.type === "project"
-                        ? (item.percent ?? 0) >= 100
-                        : item.done;
-                    return (
-                      <li key={item.id}>
-                        <Link
-                          href={`/daily-follow-ups?item=${encodeURIComponent(item.id)}`}
-                          className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                        >
-                          <span
-                            className={
-                              complete
-                                ? "truncate text-zinc-400 line-through dark:text-zinc-500"
-                                : "truncate text-zinc-700 dark:text-zinc-300"
-                            }
-                          >
-                            {item.title}
-                          </span>
-                          <span className="shrink-0 text-xs uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-                            {item.type === "project"
-                              ? `${item.percent ?? 0}%`
-                              : complete
-                                ? "done"
-                                : item.type}
-                          </span>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          ))}
+                {/* Click the ring (or the number inside it) -> 6-week
+                    trend. group/ring is the hover scope KpiRing's fill
+                    animation replays on -- see globals.css's ring-fill
+                    keyframe. */}
+                <Link
+                  href={trendHref}
+                  className="group/ring rounded-full transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                  aria-label={`View ${tile.role}'s 6-week trend`}
+                >
+                  <KpiRing
+                    role={tile.role}
+                    numerator={tile.numerator}
+                    denominator={tile.denominator}
+                    percent={tile.percent}
+                  />
+                </Link>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
