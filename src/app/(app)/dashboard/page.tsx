@@ -44,9 +44,9 @@ function GripIcon() {
 
 // Current-week KPI dashboard (Day 16 all-rings-at-once redesign). Every
 // role's ring is visible at once with nothing underneath it -- what's
-// planned for a role is tucked behind a hover on that role's title instead
-// of being permanently on-page, so the grid stays a single glance instead
-// of a scroll. Clicking a ring (or the number inside it) jumps straight to
+// planned for a role is tucked behind a hover or tap on that role's title
+// instead of being permanently on-page, so the grid stays a single glance
+// instead of a scroll. Clicking a ring (or the number inside it) jumps straight to
 // that role's 6-week trend; logging itself now lives only on
 // /daily-follow-ups (reachable from the sidebar), so this page stays fully
 // read-only.
@@ -58,6 +58,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [draggedRole, setDraggedRole] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [openRole, setOpenRole] = useState<string | null>(null);
   // Snapshot of `roles` from right before a drag starts -- if the save
   // below fails, this is what the tiles revert to, so a rejected reorder
   // (say, someone else's edit changed the role list mid-drag) can't leave
@@ -260,10 +261,24 @@ export default function DashboardPage() {
                     <GripIcon />
                   </span>
                   <div className="group/role relative">
-                    <span className="line-clamp-1 max-w-[10rem] cursor-default select-none text-center text-sm font-semibold text-black dark:text-zinc-50">
+                    <button
+                      type="button"
+                      aria-expanded={openRole === tile.role}
+                      aria-label={`${tile.role} this week`}
+                      onClick={() =>
+                        setOpenRole((current) => (current === tile.role ? null : tile.role))
+                      }
+                      className="line-clamp-1 max-w-[10rem] cursor-pointer select-none text-center text-sm font-semibold text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 dark:text-zinc-50"
+                    >
                       {tile.role}
-                    </span>
-                    <div className="pointer-events-none absolute left-1/2 top-full z-20 w-60 -translate-x-1/2 pt-2 opacity-0 transition duration-150 group-hover/role:pointer-events-auto group-hover/role:opacity-100">
+                    </button>
+                    <div
+                      className={`absolute left-1/2 top-full z-20 w-60 -translate-x-1/2 pt-2 transition duration-150 ${
+                        openRole === tile.role
+                          ? "pointer-events-auto opacity-100"
+                          : "pointer-events-none opacity-0 group-hover/role:pointer-events-auto group-hover/role:opacity-100 group-focus-within/role:pointer-events-auto group-focus-within/role:opacity-100"
+                      }`}
+                    >
                     <div className="rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
                       {tile.items.length === 0 ? (
                         <p className="text-xs text-zinc-400 dark:text-zinc-500">
