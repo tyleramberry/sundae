@@ -76,7 +76,7 @@ export default function DashboardPage() {
   const hasAnyItems = roles.some((r) => r.denominator > 0);
 
   return (
-    <div className="flex flex-1 flex-col items-center px-6 py-12 font-sans sm:py-16">
+    <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-12 font-sans sm:py-16">
       <div className="flex w-full max-w-5xl flex-col gap-8">
         <div className="flex items-end justify-between">
           <div>

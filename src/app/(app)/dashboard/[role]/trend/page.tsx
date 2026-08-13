@@ -57,7 +57,7 @@ export default function TrendPage({ params }: { params: Promise<{ role: string }
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center px-6 py-12 font-sans sm:py-16">
+    <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-12 font-sans sm:py-16">
       <div className="flex w-full max-w-2xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>

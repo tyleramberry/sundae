@@ -134,7 +134,7 @@ function DailyFollowUpsInner() {
   const hasItems = items.length > 0;
 
   return (
-    <div className="flex flex-1 flex-col items-center px-6 py-12 font-sans sm:py-16">
+    <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-12 font-sans sm:py-16">
       <div className="flex w-full max-w-2xl flex-col gap-8">
         <header className="flex flex-col gap-1">
           <span className="text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
