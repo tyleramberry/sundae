@@ -1,0 +1,85 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  busyRangesFromEvents,
+  findFreeGaps,
+  proposeActionBlocks,
+  weekdayFromText,
+} from "./blocks";
+
+describe("weekdayFromText", () => {
+  it("finds a named weekday and ignores substring traps", () => {
+    assert.equal(weekdayFromText("temple shift on Saturday"), 6);
+    assert.equal(weekdayFromText("wear sunscreen"), null);
+  });
+});
+
+describe("findFreeGaps", () => {
+  it("drops gaps entirely in the past and clips a gap that straddles now", () => {
+    const day = new Date(2026, 7, 10, 0, 0, 0); // Monday
+    const windowStart = new Date(day);
+    const windowEnd = new Date(day);
+    windowEnd.setDate(windowEnd.getDate() + 1);
+    const now = new Date(2026, 7, 10, 12, 0, 0);
+
+    const gaps = findFreeGaps([], windowStart, windowEnd, now, 8, 20);
+    assert.equal(gaps.length, 1);
+    assert.equal(gaps[0].start.getTime(), now.getTime());
+    assert.equal(gaps[0].end.getHours(), 20);
+  });
+});
+
+describe("proposeActionBlocks", () => {
+  const sunday = new Date(2026, 7, 9, 0, 0, 0);
+  const nextSunday = new Date(2026, 7, 16, 0, 0, 0);
+  const now = new Date(2026, 7, 9, 7, 0, 0);
+
+  it("gives projects no calendar blocks", () => {
+    const proposed = proposeActionBlocks(
+      [{ role: "Founder", description: "Close the seed round", type: "project" }],
+      [],
+      sunday,
+      nextSunday,
+      { now },
+    );
+    assert.equal(proposed[0].blocks.length, 0);
+  });
+
+  it("spreads a daily habit across distinct days instead of stacking Monday", () => {
+    const proposed = proposeActionBlocks(
+      [{ role: "Athlete", description: "Run every morning", type: "habit", cadenceCount: 3 }],
+      [],
+      sunday,
+      nextSunday,
+      { now, blockMinutes: 45 },
+    );
+    const days = new Set(proposed[0].blocks.map((b) => b.start.getDay()));
+    assert.equal(proposed[0].blocks.length, 3);
+    assert.equal(days.size, 3);
+  });
+
+  it("honors a weekday named in a goal description", () => {
+    const proposed = proposeActionBlocks(
+      [{ role: "Parent", description: "Date night on Saturday", type: "goal" }],
+      [],
+      sunday,
+      nextSunday,
+      { now },
+    );
+    assert.equal(proposed[0].blocks.length, 1);
+    assert.equal(proposed[0].blocks[0].start.getDay(), 6);
+  });
+});
+
+describe("busyRangesFromEvents", () => {
+  it("skips cancelled events", () => {
+    const ranges = busyRangesFromEvents([
+      {
+        status: "cancelled",
+        start: { dateTime: "2026-08-10T15:00:00.000Z" },
+        end: { dateTime: "2026-08-10T16:00:00.000Z" },
+      },
+    ]);
+    assert.equal(ranges.length, 0);
+  });
+});

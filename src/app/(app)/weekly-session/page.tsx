@@ -140,6 +140,7 @@ export default function WeeklySessionPage() {
   // which otherwise fires the opening engine turn twice and shows the
   // welcome message duplicated.
   const didInit = useRef(false);
+  const confirmInFlight = useRef(false);
 
   useEffect(() => {
     if (didInit.current) return;
@@ -182,6 +183,11 @@ export default function WeeklySessionPage() {
           setTurns(transcript.displayTurns);
           setActionsSoFar(transcript.actionsSoFar ?? []);
           setWeekConfirmed(Boolean(transcript.completedThisWeek));
+          if (Array.isArray(transcript.pendingProposed) && transcript.pendingProposed.length > 0) {
+            setProposed(transcript.pendingProposed);
+            setSessionActions(transcript.pendingSessionActions ?? []);
+            setStage("confirming");
+          }
         } else {
           void send("");
         }
@@ -404,9 +410,11 @@ export default function WeeklySessionPage() {
   }
 
   async function confirm() {
-    if (!proposed) return;
+    if (!proposed || confirmInFlight.current) return;
+    confirmInFlight.current = true;
     setStage("writing");
     setError(null);
+    try {
     // No transcript in the body anymore (Day 16) -- the confirm route
     // reads this round's transcript itself from weekly_session_transcripts,
     // since the server is now the source of truth for it too.
@@ -417,7 +425,12 @@ export default function WeeklySessionPage() {
     });
     const body = await res.json();
     if (!res.ok) {
-      setError(body.error ?? "Couldn't write to your calendar — try confirming again.");
+      if (body.partialWrite) {
+        setError(body.error ?? "Some events were already written. Check your calendar — don't confirm again.");
+        setStage("confirming");
+        return;
+      }
+      setError(body.error ?? "Couldn't write to your calendar.");
       setStage("confirming");
       return;
     }
@@ -427,9 +440,12 @@ export default function WeeklySessionPage() {
     // recordWeeklySessionConfirmed) so the user sees it land immediately
     // rather than waiting on a refetch.
     const created = body.itemsCreated as number;
-    const confirmationBubbles: Turn[] = [
-      { from: "engine", text: `${created} item${created === 1 ? "" : "s"} written to your calendar.` },
-    ];
+    const already = Boolean(body.alreadyConfirmed);
+    const confirmationBubbles: Turn[] = already
+      ? [{ from: "engine", text: "This plan was already written to your calendar." }]
+      : [
+          { from: "engine", text: `${created} item${created === 1 ? "" : "s"} written to your calendar.` },
+        ];
     if (body.recapEmailSent) {
       confirmationBubbles.push({
         from: "engine",
@@ -444,6 +460,9 @@ export default function WeeklySessionPage() {
     setReviseTurns([]);
     void loadCalendarEvents();
     setStage("chatting");
+    } finally {
+      confirmInFlight.current = false;
+    }
   }
 
   function handleSubmit(e: React.FormEvent) {

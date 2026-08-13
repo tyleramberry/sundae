@@ -7,6 +7,7 @@ import {
   startOfWeek,
 } from "@/lib/google/calendar";
 import { proposeActionBlocks } from "@/lib/planning/blocks";
+import { currentWeekStart, savePendingProposal } from "@/lib/weeklySession/persist";
 import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
 
 function isClassifiedAction(value: unknown): value is ClassifiedAction {
@@ -72,6 +73,18 @@ export async function POST(request: Request) {
         end: b.end.toISOString(),
       })),
     }));
+
+    await savePendingProposal(
+      supabase,
+      user.id,
+      currentWeekStart(),
+      serialized,
+      actions as ClassifiedAction[],
+    ).catch((err) => {
+      // Propose itself succeeded; losing the reload snapshot shouldn't
+      // fail the request. Confirm still works from the client payload.
+      console.error("Failed to persist pending proposal:", err);
+    });
 
     return NextResponse.json({ proposed: serialized });
   } catch (error) {

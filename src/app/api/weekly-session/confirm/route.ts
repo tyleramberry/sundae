@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { GoogleCalendarError, createCalendarEvent } from "@/lib/google/calendar";
 import {
+  clearConfirmingAt,
+  ConfirmInProgressError,
   createWeeklyItems,
   currentWeekStart,
+  fingerprintProposed,
   getLastWeekContext,
   getWeeklySessionTranscript,
   recordWeeklySessionConfirmed,
+  tryBeginConfirm,
 } from "@/lib/weeklySession/persist";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
 import { computeKpisForRoles, groupItemsByRole, type KpiItem } from "@/lib/kpi/compute";
@@ -125,8 +129,15 @@ export async function POST(request: Request) {
   }
 
   const weekStart = currentWeekStart();
+  const fingerprint = fingerprintProposed(proposed as IncomingAction[]);
+  let wroteAnyEvent = false;
 
   try {
+    const begin = await tryBeginConfirm(supabase, user.id, weekStart, fingerprint);
+    if (begin === "duplicate") {
+      return NextResponse.json({ ok: true, itemsCreated: 0, recapEmailSent: false, alreadyConfirmed: true });
+    }
+
     const withEventIds: (ProposedAction & { eventIds: string[] })[] = [];
 
     for (const action of proposed as IncomingAction[]) {
@@ -152,6 +163,7 @@ export async function POST(request: Request) {
           end,
         });
         eventIds.push(event.id);
+        wroteAnyEvent = true;
       }
 
       withEventIds.push({
@@ -165,13 +177,6 @@ export async function POST(request: Request) {
 
     const created = await createWeeklyItems(supabase, user.id, new Date(), withEventIds);
 
-    // Day 16: mark this round confirmed -- resets active_state so the next
-    // message starts a fresh, scoped addendum round instead of replaying
-    // this whole round back into Claude (see recordWeeklySessionConfirmed
-    // and the migration's header comment). Read the round's transcript
-    // *before* this call, since it resets active_state as a side effect --
-    // that transcript is also the source for the recap email below, so the
-    // server no longer trusts a client-supplied transcript for it.
     const priorTranscript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
     const roundTurns: Turn[] = priorTranscript?.active_state.turns ?? [];
 
@@ -180,6 +185,7 @@ export async function POST(request: Request) {
       userId: user.id,
       weekStart,
       confirmationMessage,
+      fingerprint,
     });
 
     // The plan is written -- everything after this point is a nice-to-have
@@ -194,9 +200,38 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, itemsCreated: created, recapEmailSent });
   } catch (error) {
+    if (error instanceof ConfirmInProgressError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     if (error instanceof GoogleCalendarError) {
+      if (wroteAnyEvent) {
+        return NextResponse.json(
+          {
+            error:
+              "Some events were already written to Google Calendar. Check the calendar — don't confirm this plan again.",
+            partialWrite: true,
+          },
+          { status: 409 },
+        );
+      }
+      await clearConfirmingAt(supabase, user.id, weekStart).catch((err) => {
+        console.error("Failed to release confirm lock after calendar error:", err);
+      });
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+    if (wroteAnyEvent) {
+      return NextResponse.json(
+        {
+          error:
+            "Some events were already written to Google Calendar. Check the calendar — don't confirm this plan again.",
+          partialWrite: true,
+        },
+        { status: 409 },
+      );
+    }
+    await clearConfirmingAt(supabase, user.id, weekStart).catch((err) => {
+      console.error("Failed to release confirm lock after confirm error:", err);
+    });
     throw error;
   }
 }

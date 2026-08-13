@@ -62,8 +62,14 @@ Google Calendar. A daily cron nudges follow-up and reconciles KPIs.
   the top of `engine.ts` before "simplifying" it back into pattern matching.
 - Routes under `src/app/debug/` and `src/app/api/debug/` are dev-only
   scaffolding (seeding test accounts, previewing emails, stepping the
-  engine) — useful for manually exercising a flow, not part of the product
-  surface.
+  engine) — useful for locally exercising a flow, not part of the product
+  surface. They 404 when `NODE_ENV === "production"` (see `src/lib/devOnly.ts`).
+  `/api/weekly-session/debug-step`, calendar test-event, and email debug
+  routes use the same gate. `/api/engine/step` is a real product path
+  (Stage 0) and requires a signed-in session.
+- `src/lib/engine/weeklySession*` is the conversation engine (Claude).
+  `src/lib/weeklySession/` is persistence, throttle, and week-date helpers
+  — the HTTP routes own those, not the engine.
 
 ## Docs
 

@@ -6,6 +6,7 @@ import {
   getLastWeekContext,
   getWeeklySessionTranscript,
   saveWeeklySessionTranscript,
+  StaleTranscriptError,
   type DisplayTurn,
 } from "@/lib/weeklySession/persist";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
 
   const weekStart = currentWeekStart();
   const transcript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
+  const expectedRoundSeq = transcript?.round_seq ?? 0;
 
   // Day 16: once this week's first full session has been confirmed, every
   // later message in the same chat is a lightweight mid-week addition, not
@@ -122,6 +124,7 @@ export async function POST(request: Request) {
       displayTurns,
       activeState: result.state,
       actionsSoFar: result.actionsSoFar,
+      expectedRoundSeq,
     });
 
     if (isFreshStart && mode === "full") {
@@ -142,6 +145,9 @@ export async function POST(request: Request) {
       mode,
     });
   } catch (error) {
+    if (error instanceof StaleTranscriptError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error("Weekly session step failed:", error);
     return NextResponse.json(
       { error: "The planning engine had trouble with that — try again." },

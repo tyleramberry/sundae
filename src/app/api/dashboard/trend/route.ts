@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { startOfWeek } from "@/lib/google/calendar";
 import { computeRoleKpi, type KpiItem } from "@/lib/kpi/compute";
+import { toDateOnly } from "@/lib/weeklySession/persist";
 import type { ActionType } from "@/lib/engine/weeklySessionTypes";
 
 // Day 15's 6-week trend, read by /dashboard/[role]/trend. Per the MVP spec:
@@ -24,10 +25,6 @@ function subWeeks(date: Date, weeks: number): Date {
   return d;
 }
 
-function toDateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
 export async function GET(request: Request) {
   const supabase = await createClient();
   const {
@@ -43,12 +40,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing `role` query param." }, { status: 400 });
   }
 
-  // Earliest week this user has ever had ANY item (any role) -- clamps the
-  // 6-week window so we never show weeks from before the user existed.
+  // Earliest week this role has ever had an item -- clamps the 6-week
+  // window so a later-joining role isn't padded with empty weeks from
+  // before it existed (those belong to other roles, not this one).
   const { data: earliest, error: earliestError } = await supabase
     .from("weekly_items")
     .select("week_start")
     .eq("user_id", user.id)
+    .eq("role", role)
     .order("week_start", { ascending: true })
     .limit(1)
     .maybeSingle();

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { processWeeklySessionMessage } from "@/lib/engine/weeklySession";
+import { isProductionRuntime, productionUnavailableResponse } from "@/lib/devOnly";
 import type {
   ClassifiedAction,
   ConversationState,
@@ -19,6 +20,8 @@ import type {
 // `transcript.actions_so_far` -- otherwise this harness couldn't exercise
 // the locked-actions stability fix at all.
 export async function POST(request: Request) {
+  if (isProductionRuntime()) return productionUnavailableResponse();
+
   const body = (await request.json().catch(() => null)) as {
     message?: string;
     state?: ConversationState | null;

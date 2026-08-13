@@ -30,8 +30,14 @@ export type WeeklyItemRow = {
 // Exported so the Day 11 reconciliation cron computes "this week" the exact
 // same way this module does when it wrote the rows in the first place --
 // one definition of week_start's string format, not two that could drift.
+// Format using the Date's local Y-M-D, not UTC. startOfWeek zeros local
+// midnight; toISOString() would shift that to the previous calendar date
+// in timezones ahead of UTC (Sunday 00:00 UTC+14 -> Saturday).
 export function toDateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10); // week_start is a `date` column
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function currentWeekStart(referenceDate: Date = new Date()): string {
@@ -170,6 +176,13 @@ export type { ClassifiedAction };
 // engine's vocabulary the way ConversationState's Turn is.
 export type DisplayTurn = { from: "engine" | "user"; text: string };
 
+export type PendingProposedAction = {
+  role: string;
+  description: string;
+  type: ActionType;
+  blocks: { start: string; end: string }[];
+};
+
 export type WeeklySessionTranscriptRow = {
   id: string;
   user_id: string;
@@ -180,7 +193,39 @@ export type WeeklySessionTranscriptRow = {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+  round_seq: number;
+  confirming_at: string | null;
+  last_confirm_fingerprint: string | null;
+  pending_proposed: PendingProposedAction[] | null;
+  pending_session_actions: ClassifiedAction[] | null;
 };
+
+export class StaleTranscriptError extends Error {
+  constructor() {
+    super("This week's session moved on — refresh and try that message again.");
+    this.name = "StaleTranscriptError";
+  }
+}
+
+export class ConfirmInProgressError extends Error {
+  constructor() {
+    super("A confirm is already writing this plan. Wait a moment rather than clicking again.");
+    this.name = "ConfirmInProgressError";
+  }
+}
+
+const STALE_CONFIRM_LOCK_MS = 10 * 60 * 1000;
+
+export function fingerprintProposed(proposed: PendingProposedAction[]): string {
+  return JSON.stringify(
+    proposed.map((action) => ({
+      role: action.role,
+      description: action.description,
+      type: action.type,
+      blocks: action.blocks.map((b) => ({ start: b.start, end: b.end })),
+    })),
+  );
+}
 
 export async function getWeeklySessionTranscript(
   supabase: SupabaseClient,
@@ -207,42 +252,185 @@ type SaveTranscriptInput = {
   displayTurns: DisplayTurn[];
   activeState: ConversationState;
   actionsSoFar: ClassifiedAction[];
+  // Seq loaded at the start of this /step. The write is rejected if
+  // /confirm incremented it in the meantime (stale Claude round-trip).
+  expectedRoundSeq: number;
 };
 
 // Called after every real turn (full-session or addendum-round alike) so a
 // refresh mid-conversation never loses progress. Deliberately never
-// includes `completed_at` in the payload -- Supabase's upsert only issues
-// `SET` for the columns actually sent, so an in-progress round's turns
-// never clobber a completed_at a previous round already set.
+// includes `completed_at` in the payload -- an in-progress round's turns
+// must not clobber a completed_at a previous round already set. The
+// round_seq match is what stops a late /step from resurrecting pre-confirm
+// active_state after the row was reset.
 export async function saveWeeklySessionTranscript(
   supabase: SupabaseClient,
-  { userId, weekStart, displayTurns, activeState, actionsSoFar }: SaveTranscriptInput,
+  {
+    userId,
+    weekStart,
+    displayTurns,
+    activeState,
+    actionsSoFar,
+    expectedRoundSeq,
+  }: SaveTranscriptInput,
 ): Promise<void> {
-  const { error } = await supabase.from("weekly_session_transcripts").upsert(
-    {
+  const existing = await getWeeklySessionTranscript(supabase, userId, weekStart);
+
+  if (!existing) {
+    const { error } = await supabase.from("weekly_session_transcripts").insert({
       user_id: userId,
       week_start: weekStart,
       display_turns: displayTurns,
       active_state: activeState,
       actions_so_far: actionsSoFar,
+      round_seq: expectedRoundSeq,
       updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,week_start" },
-  );
+    });
+
+    if (error) {
+      // A confirm (or another step) created the row first -- treat as stale
+      // rather than blindly upserting over it.
+      if (error.code === "23505") throw new StaleTranscriptError();
+      throw new Error(`Failed to save weekly session transcript: ${error.message}`);
+    }
+    return;
+  }
+
+  if ((existing.round_seq ?? 0) !== expectedRoundSeq) {
+    throw new StaleTranscriptError();
+  }
+
+  const { data, error } = await supabase
+    .from("weekly_session_transcripts")
+    .update({
+      display_turns: displayTurns,
+      active_state: activeState,
+      actions_so_far: actionsSoFar,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("week_start", weekStart)
+    .eq("round_seq", expectedRoundSeq)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     throw new Error(`Failed to save weekly session transcript: ${error.message}`);
+  }
+  if (!data) throw new StaleTranscriptError();
+}
+
+export async function savePendingProposal(
+  supabase: SupabaseClient,
+  userId: string,
+  weekStart: string,
+  proposed: PendingProposedAction[],
+  sessionActions: ClassifiedAction[],
+): Promise<void> {
+  const { error } = await supabase
+    .from("weekly_session_transcripts")
+    .update({
+      pending_proposed: proposed,
+      pending_session_actions: sessionActions,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("week_start", weekStart);
+
+  if (error) {
+    throw new Error(`Failed to save pending proposal: ${error.message}`);
+  }
+}
+
+export type BeginConfirmResult = "ok" | "duplicate";
+
+// Compare-and-swap the confirm lock. Duplicate fingerprint after a
+// finished confirm is idempotent success. A live lock (or a steal of a
+// stale one) is the only other path that returns to the caller.
+export async function tryBeginConfirm(
+  supabase: SupabaseClient,
+  userId: string,
+  weekStart: string,
+  fingerprint: string,
+): Promise<BeginConfirmResult> {
+  const existing = await getWeeklySessionTranscript(supabase, userId, weekStart);
+
+  if (
+    existing?.last_confirm_fingerprint === fingerprint &&
+    !existing.confirming_at
+  ) {
+    return "duplicate";
+  }
+
+  if (existing?.confirming_at) {
+    const age = Date.now() - new Date(existing.confirming_at).getTime();
+    if (age < STALE_CONFIRM_LOCK_MS) {
+      throw new ConfirmInProgressError();
+    }
+    const { error: clearError } = await supabase
+      .from("weekly_session_transcripts")
+      .update({ confirming_at: null })
+      .eq("user_id", userId)
+      .eq("week_start", weekStart)
+      .eq("confirming_at", existing.confirming_at);
+    if (clearError) {
+      throw new Error(`Failed to clear stale confirm lock: ${clearError.message}`);
+    }
+  }
+
+  const now = new Date().toISOString();
+
+  if (!existing) {
+    const { error } = await supabase.from("weekly_session_transcripts").insert({
+      user_id: userId,
+      week_start: weekStart,
+      confirming_at: now,
+      updated_at: now,
+    });
+    if (error) {
+      if (error.code === "23505") throw new ConfirmInProgressError();
+      throw new Error(`Failed to begin confirm: ${error.message}`);
+    }
+    return "ok";
+  }
+
+  const { data, error } = await supabase
+    .from("weekly_session_transcripts")
+    .update({ confirming_at: now, updated_at: now })
+    .eq("user_id", userId)
+    .eq("week_start", weekStart)
+    .is("confirming_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to begin confirm: ${error.message}`);
+  }
+  if (!data) throw new ConfirmInProgressError();
+  return "ok";
+}
+
+export async function clearConfirmingAt(
+  supabase: SupabaseClient,
+  userId: string,
+  weekStart: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("weekly_session_transcripts")
+    .update({ confirming_at: null, updated_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("week_start", weekStart);
+
+  if (error) {
+    throw new Error(`Failed to clear confirm lock: ${error.message}`);
   }
 }
 
 type RecordConfirmedInput = {
   userId: string;
   weekStart: string;
-  // A short engine-style bubble appended to display_turns marking what
-  // just got written -- e.g. "5 items written to your calendar." -- so
-  // scrolling back through the week's chat shows exactly where each round
-  // closed out, not just an unexplained gap.
   confirmationMessage: string;
+  fingerprint: string;
 };
 
 // Called once /api/weekly-session/confirm actually writes a plan (the
@@ -253,9 +441,11 @@ type RecordConfirmedInput = {
 // why that's a correctness requirement (avoiding a duplicate re-listing of
 // already-confirmed items), not just a cost one. display_turns is
 // untouched apart from the appended marker -- it never resets.
+// round_seq bumps here so an in-flight /step that loaded the previous seq
+// cannot save over this reset.
 export async function recordWeeklySessionConfirmed(
   supabase: SupabaseClient,
-  { userId, weekStart, confirmationMessage }: RecordConfirmedInput,
+  { userId, weekStart, confirmationMessage, fingerprint }: RecordConfirmedInput,
 ): Promise<{ isFirstConfirmThisWeek: boolean }> {
   const existing = await getWeeklySessionTranscript(supabase, userId, weekStart);
   const isFirstConfirmThisWeek = !existing?.completed_at;
@@ -263,6 +453,7 @@ export async function recordWeeklySessionConfirmed(
     ...(existing?.display_turns ?? []),
     { from: "engine", text: confirmationMessage },
   ];
+  const nextSeq = (existing?.round_seq ?? 0) + 1;
 
   const { error } = await supabase.from("weekly_session_transcripts").upsert(
     {
@@ -271,6 +462,11 @@ export async function recordWeeklySessionConfirmed(
       display_turns: displayTurns,
       active_state: { turns: [] },
       actions_so_far: [],
+      round_seq: nextSeq,
+      confirming_at: null,
+      last_confirm_fingerprint: fingerprint,
+      pending_proposed: null,
+      pending_session_actions: null,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id,week_start" },

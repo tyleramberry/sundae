@@ -33,6 +33,8 @@ export async function GET() {
       displayTurns: transcript.display_turns,
       actionsSoFar: transcript.actions_so_far,
       completedThisWeek: transcript.completed_at !== null,
+      pendingProposed: transcript.pending_proposed,
+      pendingSessionActions: transcript.pending_session_actions,
     },
   });
 }
