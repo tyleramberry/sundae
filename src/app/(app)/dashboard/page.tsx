@@ -58,6 +58,13 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [draggedRole, setDraggedRole] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
+  // Bug fix: each role's item popover used to be hover-only (CSS
+  // `:hover`/`pointer-events-none`), with no tap or keyboard path at all --
+  // unreachable on touch devices, the realistic daily-use surface for this
+  // app. `openRole` tracks a click/tap/keyboard-toggled popover alongside
+  // the existing hover behavior (which stays exactly as-is for desktop
+  // mouse users -- this is purely additive).
+  const [openRole, setOpenRole] = useState<string | null>(null);
   // Snapshot of `roles` from right before a drag starts -- if the save
   // below fails, this is what the tiles revert to, so a rejected reorder
   // (say, someone else's edit changed the role list mid-drag) can't leave
@@ -99,6 +106,33 @@ export default function DashboardPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Closes a click/tap-opened popover on an outside click or Escape --
+  // without this, a tap-toggled popover (unlike a hover one) would just
+  // stay open forever once opened. `data-role-popover` on each tile's
+  // wrapper is what "outside" is checked against.
+  useEffect(() => {
+    if (!openRole) return;
+    function handlePointerDown(e: PointerEvent) {
+      // Compared in JS against the matched element's dataset, not built
+      // into the selector string -- role names are user-controlled text
+      // (from onboarding), so they don't belong inside a CSS selector.
+      const target = e.target as HTMLElement;
+      const container = target.closest<HTMLElement>("[data-role-popover]");
+      if (container?.dataset.rolePopover !== openRole) {
+        setOpenRole(null);
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpenRole(null);
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openRole]);
 
   // Both computed straight from the same roles/items /api/dashboard already
   // returned -- no reason to round-trip for numbers already on the page.
@@ -259,11 +293,26 @@ export default function DashboardPage() {
                   >
                     <GripIcon />
                   </span>
-                  <div className="group/role relative">
-                    <span className="line-clamp-1 max-w-[10rem] cursor-default select-none text-center text-sm font-semibold text-black dark:text-zinc-50">
+                  <div className="group/role relative" data-role-popover={tile.role}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenRole((r) => (r === tile.role ? null : tile.role))
+                      }
+                      aria-expanded={openRole === tile.role}
+                      aria-label={`${tile.role} -- this week's items`}
+                      className="line-clamp-1 max-w-[10rem] cursor-pointer select-none appearance-none border-0 bg-transparent p-0 text-center text-sm font-semibold text-black transition hover:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 dark:text-zinc-50 dark:hover:text-zinc-300"
+                    >
                       {tile.role}
-                    </span>
-                    <div className="pointer-events-none absolute left-1/2 top-full z-20 w-60 -translate-x-1/2 pt-2 opacity-0 transition duration-150 group-hover/role:pointer-events-auto group-hover/role:opacity-100">
+                    </button>
+                    <div
+                      className={[
+                        "absolute left-1/2 top-full z-20 w-60 -translate-x-1/2 pt-2 transition duration-150 group-hover/role:pointer-events-auto group-hover/role:opacity-100",
+                        openRole === tile.role
+                          ? "pointer-events-auto opacity-100"
+                          : "pointer-events-none opacity-0",
+                      ].join(" ")}
+                    >
                     <div className="rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
                       {tile.items.length === 0 ? (
                         <p className="text-xs text-zinc-400 dark:text-zinc-500">
