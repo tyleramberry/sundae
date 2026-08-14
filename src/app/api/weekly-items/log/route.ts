@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { currentWeekStart } from "@/lib/weeklySession/persist";
 
 // In-app progress logging (Day 12's "logging is in-app only" requirement,
 // built during the Day 11 UI pass). The daily follow-ups page and the
@@ -9,7 +10,13 @@ import { createClient } from "@/lib/supabase/server";
 //
 // The update is always scoped to `user_id = auth.uid()` in addition to the
 // RLS policy -- any request body is untrusted, so a caller can never touch a
-// row that isn't theirs even if they guess another row's id.
+// row that isn't theirs even if they guess another row's id. Also scoped to
+// the current week and validated against the row's own `type` (bug fix):
+// today's UI only ever links current-week ids that already match `done` to
+// habit/goal and `percent` to project, so this was never reachable in
+// practice, but nothing server-side actually enforced either of those --
+// a client that guessed a past week's id, or sent `done` for a project row,
+// would have silently succeeded and quietly corrupted historical KPI data.
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -46,6 +53,36 @@ export async function POST(request: Request) {
     );
   }
 
+  const weekStart = currentWeekStart();
+
+  const { data: existing, error: readError } = await supabase
+    .from("weekly_items")
+    .select("id, type")
+    .eq("id", body.id)
+    .eq("user_id", user.id)
+    .eq("week_start", weekStart)
+    .maybeSingle();
+
+  if (readError) {
+    return NextResponse.json({ error: readError.message }, { status: 500 });
+  }
+  if (!existing) {
+    return NextResponse.json({ error: "Item not found for this week." }, { status: 404 });
+  }
+
+  if (hasDone && existing.type === "project") {
+    return NextResponse.json(
+      { error: "`done` doesn't apply to a project -- use `percent` instead." },
+      { status: 400 },
+    );
+  }
+  if (hasPercent && existing.type !== "project") {
+    return NextResponse.json(
+      { error: "`percent` only applies to a project -- use `done` for a habit/goal." },
+      { status: 400 },
+    );
+  }
+
   const patch: { done?: boolean; percent?: number; updated_at: string } = {
     updated_at: new Date().toISOString(),
   };
@@ -59,6 +96,7 @@ export async function POST(request: Request) {
     .update(patch)
     .eq("id", body.id)
     .eq("user_id", user.id)
+    .eq("week_start", weekStart)
     .select("id, role, type, title, done, percent")
     .maybeSingle();
 
@@ -66,7 +104,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   if (!data) {
-    return NextResponse.json({ error: "Item not found." }, { status: 404 });
+    return NextResponse.json({ error: "Item not found for this week." }, { status: 404 });
   }
 
   return NextResponse.json({ item: data });
