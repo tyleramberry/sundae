@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { startOfWeek } from "@/lib/google/calendar";
-import { toDateOnly } from "@/lib/weeklySession/persist";
+import { formatPlanningWeekRange, planningWeekStart, planningWeekStartDate } from "@/lib/weeklySession/week";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
 import {
   computeRoleKpi,
@@ -34,7 +33,7 @@ export async function GET() {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const weekStart = toDateOnly(startOfWeek(new Date()));
+  const weekStart = planningWeekStart();
 
   const onboarding = await getOnboardingAnswers(supabase, user.id);
   const roles = onboarding?.roles ?? [];
@@ -80,5 +79,9 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ weekStart, roles: tiles });
+  return NextResponse.json({
+    weekStart,
+    weekLabel: formatPlanningWeekRange(planningWeekStartDate()),
+    roles: tiles,
+  });
 }

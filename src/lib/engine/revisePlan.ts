@@ -15,11 +15,12 @@
 // -day, honoring a named weekday) stay in exactly one place.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicModel } from "@/lib/anthropic/model";
 import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
 
 const client = new Anthropic();
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+const MODEL = getAnthropicModel();
 
 const SYSTEM_PROMPT = `You are helping a user adjust their already-drafted weekly plan on Sundae's confirmation screen. You are given the current list of planned action items and one change the user is asking for. Return the FULL updated list with that change applied, leaving everything the user did not ask to change exactly as it was.
 

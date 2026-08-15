@@ -19,11 +19,12 @@
 // least the KPI numbers.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicModel } from "@/lib/anthropic/model";
 import type { Turn } from "@/lib/engine/types";
 
 const client = new Anthropic();
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+const MODEL = getAnthropicModel();
 
 const SYSTEM_PROMPT = `You read the transcript of a completed Sundae weekly-planning session. Early in the session (Stage 1, Accountability -- only present if the user had a prior week to review), Sundae asked the user what felt like wins from last week and what could be improved, and the user answered in their own words across one or more turns.
 

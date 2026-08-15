@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { startOfWeek } from "@/lib/google/calendar";
+import { planningWeekStartDate } from "@/lib/weeklySession/week";
 import { getLastWeekContext, toDateOnly } from "@/lib/weeklySession/persist";
 import { computeRoleKpi, type KpiItem } from "@/lib/kpi/compute";
 import type { ActionType } from "@/lib/engine/weeklySessionTypes";
@@ -24,7 +24,7 @@ export async function GET() {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const nowWeekStart = startOfWeek(new Date());
+  const nowWeekStart = planningWeekStartDate();
 
   // ---- Last week's pooled completion rate ----
   const lastWeekContext = await getLastWeekContext(supabase, user.id);

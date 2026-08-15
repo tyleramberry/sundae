@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createTestEvent, GoogleCalendarError } from "@/lib/google/calendar";
+import { isProductionRuntime, productionUnavailableResponse } from "@/lib/devOnly";
 
 export async function POST() {
+  if (isProductionRuntime()) return productionUnavailableResponse();
+
   const supabase = await createClient();
   const {
     data: { user },

@@ -44,9 +44,9 @@ function GripIcon() {
 
 // Current-week KPI dashboard (Day 16 all-rings-at-once redesign). Every
 // role's ring is visible at once with nothing underneath it -- what's
-// planned for a role is tucked behind a hover on that role's title instead
-// of being permanently on-page, so the grid stays a single glance instead
-// of a scroll. Clicking a ring (or the number inside it) jumps straight to
+// planned for a role is tucked behind a hover or tap on that role's title
+// instead of being permanently on-page, so the grid stays a single glance
+// instead of a scroll. Clicking a ring (or the number inside it) jumps straight to
 // that role's 6-week trend; logging itself now lives only on
 // /daily-follow-ups (reachable from the sidebar), so this page stays fully
 // read-only.
@@ -54,6 +54,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [load, setLoad] = useState<Load>("checking");
   const [roles, setRoles] = useState<RoleTile[]>([]);
+  const [weekLabel, setWeekLabel] = useState<string | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draggedRole, setDraggedRole] = useState<string | null>(null);
@@ -99,6 +100,7 @@ export default function DashboardPage() {
         return;
       }
       setRoles(body.roles ?? []);
+      setWeekLabel(typeof body.weekLabel === "string" ? body.weekLabel : null);
       setLoad("ready");
 
       const summaryBody = await summaryRes.json().catch(() => null);
@@ -236,7 +238,7 @@ export default function DashboardPage() {
               Sundae
             </span>
             <h1 className="mt-1 text-2xl font-semibold text-black dark:text-zinc-50">
-              This week
+              {weekLabel ?? "This week"}
             </h1>
           </div>
           <Link
@@ -306,12 +308,11 @@ export default function DashboardPage() {
                       {tile.role}
                     </button>
                     <div
-                      className={[
-                        "absolute left-1/2 top-full z-20 w-60 -translate-x-1/2 pt-2 transition duration-150 group-hover/role:pointer-events-auto group-hover/role:opacity-100",
+                      className={`absolute left-1/2 top-full z-20 w-60 -translate-x-1/2 pt-2 transition duration-150 ${
                         openRole === tile.role
                           ? "pointer-events-auto opacity-100"
-                          : "pointer-events-none opacity-0",
-                      ].join(" ")}
+                          : "pointer-events-none opacity-0 group-hover/role:pointer-events-auto group-hover/role:opacity-100 group-focus-within/role:pointer-events-auto group-focus-within/role:opacity-100"
+                      }`}
                     >
                     <div className="rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
                       {tile.items.length === 0 ? (
@@ -321,10 +322,7 @@ export default function DashboardPage() {
                       ) : (
                         <ul className="flex flex-col gap-1">
                           {tile.items.map((item) => {
-                            const complete =
-                              item.type === "project"
-                                ? (item.percent ?? 0) >= 100
-                                : item.done;
+                            const complete = isItemComplete(item);
                             return (
                               <li
                                 key={item.id}

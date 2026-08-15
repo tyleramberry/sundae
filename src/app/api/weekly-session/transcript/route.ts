@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { currentWeekStart, getWeeklySessionTranscript } from "@/lib/weeklySession/persist";
+import {
+  getCommittedPlanActions,
+  getWeeklySessionTranscript,
+} from "@/lib/weeklySession/persist";
+import {
+  formatPlanningWeekRange,
+  planningWeekStart,
+  planningWeekStartDate,
+} from "@/lib/weeklySession/week";
 
 // Day 16: page-load hydration for the weekly-session chat. Returns this
 // week's persisted transcript (or `{ transcript: null }` for a user with
@@ -20,19 +28,31 @@ export async function GET() {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const weekStart = currentWeekStart();
+  const weekStart = planningWeekStart();
+  const weekLabel = formatPlanningWeekRange(planningWeekStartDate());
   const transcript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
+  const committedActions = await getCommittedPlanActions(supabase, user.id, weekStart);
 
   if (!transcript) {
-    return NextResponse.json({ transcript: null });
+    return NextResponse.json({
+      weekStart,
+      weekLabel,
+      committedActions,
+      transcript: null,
+    });
   }
 
   return NextResponse.json({
+    weekStart,
+    weekLabel,
+    committedActions,
     transcript: {
       weekStart: transcript.week_start,
       displayTurns: transcript.display_turns,
       actionsSoFar: transcript.actions_so_far,
       completedThisWeek: transcript.completed_at !== null,
+      pendingProposed: transcript.pending_proposed,
+      pendingSessionActions: transcript.pending_session_actions,
     },
   });
 }

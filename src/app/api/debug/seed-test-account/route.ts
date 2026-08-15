@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isProductionRuntime, productionUnavailableResponse } from "@/lib/devOnly";
 import { saveOnboardingAnswers } from "@/lib/onboarding/persist";
 import { startOfWeek } from "@/lib/google/calendar";
+import { toDateOnly } from "@/lib/weeklySession/persist";
 import type { RoleAnswer } from "@/lib/engine/types";
 
 // Dev-only demo seeder: creates a separate fake account (never your real
@@ -34,10 +36,6 @@ function planWeek(templates: ItemTemplate[], targetPercent: number) {
     }
     return { ...t, done: i < doneCount, percent: null as number | null };
   });
-}
-
-function toDateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }
 
 function weekStartsAgo(weeksAgo: number): string {
@@ -100,9 +98,7 @@ async function findOrCreateTestUser(admin: ReturnType<typeof createAdminClient>)
 }
 
 export async function GET(request: NextRequest) {
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "Not available outside local dev." }, { status: 404 });
-  }
+  if (isProductionRuntime()) return productionUnavailableResponse();
 
   const admin = createAdminClient();
 

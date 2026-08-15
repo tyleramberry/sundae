@@ -2,12 +2,18 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { GoogleCalendarError, createCalendarEvent } from "@/lib/google/calendar";
 import {
+  clearConfirmingAt,
+  ConfirmInProgressError,
   createWeeklyItems,
-  currentWeekStart,
+  fingerprintProposed,
   getLastWeekContext,
   getWeeklySessionTranscript,
   recordWeeklySessionConfirmed,
+  tryBeginConfirm,
+  type PendingProposedAction,
 } from "@/lib/weeklySession/persist";
+import { planningWeekStart } from "@/lib/weeklySession/week";
+import { isIncomingAction } from "@/lib/weeklySession/parseActions";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
 import { computeKpisForRoles, groupItemsByRole, type KpiItem } from "@/lib/kpi/compute";
 import { getSessionRecap } from "@/lib/agents/sessionRecapAgent";
@@ -15,32 +21,6 @@ import { EmailError, sendSessionRecapEmail } from "@/lib/email/sessionRecap";
 import type { ProposedAction } from "@/lib/planning/blocks";
 import type { Turn } from "@/lib/engine/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-type IncomingBlock = { start: string; end: string };
-type IncomingAction = {
-  role: string;
-  description: string;
-  type: "habit" | "goal" | "project";
-  blocks: IncomingBlock[];
-};
-
-function isIncomingAction(value: unknown): value is IncomingAction {
-  if (!value || typeof value !== "object") return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.role === "string" &&
-    typeof v.description === "string" &&
-    (v.type === "habit" || v.type === "goal" || v.type === "project") &&
-    Array.isArray(v.blocks) &&
-    v.blocks.every(
-      (b) =>
-        b &&
-        typeof b === "object" &&
-        typeof (b as Record<string, unknown>).start === "string" &&
-        typeof (b as Record<string, unknown>).end === "string",
-    )
-  );
-}
 
 // Best-effort session-recap send: the wins/improvements the user gave
 // during this session's Accountability stage (extracted from the real
@@ -124,12 +104,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const weekStart = currentWeekStart();
+  const weekStart = planningWeekStart();
+  const fingerprint = fingerprintProposed(proposed as PendingProposedAction[]);
+  let wroteAnyEvent = false;
+  let calendarWarning: string | null = null;
 
   try {
+    const begin = await tryBeginConfirm(supabase, user.id, weekStart, fingerprint);
+    if (begin === "duplicate") {
+      return NextResponse.json({ ok: true, itemsCreated: 0, recapEmailSent: false, alreadyConfirmed: true });
+    }
+
     const withEventIds: (ProposedAction & { eventIds: string[] })[] = [];
 
-    for (const action of proposed as IncomingAction[]) {
+    for (const action of proposed as PendingProposedAction[]) {
       if (action.type === "project") {
         withEventIds.push({
           role: action.role,
@@ -145,13 +133,22 @@ export async function POST(request: Request) {
       for (const block of action.blocks) {
         const start = new Date(block.start);
         const end = new Date(block.end);
-        const event = await createCalendarEvent(supabase, user.id, {
-          summary: action.description,
-          description: `Sundae ${action.type} — ${action.role}`,
-          start,
-          end,
-        });
-        eventIds.push(event.id);
+        try {
+          const event = await createCalendarEvent(supabase, user.id, {
+            summary: action.description,
+            description: `Sundae ${action.type} — ${action.role}`,
+            start,
+            end,
+          });
+          eventIds.push(event.id);
+          wroteAnyEvent = true;
+        } catch (error) {
+          if (error instanceof GoogleCalendarError) {
+            calendarWarning = error.message;
+            continue;
+          }
+          throw error;
+        }
       }
 
       withEventIds.push({
@@ -165,21 +162,18 @@ export async function POST(request: Request) {
 
     const created = await createWeeklyItems(supabase, user.id, new Date(), withEventIds);
 
-    // Day 16: mark this round confirmed -- resets active_state so the next
-    // message starts a fresh, scoped addendum round instead of replaying
-    // this whole round back into Claude (see recordWeeklySessionConfirmed
-    // and the migration's header comment). Read the round's transcript
-    // *before* this call, since it resets active_state as a side effect --
-    // that transcript is also the source for the recap email below, so the
-    // server no longer trusts a client-supplied transcript for it.
     const priorTranscript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
     const roundTurns: Turn[] = priorTranscript?.active_state.turns ?? [];
 
-    const confirmationMessage = `${created} item${created === 1 ? "" : "s"} written to your calendar.`;
+    const confirmationMessage =
+      calendarWarning && created > 0
+        ? `${created} item${created === 1 ? "" : "s"} saved to this week's plan. Calendar write failed: ${calendarWarning}`
+        : `${created} item${created === 1 ? "" : "s"} written to your calendar.`;
     const { isFirstConfirmThisWeek } = await recordWeeklySessionConfirmed(supabase, {
       userId: user.id,
       weekStart,
       confirmationMessage,
+      fingerprint,
     });
 
     // The plan is written -- everything after this point is a nice-to-have
@@ -192,11 +186,29 @@ export async function POST(request: Request) {
       ? await sendRecapBestEffort(supabase, user.id, user.email, roundTurns)
       : false;
 
-    return NextResponse.json({ ok: true, itemsCreated: created, recapEmailSent });
+    return NextResponse.json({
+      ok: true,
+      itemsCreated: created,
+      recapEmailSent,
+      calendarWarning: calendarWarning ?? undefined,
+    });
   } catch (error) {
-    if (error instanceof GoogleCalendarError) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof ConfirmInProgressError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
     }
+    if (wroteAnyEvent) {
+      return NextResponse.json(
+        {
+          error:
+            "Some events were already written to Google Calendar. Check the calendar — don't confirm this plan again.",
+          partialWrite: true,
+        },
+        { status: 409 },
+      );
+    }
+    await clearConfirmingAt(supabase, user.id, weekStart).catch((err) => {
+      console.error("Failed to release confirm lock after confirm error:", err);
+    });
     throw error;
   }
 }

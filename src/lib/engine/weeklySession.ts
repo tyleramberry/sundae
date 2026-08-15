@@ -18,6 +18,7 @@
 // gets classified into a Habit, Goal, or Project.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicModel } from "@/lib/anthropic/model";
 import type {
   ClassifiedAction,
   ConversationState,
@@ -27,10 +28,11 @@ import type {
   WeeklySessionOutput,
 } from "@/lib/engine/weeklySessionTypes";
 import { withPersonalRole } from "@/lib/engine/weeklySessionTypes";
+import { stabilizeActions } from "@/lib/engine/stabilizeActions";
 
 const client = new Anthropic();
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+const MODEL = getAnthropicModel();
 
 // Shared between the full-session prompt (Stage 3, per role) and the
 // addendum prompt (Day 16 -- a lightweight mid-week continuation of the
@@ -46,6 +48,8 @@ const SHARED_ITEM_RULES = `**When you name a specific day, put it in the descrip
 **Every Habit/Goal action item needs a real clock time, not a day-part.** This is the whole point of the session -- Sundae hands the user back specific calendar blocks, not a vague plan. "Make a block on Thursday afternoon" is not done yet: a day-part ("morning", "afternoon", "evening", "sometime this week") is not a time. Before an action item counts as captured, ask a direct follow-up until you have either an actual clock time ("2pm", "7am", "after the kids are in bed" -> ask what time that usually is) or a tight window you can anchor a start time to ("2-3pm" -> "14:00"). One follow-up is usually enough -- "What time Thursday afternoon works best?" -- don't interrogate over multiple turns once you have a real answer. Record it in \`preferredTime\` as 24-hour "HH:MM", local time. The only exception is a user who explicitly has no preference after being asked ("whenever, you pick") -- then leave \`preferredTime\` out and let scheduling pick the slot, but only after you actually asked, never by skipping the question. Project action items never get calendar time, so never ask this for a Project.
 
 **Never guess a clock time out of a vague answer, and never both ask and answer in the same turn.** A day-part on its own -- "afternoon", "morning", "evening", "later" -- is not a clock time, even though a plausible-sounding one ("afternoon" -> "2pm") is easy to infer. If your \`reply\` this turn is asking what time works for a given item (including asking it a second time because the first answer was still just a day-part), that exact item's \`preferredTime\` must be left out of \`actions\` this turn -- it doesn't get a value until the user has actually given one. Asking the question and reporting a guessed value for the same item in the same response is never correct, no matter how reasonable the guess looks.
+
+**Do not duplicate an ongoing Project.** If last week's data or "Already locked in this round" already has a Project, and the user is naming this week's slice of that same work ("get the deck out to the two leads" for an ongoing "Close the seed round", "price out the weekend trip" for "Plan the weekend trip"), keep the original Project entry unchanged (same description) and add the slice as a Goal. Never emit a second Project that is really the same effort under a more specific name -- that splits the 6-week trend. The original multi-week aspiration stays the Project; the this-week piece is the Goal.
 
 **Never assume how many blocks/times without asking.** If the user's phrasing already states a cadence or count outright ("every day", "3x a week", "twice"), that answer already covers it -- classify straight from it per the cadence-parsing rule below, no need to ask again. But if an action item doesn't say, one way or the other, whether it's a single occurrence or something repeated -- "make a block on Thursday afternoon" doesn't say if that's a one-time thing or every Thursday -- ask before classifying: "Is that a one-time thing this week, or do you want it more than once -- and if so, how many times?" Don't default a bare, cadence-less action to a single Goal-type block just because that's the fallback; ask first, and only settle on one block once the user's answer actually confirms it's one-time.
 
@@ -104,7 +108,7 @@ For each role, this is ONE continuous line of questioning with two distinct move
 
 **The last role in "Roles this week" is always the reserved role "Personal."** It's appended automatically, not something the user set up as one of their roles -- a catch-all for anything that genuinely doesn't belong to Founder/Athlete/Parent/etc. Two things follow from that:
 
-- **Default role attribution.** An action item captured during a role's Stage 2/3 turn belongs to that role by default -- don't go looking for reasons to reclassify it as Personal. The one exception: if what the user describes is clearly disconnected from the role whose turn it currently is -- they say so outright ("that's more personal, not really founder work"), or it's obviously unrelated (health, home, personal admin, anything not tied to the hat they're wearing in this turn) -- classify it under Personal right then, even though it came up during a different role's turn. Don't wait for Personal's own turn to capture something the user has already told you isn't about the role you're currently on, and don't force a stretch fit into the current role just because that's whose turn it is.
+- **Default role attribution.** An action item captured during a role's Stage 2/3 turn belongs to that role by default -- don't go looking for reasons to reclassify it as Personal. The one exception: if what the user describes is clearly disconnected from the role whose turn it currently is -- they say so outright ("that's more personal, not really founder work"), or it's obviously unrelated (health, home, personal admin, anything not tied to the hat they're wearing in this turn) -- classify it under Personal right then, even though it came up during a different role's turn. Don't wait for Personal's own turn to capture something the user has already told you isn't about the role you're currently on, and don't force a stretch fit into the current role just because that's whose turn it is. **Never shop the other declared hats to find a fit.** "Meditate most mornings, that's more of a personal habit" during Founder's turn is Personal, not Athlete -- even though Athlete is a real role on file. Only file under a *different* declared role if the user explicitly names that role.
 - **Personal's own Stage 2 opener is different.** Don't reuse "What's the most important thing you can do this week as Personal?" -- it reads wrong for a catch-all. Ask something like: "Anything personal you want to make room for this week -- not tied to any of the roles above? Totally fine if there's nothing." Because most weeks a user may genuinely have nothing here, accept a quick decline immediately -- don't apply the "at least one genuine drill-down attempt" expectation the skip escape valve below uses for a real declared role.
 
 **Stage 2 -- Goal Setting.** Open with context: "What's the most important thing you can do this week as {role}?" (or a natural variant). This is deliberately open-ended -- it is NOT yet expected to be a finished goal. The reply only ends Stage 2 for this role once it clears the SMART bar (defined below). A reply that's still vague, blank, or just raw context does not count as a goal -- drill down instead of moving on. If the reply is completely empty or deflecting with no direction at all (not just missing one SMART letter), spark a direction instead of targeting a specific letter, e.g.: "If you could only get one thing done this week, what would make it feel like a successful week?" or "What's been nagging at you about {role} that you keep not getting to?"
@@ -112,6 +116,8 @@ For each role, this is ONE continuous line of questioning with two distinct move
 **Stage 3 -- Planning (action items + classification), immediately after Stage 2 for the same role.** Once there's a SMART goal, ask what it would actually take to move forward THIS WEEK: "What would you actually need to do this week to make progress on that?" This is a real question, not something you infer silently from the goal text -- the answer is what becomes the action item(s). Every action item gets held to the same SMART bar as the goal, independently -- a goal can be SMART-but-ongoing (see the Timely rule below) while its action items for this week are still fully SMART on their own.
 
 **Always ask for more than one action item before moving on.** After the user gives their first action item for a role, do NOT immediately jump to the next role. Ask whether there's anything else they want to do for that role this week -- e.g. "Got it. Anything else you want to tackle for {role} this week, or is that it?" Only once the user signals they're done (there is genuinely nothing else, "that's it", "nope that's all") do you move to the next role's Stage 2 opener. This "anything else?" check happens for every role, even if the first answer already looked complete -- a role's week is usually more than one action, and the whole point of Sundae is helping the user surface the rest rather than stopping at the first thing they typed. The only exception is a user who explicitly skipped the role in Stage 2.
+
+**Never stall between roles.** When a role is finished -- they said that's all, they skipped it, or you have their items -- the SAME \`reply\` must open the next role's Stage 2 question. Do not end a turn with only an acknowledgment ("Got it.", "Sounds good.") and wait for them to prompt you. The only turn that may omit a next question is the one where \`done\` is true (a short wrap-up is fine then).
 
 Each real action item the user gives -- the first and every follow-up -- gets classified immediately (Habit / Goal / Project, with cadence parsing) and appended to \`actions\` as it comes in, so a role with three action items ends up as three entries. Do not ask the user to confirm the classification -- that's your job, not theirs, same as onboarding never asks the user to pick a role category. Move to the next role's Stage 2 opener only after the "anything else?" check comes back empty.
 
@@ -165,7 +171,7 @@ function formatLastWeek(lastWeek: LastWeekContext | null | undefined): string {
     return `- [${item.role}] (${item.type}) "${item.title}" -- ${status}`;
   });
 
-  return `Last week's data (week of ${lastWeek.weekStart}):\n${lines.join("\n")}`;
+  return `Last week's data (week of ${lastWeek.weekStart}):\n${lines.join("\n")}\n\nOngoing Projects in that list keep their title this week if they roll over. A this-week slice of one of those Projects is a Goal, not a second Project.`;
 }
 
 // Renders whatever the caller already had locked in earlier this same
@@ -202,11 +208,17 @@ function buildSystemBlocks(
   roles: string[],
   lastWeek: LastWeekContext | null | undefined,
   lockedActions: ClassifiedAction[],
+  weekLabel?: string,
+  weekStart?: string,
 ): Anthropic.TextBlockParam[] {
+  const weekLine = weekLabel
+    ? `You are planning **${weekLabel}**${weekStart ? ` (Sunday ${weekStart} through the following Saturday)` : ""}. Whenever you say "this week", you mean that exact range — not last week, and not leftover days of a week that's already almost over.\n\n`
+    : "";
+
   if (mode === "addendum") {
     const dynamic = `## This round's actual data
 
-Roles on file for this user, exactly as they must appear in \`role\` (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above): ${roles.map((r) => `"${r}"`).join(", ")}${formatLockedActions(lockedActions)}`;
+${weekLine}Roles on file for this user, exactly as they must appear in \`role\` (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above): ${roles.map((r) => `"${r}"`).join(", ")}${formatLockedActions(lockedActions)}`;
 
     return [
       { type: "text", text: ADDENDUM_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
@@ -216,7 +228,7 @@ Roles on file for this user, exactly as they must appear in \`role\` (the last o
 
   const dynamic = `## This session's actual data
 
-Roles this week, in the exact order to run Stage 2+3 (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above, not one of the user's declared roles): ${roles.map((r) => `"${r}"`).join(", ")}
+${weekLine}Roles this week, in the exact order to run Stage 2+3 (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above, not one of the user's declared roles): ${roles.map((r) => `"${r}"`).join(", ")}
 
 ${formatLastWeek(lastWeek)}${formatLockedActions(lockedActions)}`;
 
@@ -326,7 +338,14 @@ export async function processWeeklySessionMessage(
     model: MODEL,
     max_tokens: 1536,
     thinking: { type: "disabled" },
-    system: buildSystemBlocks(mode, roles, input.lastWeek, lockedActions),
+    system: buildSystemBlocks(
+      mode,
+      roles,
+      input.lastWeek,
+      lockedActions,
+      input.weekLabel,
+      input.weekStart,
+    ),
     tools: [buildTool(mode)],
     tool_choice: { type: "tool", name: "weekly_session_turn" },
     messages,
@@ -342,6 +361,14 @@ export async function processWeeklySessionMessage(
   }
   const result = toolUse.input as ToolInput;
 
+  const actions = stabilizeActions({
+    locked: lockedActions,
+    incoming: Array.isArray(result.actions) ? result.actions : [],
+    roles,
+    lastWeekItems: input.lastWeek?.items,
+    reply: result.reply,
+  });
+
   const nextState: ConversationState = {
     turns: [...turnsWithUserMessage, { role: "assistant", content: result.reply }],
   };
@@ -349,8 +376,8 @@ export async function processWeeklySessionMessage(
   return {
     reply: result.reply,
     state: nextState,
-    action: result.done ? { type: "complete", actions: result.actions } : { type: "ask" },
-    actionsSoFar: result.actions,
+    action: result.done ? { type: "complete", actions } : { type: "ask" },
+    actionsSoFar: actions,
     usage: {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,

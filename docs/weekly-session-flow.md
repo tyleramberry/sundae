@@ -29,7 +29,7 @@ roles/goals conversation the old onboarding chat used to run: same engine
 same "roles → confirm list → per-role big three → one final summary"
 shape. Nothing about the conversation itself changed — only when it runs.
 
-- Driven client-side by `src/app/weekly-session/page.tsx`'s `roles-setup`
+- Driven client-side by `src/app/(app)/weekly-session/page.tsx`'s `roles-setup`
   stage, reusing the exact chat UI treatment onboarding used to own.
 - On completion (`action.type === "complete"`), the page calls `POST
   /api/onboarding/complete` — the same persistence route and

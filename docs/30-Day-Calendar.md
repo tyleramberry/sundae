@@ -223,7 +223,7 @@ No development, content, or ad work. Full day off.
 ### Day 12 — Wed 8/12 — Daily brief + KPI dashboard (current week)
 **Development**
 - Build the "today" half of the daily email: today's big three + carryover tasks
-- **Build the KPI dashboard**, e.g. `src/app/dashboard/page.tsx`: one tile per role from `onboarding_answers.roles`, current week only. Query `weekly_items` for `user_id` + `week_start` = current week and `removed_at is null`, grouped by role: denominator = row count, numerator = count where (`type in ('habit','goal')` and `done`) or (`type = 'project'` and `percent = 100`). A role with zero rows still renders a tile showing 0/0, not a missing tile.
+- **Build the KPI dashboard**, e.g. `src/app/(app)/dashboard/page.tsx`: one tile per role from `onboarding_answers.roles`, current week only. Query `weekly_items` for `user_id` + `week_start` = current week and `removed_at is null`, grouped by role: denominator = row count, numerator = count where (`type in ('habit','goal')` and `done`) or (`type = 'project'` and `percent = 100`). A role with zero rows still renders a tile showing 0/0, not a missing tile.
 - **Build the in-app logging UI** that the daily nudge links to: a checkbox per habit/goal `weekly_items` row (toggles `done`), a slider per project row (writes `percent`; only counts toward the numerator at exactly 100).
 - *Outcome:* Daily email shows yesterday's recap and today's focus in one send; the KPI dashboard shows this week's live completion per role; logging a habit, goal, or project in-app immediately moves its role's KPI.
 - **Not in scope today:** the 6-week trend view (clicking into a KPI) — that's Day 15, so today doesn't get overloaded on top of the daily brief work.
@@ -271,7 +271,7 @@ No development, content, or ad work. Full day off.
 ### Day 15 — Sat 8/15 — Dogfood #2 + beta recruitment + KPI trend view
 **Development**
 - Buffer day — catch up on anything slipping from week 2
-- **Build the 6-week KPI trend view.** Clicking a dashboard tile opens a per-role view (e.g. `src/app/dashboard/[role]/trend/page.tsx`) showing completion **percentage** — not raw count, since role size varies week to week — for the last 6 `week_start` values, current week included and live. Groups `weekly_items` by `week_start` for that role, same numerator/denominator math as the dashboard tile, computed per week. A week with 0 rows (nothing planned) renders as "no data," not 0%. A user active fewer than 6 weeks sees only the weeks that actually exist — no padded empty weeks.
+- **Build the 6-week KPI trend view.** Clicking a dashboard tile opens a per-role view (e.g. `src/app/(app)/dashboard/[role]/trend/page.tsx`) showing completion **percentage** — not raw count, since role size varies week to week — for the last 6 `week_start` values, current week included and live. Groups `weekly_items` by `week_start` for that role, same numerator/denominator math as the dashboard tile, computed per week. A week with 0 rows (nothing planned) renders as "no data," not 0%. A user active fewer than 6 weeks sees only the weeks that actually exist — no padded empty weeks.
 - **DM 10-15 people in your network to recruit 5-10 committed beta testers; prepare a short beta-tester instructions doc**, using yesterday's DM script *(moved from original Sunday plan, Day 16)*
 - *Outcome:* Week 2 scope fully closed out, the KPI trend view is live, and 5-10 beta testers committed ahead of Monday's onboarding
 

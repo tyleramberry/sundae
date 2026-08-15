@@ -92,6 +92,11 @@ export type WeeklySessionInput = {
   // no matter what the caller passed in. Still required in "addendum" mode,
   // so a new action item can be validated against a real role.
   roles: string[];
+  // Inclusive Sunday–Saturday this session is planning, so the model and
+  // the user stay aligned on "this week" (especially Friday/Saturday when
+  // that range is the upcoming week, not the one that's almost over).
+  weekLabel?: string;
+  weekStart?: string;
   // Omitted/null for a user's first-ever weekly session -- there's no
   // prior week to review, so Stage 1 (Accountability) is skipped entirely
   // and the session opens straight into Stage 2 for the first role. Not

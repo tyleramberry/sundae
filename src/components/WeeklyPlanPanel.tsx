@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef } from "react";
 import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
 import { weekdayFromText } from "@/lib/planning/blocks";
 
@@ -68,9 +71,11 @@ function timeLabel(action: ClassifiedAction): string | null {
 export default function WeeklyPlanPanel({
   roles,
   actionsSoFar,
+  weekConfirmed = false,
 }: {
   roles: string[];
   actionsSoFar: ClassifiedAction[];
+  weekConfirmed?: boolean;
 }) {
   // Group by the exact role order onboarding_answers.roles supplied -- the
   // same order the session runs through -- so the visual reads top-to-
@@ -86,6 +91,12 @@ export default function WeeklyPlanPanel({
     byRole.set(action.role, list);
   }
 
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [actionsSoFar]);
+
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
       <div>
@@ -93,8 +104,10 @@ export default function WeeklyPlanPanel({
           Plan so far
         </p>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          What Sundae is picking up as you talk. Nothing here is on your
-          calendar yet.
+          What Sundae is picking up as you talk
+          {weekConfirmed
+            ? " — this week's plan stays here after you confirm."
+            : ". Nothing here is on your calendar until you confirm."}
         </p>
       </div>
 
@@ -110,7 +123,7 @@ export default function WeeklyPlanPanel({
 
             {items.length === 0 ? (
               <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
-                Waiting for this role&hellip;
+                {weekConfirmed ? "Nothing planned for this role." : "Waiting for this role…"}
               </p>
             ) : (
               <ul className="mt-2 flex flex-col gap-2">
@@ -163,6 +176,7 @@ export default function WeeklyPlanPanel({
           </section>
         ))}
       </div>
+      <div ref={endRef} />
     </div>
   );
 }

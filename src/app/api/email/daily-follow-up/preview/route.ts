@@ -1,3 +1,4 @@
+import { isProductionRuntime, productionUnavailableResponse } from "@/lib/devOnly";
 import { buildDailyFollowUpEmail } from "@/lib/email/dailyFollowUp";
 import type { TodayBrief } from "@/lib/dailyBrief/gather";
 import type { NudgeCopy } from "@/lib/agents/dailyNudgeAgent";
@@ -32,6 +33,8 @@ const EXAMPLE_COPY: NudgeCopy = {
 };
 
 export async function GET() {
+  if (isProductionRuntime()) return productionUnavailableResponse();
+
   const { html } = buildDailyFollowUpEmail(EXAMPLE_BRIEF, EXAMPLE_COPY);
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }

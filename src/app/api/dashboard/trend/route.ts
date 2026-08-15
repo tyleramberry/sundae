@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { startOfWeek } from "@/lib/google/calendar";
+import { planningWeekStartDate } from "@/lib/weeklySession/week";
 import { computeRoleKpi, type KpiItem } from "@/lib/kpi/compute";
+import { toDateOnly } from "@/lib/weeklySession/persist";
 import type { ActionType } from "@/lib/engine/weeklySessionTypes";
 
 // Day 15's 6-week trend, read by /dashboard/[role]/trend. Per the MVP spec:
@@ -22,10 +23,6 @@ function subWeeks(date: Date, weeks: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() - weeks * 7);
   return d;
-}
-
-function toDateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }
 
 export async function GET(request: Request) {
@@ -66,10 +63,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ role, weeks: [] as WeekPoint[] });
   }
 
-  const currentWeekStart = toDateOnly(startOfWeek(new Date()));
+  const currentWeekStart = toDateOnly(planningWeekStartDate());
+  const currentWeekDate = planningWeekStartDate();
   const candidateStarts: string[] = [];
   for (let i = 5; i >= 0; i--) {
-    candidateStarts.push(toDateOnly(startOfWeek(subWeeks(new Date(), i))));
+    candidateStarts.push(toDateOnly(subWeeks(currentWeekDate, i)));
   }
   const weekStarts = candidateStarts.filter((w) => w >= earliest.week_start);
 
