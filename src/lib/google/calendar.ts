@@ -86,18 +86,23 @@ export function endOfWeek(date: Date): Date {
   return end;
 }
 
-// Reads the signed-in user's primary calendar events for the current week
-// (Sun-Sat, local server time).
-export async function listCurrentWeekEvents(
+export function endOfWeekFromStart(weekStart: Date): Date {
+  const end = new Date(weekStart);
+  end.setDate(end.getDate() + 7);
+  return end;
+}
+
+// Reads the signed-in user's primary calendar events for a Sun–Sat week.
+export async function listWeekEvents(
   supabase: SupabaseClient,
   userId: string,
+  weekStart: Date,
 ) {
   const accessToken = await getValidAccessToken(supabase, userId);
 
-  const now = new Date();
   const params = new URLSearchParams({
-    timeMin: startOfWeek(now).toISOString(),
-    timeMax: endOfWeek(now).toISOString(),
+    timeMin: weekStart.toISOString(),
+    timeMax: endOfWeekFromStart(weekStart).toISOString(),
     singleEvents: "true",
     orderBy: "startTime",
   });
@@ -113,6 +118,15 @@ export async function listCurrentWeekEvents(
   }
 
   return response.json();
+}
+
+// Convenience for callers that want the wall-clock current week rather
+// than the planning week (debug calendar page, daily brief).
+export async function listCurrentWeekEvents(
+  supabase: SupabaseClient,
+  userId: string,
+) {
+  return listWeekEvents(supabase, userId, startOfWeek(new Date()));
 }
 
 export type CreateCalendarEventInput = {

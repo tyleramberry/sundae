@@ -20,6 +20,8 @@ Required env (see existing Vercel project): `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
 `CRON_SECRET` (cron fails closed if unset), Google OAuth client
 id/secret, `ANTHROPIC_API_KEY`, optional `ANTHROPIC_MODEL`, Resend keys.
+Production canonical URL is `https://sundaeplanner.com` (`NEXT_PUBLIC_APP_URL`).
+Vercel `*.vercel.app` document requests redirect there (cron stays on Vercel).
 
 ## Scripts
 

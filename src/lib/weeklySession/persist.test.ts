@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { fingerprintProposed, toDateOnly } from "./persist";
+import { fingerprintProposed, classifiedActionsFromWeeklyItems, toDateOnly } from "./persist";
 
 describe("toDateOnly", () => {
   it("keeps local midnight on the same calendar date", () => {
@@ -27,5 +27,19 @@ describe("fingerprintProposed", () => {
     ];
     assert.equal(fingerprintProposed(a), fingerprintProposed(a));
     assert.notEqual(fingerprintProposed(a), fingerprintProposed(moved));
+  });
+});
+
+describe("classifiedActionsFromWeeklyItems", () => {
+  it("collapses cadence rows and keeps one-off goals", () => {
+    const actions = classifiedActionsFromWeeklyItems([
+      { role: "Athlete", type: "habit", title: "Run" },
+      { role: "Athlete", type: "habit", title: "Run" },
+      { role: "Founder", type: "goal", title: "Send the update" },
+    ]);
+    assert.equal(actions.length, 2);
+    const run = actions.find((a) => a.description === "Run");
+    assert.equal(run?.cadenceCount, 2);
+    assert.equal(actions.find((a) => a.description === "Send the update")?.type, "goal");
   });
 });

@@ -1,4 +1,6 @@
-import type { FormEvent, RefObject } from "react";
+"use client";
+
+import { useEffect, useRef, type FormEvent, type RefObject } from "react";
 import { ChatBubble, TypingDots } from "@/components/weekly-session/ChatBits";
 
 type Turn = { from: "engine" | "user"; text: string };
@@ -20,6 +22,11 @@ export function RolesSetupScreen({
   onSubmit: (e: FormEvent) => void;
   chatInputRef: RefObject<HTMLInputElement | null>;
 }) {
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns, sending]);
+
   return (
     <div className="flex flex-1 flex-col items-center bg-zinc-50 px-6 py-16 font-sans dark:bg-black">
       <div className="flex w-full max-w-lg flex-1 flex-col gap-6">
@@ -34,11 +41,12 @@ export function RolesSetupScreen({
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex flex-1 flex-col gap-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
           {turns.map((turn, i) => (
             <ChatBubble key={i} turn={turn} />
           ))}
           {sending && <TypingDots />}
+          <div ref={endRef} />
         </div>
 
         <form onSubmit={onSubmit} className="flex gap-3">

@@ -117,6 +117,8 @@ For each role, this is ONE continuous line of questioning with two distinct move
 
 **Always ask for more than one action item before moving on.** After the user gives their first action item for a role, do NOT immediately jump to the next role. Ask whether there's anything else they want to do for that role this week -- e.g. "Got it. Anything else you want to tackle for {role} this week, or is that it?" Only once the user signals they're done (there is genuinely nothing else, "that's it", "nope that's all") do you move to the next role's Stage 2 opener. This "anything else?" check happens for every role, even if the first answer already looked complete -- a role's week is usually more than one action, and the whole point of Sundae is helping the user surface the rest rather than stopping at the first thing they typed. The only exception is a user who explicitly skipped the role in Stage 2.
 
+**Never stall between roles.** When a role is finished -- they said that's all, they skipped it, or you have their items -- the SAME \`reply\` must open the next role's Stage 2 question. Do not end a turn with only an acknowledgment ("Got it.", "Sounds good.") and wait for them to prompt you. The only turn that may omit a next question is the one where \`done\` is true (a short wrap-up is fine then).
+
 Each real action item the user gives -- the first and every follow-up -- gets classified immediately (Habit / Goal / Project, with cadence parsing) and appended to \`actions\` as it comes in, so a role with three action items ends up as three entries. Do not ask the user to confirm the classification -- that's your job, not theirs, same as onboarding never asks the user to pick a role category. Move to the next role's Stage 2 opener only after the "anything else?" check comes back empty.
 
 When every role in "Roles this week" has at least one action item captured (or the user has explicitly skipped that role -- see below), the session is done.
@@ -206,11 +208,17 @@ function buildSystemBlocks(
   roles: string[],
   lastWeek: LastWeekContext | null | undefined,
   lockedActions: ClassifiedAction[],
+  weekLabel?: string,
+  weekStart?: string,
 ): Anthropic.TextBlockParam[] {
+  const weekLine = weekLabel
+    ? `You are planning **${weekLabel}**${weekStart ? ` (Sunday ${weekStart} through the following Saturday)` : ""}. Whenever you say "this week", you mean that exact range — not last week, and not leftover days of a week that's already almost over.\n\n`
+    : "";
+
   if (mode === "addendum") {
     const dynamic = `## This round's actual data
 
-Roles on file for this user, exactly as they must appear in \`role\` (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above): ${roles.map((r) => `"${r}"`).join(", ")}${formatLockedActions(lockedActions)}`;
+${weekLine}Roles on file for this user, exactly as they must appear in \`role\` (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above): ${roles.map((r) => `"${r}"`).join(", ")}${formatLockedActions(lockedActions)}`;
 
     return [
       { type: "text", text: ADDENDUM_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
@@ -220,7 +228,7 @@ Roles on file for this user, exactly as they must appear in \`role\` (the last o
 
   const dynamic = `## This session's actual data
 
-Roles this week, in the exact order to run Stage 2+3 (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above, not one of the user's declared roles): ${roles.map((r) => `"${r}"`).join(", ")}
+${weekLine}Roles this week, in the exact order to run Stage 2+3 (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above, not one of the user's declared roles): ${roles.map((r) => `"${r}"`).join(", ")}
 
 ${formatLastWeek(lastWeek)}${formatLockedActions(lockedActions)}`;
 
@@ -330,7 +338,14 @@ export async function processWeeklySessionMessage(
     model: MODEL,
     max_tokens: 1536,
     thinking: { type: "disabled" },
-    system: buildSystemBlocks(mode, roles, input.lastWeek, lockedActions),
+    system: buildSystemBlocks(
+      mode,
+      roles,
+      input.lastWeek,
+      lockedActions,
+      input.weekLabel,
+      input.weekStart,
+    ),
     tools: [buildTool(mode)],
     tool_choice: { type: "tool", name: "weekly_session_turn" },
     messages,

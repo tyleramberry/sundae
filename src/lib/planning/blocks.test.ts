@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   busyRangesFromEvents,
   findFreeGaps,
+  parseTimeToMinutes,
   proposeActionBlocks,
   weekdayFromText,
 } from "./blocks";
@@ -68,6 +69,40 @@ describe("proposeActionBlocks", () => {
     );
     assert.equal(proposed[0].blocks.length, 1);
     assert.equal(proposed[0].blocks[0].start.getDay(), 6);
+  });
+
+  it("does not treat a future planning week as already past", () => {
+    const fridayNight = new Date(2026, 7, 14, 21, 0, 0);
+    const proposed = proposeActionBlocks(
+      [{ role: "Athlete", description: "Lift on Monday", type: "goal", preferredTime: "07:00" }],
+      [],
+      nextSunday,
+      new Date(2026, 7, 23, 0, 0, 0),
+      { now: fridayNight, blockMinutes: 45 },
+    );
+    assert.equal(proposed[0].blocks.length, 1);
+    assert.equal(proposed[0].blocks[0].start.getDay(), 1);
+    assert.equal(proposed[0].blocks[0].start.getHours(), 7);
+  });
+
+  it("places a preferred time even outside the 8am–8pm gap window", () => {
+    const proposed = proposeActionBlocks(
+      [{ role: "Athlete", description: "Run on Tuesday", type: "goal", preferredTime: "07:00" }],
+      [],
+      sunday,
+      nextSunday,
+      { now, blockMinutes: 45 },
+    );
+    assert.equal(proposed[0].blocks[0].start.getHours(), 7);
+    assert.equal(proposed[0].blocks[0].start.getDay(), 2);
+  });
+});
+
+describe("parseTimeToMinutes", () => {
+  it("accepts 24-hour and 12-hour clock strings", () => {
+    assert.equal(parseTimeToMinutes("14:00"), 14 * 60);
+    assert.equal(parseTimeToMinutes("7am"), 7 * 60);
+    assert.equal(parseTimeToMinutes("7:30 PM"), 19 * 60 + 30);
   });
 });
 

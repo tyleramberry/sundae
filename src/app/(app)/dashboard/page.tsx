@@ -54,6 +54,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [load, setLoad] = useState<Load>("checking");
   const [roles, setRoles] = useState<RoleTile[]>([]);
+  const [weekLabel, setWeekLabel] = useState<string | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draggedRole, setDraggedRole] = useState<string | null>(null);
@@ -93,6 +94,7 @@ export default function DashboardPage() {
         return;
       }
       setRoles(body.roles ?? []);
+      setWeekLabel(typeof body.weekLabel === "string" ? body.weekLabel : null);
       setLoad("ready");
 
       const summaryBody = await summaryRes.json().catch(() => null);
@@ -203,7 +205,7 @@ export default function DashboardPage() {
               Sundae
             </span>
             <h1 className="mt-1 text-2xl font-semibold text-black dark:text-zinc-50">
-              This week
+              {weekLabel ?? "This week"}
             </h1>
           </div>
           <Link

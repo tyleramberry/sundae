@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { ClassifiedAction, ConversationState } from "@/lib/engine/weeklySessionTypes";
+import { withPersonalRole } from "@/lib/engine/weeklySessionTypes";
 import type { RoleAnswer } from "@/lib/engine/types";
 import WeeklyPlanPanel from "@/components/WeeklyPlanPanel";
 import WeekCalendarGrid, {
@@ -13,6 +14,7 @@ import WeekCalendarGrid, {
 } from "@/components/WeekCalendarGrid";
 import { ChatBubble, TypingDots } from "@/components/weekly-session/ChatBits";
 import { RolesSetupScreen } from "@/components/weekly-session/RolesSetupScreen";
+import { parseDateOnly } from "@/lib/weeklySession/week";
 
 type Turn = { from: "engine" | "user"; text: string };
 
@@ -96,6 +98,7 @@ export default function WeeklySessionPage() {
   // is still going; when the session completes, becomes `sessionActions`
   // for the confirm/revise flow.
   const [actionsSoFar, setActionsSoFar] = useState<ClassifiedAction[]>([]);
+  const [committedActions, setCommittedActions] = useState<ClassifiedAction[]>([]);
 
   // The engine's classified actions from the completed session -- kept so
   // the confirm screen can re-propose after a revision without re-running
@@ -116,15 +119,8 @@ export default function WeeklySessionPage() {
   // (so the grid renders instantly the moment the session completes),
   // refreshed after /confirm writes new events.
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
-  const [weekStart] = useState<Date>(() => {
-    // Sunday-anchored, matches startOfWeek() in src/lib/google/calendar.ts.
-    // Fixed at page mount so day-column math doesn't shift if the user's
-    // session crosses midnight -- keeps the grid stable during a long chat.
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - d.getDay());
-    return d;
-  });
+  const [weekStart, setWeekStart] = useState<Date | null>(null);
+  const [weekLabel, setWeekLabel] = useState<string>("");
 
   // Mobile-only toggle to reveal the audit-trail / calendar panel over the
   // chat -- the two-column split doesn't fit under ~600px, same call the
@@ -138,9 +134,7 @@ export default function WeeklySessionPage() {
 
   const chatInputRef = useRef<HTMLInputElement>(null);
   const reviseInputRef = useRef<HTMLInputElement>(null);
-  // Guards the mount effect against React StrictMode's double-invoke in dev,
-  // which otherwise fires the opening engine turn twice and shows the
-  // welcome message duplicated.
+  const chatEndRef = useRef<HTMLDivElement>(null);
   const didInit = useRef(false);
   const confirmInFlight = useRef(false);
 
@@ -167,19 +161,15 @@ export default function WeeklySessionPage() {
       if (hasRoles) {
         setRoles(body.answers.roles ?? []);
         setStage("chatting");
-        void loadCalendarEvents();
-
-        // Day 16: resume this week's chat if one already exists instead of
-        // always starting fresh -- see GET /api/weekly-session/transcript.
-        // A transcript with turns already in it means the server has real
-        // conversation history; calling send("") again would re-send an
-        // empty message on top of that (harmless server-side, since /step
-        // ignores a blank message when there's already history) so it's
-        // gated here mainly to avoid the visible "..." typing flash on
-        // every reload of an already-open chat.
         const transcriptRes = await fetch("/api/weekly-session/transcript");
         const transcriptBody = await transcriptRes.json().catch(() => ({}));
+        applyWeekMeta(transcriptBody);
         const transcript = transcriptRes.ok ? transcriptBody.transcript : null;
+        if (Array.isArray(transcriptBody.committedActions)) {
+          setCommittedActions(transcriptBody.committedActions);
+        }
+        const weekDate = parseWeekStart(transcriptBody.weekStart);
+        void loadCalendarEvents(weekDate);
 
         if (transcript && transcript.displayTurns?.length > 0) {
           setTurns(transcript.displayTurns);
@@ -215,15 +205,38 @@ export default function WeeklySessionPage() {
     }
   }, [revising, stage]);
 
-  // Best-effort background fetch: the grid can render without real events
-  // (dashed proposed blocks over an empty week is still useful), so a
-  // failure here just leaves calendarEvents empty rather than blocking the
-  // session or showing an error banner. A real error the user can act on
-  // -- expired Google token, etc. -- will surface on the next real read
-  // during /propose or /confirm.
-  async function loadCalendarEvents() {
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns, sending, reviseTurns, revising, stage]);
+
+  function parseWeekStart(iso: unknown): Date | null {
+    return typeof iso === "string" ? parseDateOnly(iso) : null;
+  }
+
+  function applyWeekMeta(body: { weekStart?: unknown; weekLabel?: unknown }) {
+    if (typeof body.weekLabel === "string" && body.weekLabel) {
+      setWeekLabel(body.weekLabel);
+    }
+    const d = parseWeekStart(body.weekStart);
+    if (d) setWeekStart(d);
+  }
+
+  function mergePlan(committed: ClassifiedAction[], round: ClassifiedAction[]): ClassifiedAction[] {
+    const seen = new Set(committed.map((a) => `${a.role}|${a.description}`));
+    return [...committed, ...round.filter((a) => !seen.has(`${a.role}|${a.description}`))];
+  }
+
+  function looksStalled(reply: string): boolean {
+    return reply.trim().length > 0 && !reply.includes("?");
+  }
+
+  async function loadCalendarEvents(start?: Date | null) {
     try {
-      const res = await fetch("/api/calendar/events");
+      const d = start ?? weekStart;
+      const q = d
+        ? `?weekStart=${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+        : "";
+      const res = await fetch(`/api/calendar/events${q}`);
       if (!res.ok) return;
       const body = await res.json();
       setCalendarEvents((body.items ?? []) as CalendarEvent[]);
@@ -285,7 +298,7 @@ export default function WeeklySessionPage() {
       setTurns([{ from: "engine", text: "Roles are set. Let's plan your week." }]);
       setRoles(rolesFromEngine);
       setStage("chatting");
-      void loadCalendarEvents();
+      void loadCalendarEvents(weekStart);
       void send("");
     } finally {
       setSending(false);
@@ -297,12 +310,13 @@ export default function WeeklySessionPage() {
   // renders whatever comes back. No client-side ConversationState
   // round-trip anymore, which also removes the stale-closure hazard the
   // old roles->planning handoff used to need an explicit workaround for.
-  async function send(message: string) {
+  async function send(message: string, opts?: { autoContinue?: boolean }) {
     if (message) {
       setTurns((t) => [...t, { from: "user" as const, text: message }]);
     }
     setSending(true);
     setError(null);
+    let continueToNextRole = false;
     try {
       const res = await fetch("/api/weekly-session/step", {
         method: "POST",
@@ -314,6 +328,7 @@ export default function WeeklySessionPage() {
         setError(body.error ?? "Something went wrong. Try again.");
         return;
       }
+      applyWeekMeta(body);
       setTurns((t) => [...t, { from: "engine" as const, text: body.reply }]);
 
       // Keep the audit-trail panel current with whatever the engine has
@@ -325,9 +340,19 @@ export default function WeeklySessionPage() {
 
       if (body.action?.type === "complete") {
         await propose(body.action.actions);
+      } else if (
+        !opts?.autoContinue &&
+        !weekConfirmed &&
+        typeof body.reply === "string" &&
+        looksStalled(body.reply)
+      ) {
+        continueToNextRole = true;
       }
     } finally {
-      setSending(false);
+      if (!continueToNextRole) setSending(false);
+    }
+    if (continueToNextRole) {
+      void send("Please continue to the next role.", { autoContinue: true });
     }
   }
 
@@ -345,6 +370,7 @@ export default function WeeklySessionPage() {
       setError(body.error ?? "Couldn't propose calendar blocks — your answers aren't lost.");
       return null;
     }
+    applyWeekMeta(body);
     return body.proposed as ProposedAction[];
   }
 
@@ -446,7 +472,12 @@ export default function WeeklySessionPage() {
     const confirmationBubbles: Turn[] = already
       ? [{ from: "engine", text: "This plan was already written to your calendar." }]
       : [
-          { from: "engine", text: `${created} item${created === 1 ? "" : "s"} written to your calendar.` },
+          {
+            from: "engine",
+            text: body.calendarWarning
+              ? `${created} item${created === 1 ? "" : "s"} saved to this week's plan. Calendar: ${body.calendarWarning}`
+              : `${created} item${created === 1 ? "" : "s"} written to your calendar.`,
+          },
         ];
     if (body.recapEmailSent) {
       confirmationBubbles.push({
@@ -456,11 +487,12 @@ export default function WeeklySessionPage() {
     }
     setTurns((t) => [...t, ...confirmationBubbles]);
     setWeekConfirmed(true);
+    setCommittedActions((prev) => mergePlan(prev, sessionActions));
     setActionsSoFar([]);
     setSessionActions([]);
     setProposed(null);
     setReviseTurns([]);
-    void loadCalendarEvents();
+    void loadCalendarEvents(weekStart);
     setStage("chatting");
     } finally {
       confirmInFlight.current = false;
@@ -493,6 +525,18 @@ export default function WeeklySessionPage() {
     const day = s.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
     const time = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     return `${day}, ${time(s)}–${time(e)}`;
+  }
+
+  function unplacedHint(action: ProposedAction): string {
+    const classified = sessionActions.find(
+      (a) => a.role === action.role && a.description === action.description,
+    );
+    const bits: string[] = [];
+    if (classified?.preferredTime) bits.push(classified.preferredTime);
+    if (bits.length > 0) {
+      return `You asked for ${bits.join(" ")} — no free calendar gap at that time. The item still saves to this week's plan when you confirm.`;
+    }
+    return "No free calendar gap for this. The item still saves to this week's plan when you confirm.";
   }
 
   if (stage === "checking" || stage === "signed-out") {
@@ -546,6 +590,11 @@ export default function WeeklySessionPage() {
                 ? "Confirm this week's plan"
                 : "Weekly planning session"}
             </h1>
+            {weekLabel && (
+              <p className="mt-1 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                {weekLabel}
+              </p>
+            )}
             {(stage === "confirming" || stage === "writing") && (
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                 Nothing&apos;s on your calendar yet — review it, or tell Sundae
@@ -591,6 +640,7 @@ export default function WeeklySessionPage() {
               <ChatBubble key={i} turn={turn} />
             ))}
             {(sending || stage === "proposing") && <TypingDots />}
+            <div ref={chatEndRef} />
 
             {/* Confirm-screen revision transcript sits inline below the main
                 chat, same conversational spirit -- the divider makes clear
@@ -684,7 +734,8 @@ export default function WeeklySessionPage() {
               <WeekCalendarGrid
                 events={calendarEvents}
                 proposed={flattenProposedForGrid()}
-                weekStart={weekStart}
+                weekStart={weekStart ?? new Date()}
+                weekLabel={weekLabel}
               />
             </div>
             {/* Below the grid: the same per-action list the old confirm
@@ -716,8 +767,7 @@ export default function WeeklySessionPage() {
                       </p>
                     ) : action.blocks.length === 0 ? (
                       <p className="mt-1 text-amber-600">
-                        No open calendar time for this — add it manually
-                        later.
+                        {unplacedHint(action)}
                       </p>
                     ) : (
                       <ul className="mt-1 flex flex-col gap-0.5 text-zinc-500 dark:text-zinc-400">
@@ -732,7 +782,11 @@ export default function WeeklySessionPage() {
             </div>
           </div>
         ) : (
-          <WeeklyPlanPanel roles={roles} actionsSoFar={actionsSoFar} />
+          <WeeklyPlanPanel
+            roles={withPersonalRole(roles)}
+            actionsSoFar={mergePlan(committedActions, actionsSoFar)}
+            weekConfirmed={weekConfirmed}
+          />
         )}
       </div>
     </div>

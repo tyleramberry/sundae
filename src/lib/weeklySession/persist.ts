@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { startOfWeek } from "@/lib/google/calendar";
+import { addDays, planningWeekStartDate } from "@/lib/weeklySession/week";
 import type {
   ActionType,
   ClassifiedAction,
@@ -53,9 +54,8 @@ export async function getLastWeekContext(
   userId: string,
   referenceDate: Date = new Date(),
 ): Promise<LastWeekContext | null> {
-  const thisWeekStart = startOfWeek(referenceDate);
-  const lastWeekStart = new Date(thisWeekStart);
-  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  const thisWeekStart = planningWeekStartDate(referenceDate);
+  const lastWeekStart = addDays(thisWeekStart, -7);
   const weekStart = toDateOnly(lastWeekStart);
 
   const { data, error } = await supabase
@@ -107,7 +107,7 @@ export async function createWeeklyItems(
   referenceDate: Date,
   actions: (ProposedAction & { eventIds: string[]; percent?: number | null })[],
 ): Promise<number> {
-  const weekStart = toDateOnly(startOfWeek(referenceDate));
+  const weekStart = toDateOnly(planningWeekStartDate(referenceDate));
 
   const rows: WeeklyItemInsert[] = [];
   for (const action of actions) {
@@ -130,7 +130,22 @@ export async function createWeeklyItems(
 
     // One row per written block -- a Habit with cadenceCount 7 gets 7
     // independently-checkable rows, each counting 1 toward the role's
-    // denominator, per the pooled KPI formula.
+    // denominator, per the pooled KPI formula. If Google wrote nothing
+    // (no free slot, or the calendar call failed), still persist one
+    // row so the dashboard and right-hand plan aren't empty after confirm.
+    if (action.eventIds.length === 0) {
+      rows.push({
+        user_id: userId,
+        role: action.role,
+        week_start: weekStart,
+        type: action.type,
+        title: action.description,
+        google_event_id: null,
+        percent: null,
+      });
+      continue;
+    }
+
     for (const eventId of action.eventIds) {
       rows.push({
         user_id: userId,
@@ -244,6 +259,61 @@ export async function getWeeklySessionTranscript(
   }
 
   return data;
+}
+
+// Hydrate the right-hand plan panel from confirmed weekly_items so the
+// plan survives confirm the same way the chat transcript does. Duplicate
+// habit rows (one per cadence block) collapse back to a single action.
+export function classifiedActionsFromWeeklyItems(
+  rows: { role: string; type: ActionType; title: string }[],
+): ClassifiedAction[] {
+  const grouped = new Map<string, ClassifiedAction & { count: number }>();
+  for (const row of rows) {
+    const key = `${row.role}\0${row.type}\0${row.title}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.cadenceCount = existing.count;
+      continue;
+    }
+    grouped.set(key, {
+      role: row.role,
+      description: row.title,
+      type: row.type,
+      cadenceCount: row.type === "habit" ? 1 : undefined,
+      count: 1,
+    });
+  }
+
+  return [...grouped.values()].map((entry) => {
+    const { count: _count, ...action } = entry;
+    if (action.type !== "habit") {
+      delete action.cadenceCount;
+    }
+    return action;
+  });
+}
+
+export async function getCommittedPlanActions(
+  supabase: SupabaseClient,
+  userId: string,
+  weekStart: string,
+): Promise<ClassifiedAction[]> {
+  const { data, error } = await supabase
+    .from("weekly_items")
+    .select("role, type, title")
+    .eq("user_id", userId)
+    .eq("week_start", weekStart)
+    .is("removed_at", null)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to load this week's plan: ${error.message}`);
+  }
+
+  return classifiedActionsFromWeeklyItems(
+    (data ?? []) as { role: string; type: ActionType; title: string }[],
+  );
 }
 
 type SaveTranscriptInput = {

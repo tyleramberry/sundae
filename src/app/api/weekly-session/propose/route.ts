@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   GoogleCalendarError,
-  endOfWeek,
-  listCurrentWeekEvents,
-  startOfWeek,
+  listWeekEvents,
 } from "@/lib/google/calendar";
 import { proposeActionBlocks } from "@/lib/planning/blocks";
-import { currentWeekStart, savePendingProposal } from "@/lib/weeklySession/persist";
+import { savePendingProposal } from "@/lib/weeklySession/persist";
+import {
+  formatPlanningWeekRange,
+  planningWeekEndDate,
+  planningWeekStart,
+  planningWeekStartDate,
+} from "@/lib/weeklySession/week";
 import { isClassifiedAction } from "@/lib/weeklySession/parseActions";
 import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
 
@@ -41,13 +45,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const events = await listCurrentWeekEvents(supabase, user.id);
     const now = new Date();
+    const weekStartDate = planningWeekStartDate(now);
+    const events = await listWeekEvents(supabase, user.id, weekStartDate);
     const proposed = proposeActionBlocks(
       actions,
       events.items ?? [],
-      startOfWeek(now),
-      endOfWeek(now),
+      weekStartDate,
+      planningWeekEndDate(weekStartDate),
       { now },
     );
 
@@ -66,7 +71,7 @@ export async function POST(request: Request) {
     await savePendingProposal(
       supabase,
       user.id,
-      currentWeekStart(),
+      planningWeekStart(now),
       serialized,
       actions as ClassifiedAction[],
     ).catch((err) => {
@@ -75,7 +80,11 @@ export async function POST(request: Request) {
       console.error("Failed to persist pending proposal:", err);
     });
 
-    return NextResponse.json({ proposed: serialized });
+    return NextResponse.json({
+      proposed: serialized,
+      weekStart: planningWeekStart(now),
+      weekLabel: formatPlanningWeekRange(weekStartDate),
+    });
   } catch (error) {
     if (error instanceof GoogleCalendarError) {
       return NextResponse.json({ error: error.message }, { status: 400 });

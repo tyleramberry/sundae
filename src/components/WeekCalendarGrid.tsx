@@ -13,8 +13,8 @@
 // blocks' start/end come from /api/weekly-session/propose, which does all
 // the collision-avoidance math already -- this component is pure display.
 
-const HOURS_START = 8; // matches DEFAULT_DAY_START_HOUR in src/lib/planning/blocks.ts
-const HOURS_END = 20; // matches DEFAULT_DAY_END_HOUR
+const HOURS_START = 6;
+const HOURS_END = 22;
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export type CalendarEvent = {
@@ -126,10 +126,12 @@ export default function WeekCalendarGrid({
   events,
   proposed,
   weekStart,
+  weekLabel,
 }: {
   events: CalendarEvent[];
   proposed: ProposedBlock[];
   weekStart: Date;
+  weekLabel?: string;
 }) {
   const hours: number[] = [];
   for (let h = HOURS_START; h < HOURS_END; h++) hours.push(h);
@@ -158,16 +160,16 @@ export default function WeekCalendarGrid({
     <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
         <p className="text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-          This week
+          {weekLabel ?? "This week"}
         </p>
-        <div className="mt-1 flex items-center gap-3 text-[11px] text-zinc-500 dark:text-zinc-400">
+        <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-zinc-600 dark:text-zinc-300">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2 w-2 rounded-sm bg-zinc-300 dark:bg-zinc-700" />
-            On your calendar
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-zinc-400 dark:bg-zinc-500" />
+            Already on Google Calendar
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2 w-2 rounded-sm border border-dashed border-emerald-500 bg-emerald-500/30" />
-            Sundae&rsquo;s proposed blocks
+            <span className="inline-block h-2.5 w-2.5 rounded-sm border-2 border-emerald-600 bg-emerald-400 dark:border-emerald-400 dark:bg-emerald-600" />
+            Sundae proposal (not written yet)
           </span>
         </div>
       </div>
@@ -225,21 +227,29 @@ export default function WeekCalendarGrid({
                 {dayReal.map((item) => (
                   <div
                     key={item.key}
-                    className="pointer-events-auto absolute inset-x-0.5 overflow-hidden rounded-sm bg-zinc-200/80 px-1 text-[9px] leading-tight text-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-300"
+                    className="pointer-events-auto absolute inset-x-0.5 overflow-hidden rounded-sm border border-zinc-400 bg-zinc-300 px-1 text-[9px] leading-tight text-zinc-800 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
                     style={{ top: `${item.topPercent}%`, height: `${item.heightPercent}%` }}
-                    title={item.label}
+                    title={`Already on calendar: ${item.label}`}
                   >
-                    <span className="line-clamp-2">{item.label}</span>
+                    <span className="line-clamp-2">
+                      <span className="font-semibold uppercase tracking-wide text-[8px] text-zinc-600 dark:text-zinc-300">
+                        Busy ·{" "}
+                      </span>
+                      {item.label}
+                    </span>
                   </div>
                 ))}
                 {dayProposed.map((item) => (
                   <div
                     key={item.key}
-                    className="pointer-events-auto absolute inset-x-0.5 overflow-hidden rounded-sm border border-dashed border-emerald-500 bg-emerald-100/80 px-1 text-[9px] leading-tight text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100"
+                    className="pointer-events-auto absolute inset-x-0.5 z-[1] overflow-hidden rounded-sm border-2 border-emerald-600 bg-emerald-400 px-1 text-[9px] leading-tight text-emerald-950 dark:border-emerald-300 dark:bg-emerald-600 dark:text-emerald-50"
                     style={{ top: `${item.topPercent}%`, height: `${item.heightPercent}%` }}
-                    title={`${item.role ? `${item.role} · ` : ""}${item.label}`}
+                    title={`Sundae proposal: ${item.role ? `${item.role} · ` : ""}${item.label}`}
                   >
-                    <span className="line-clamp-2 font-medium">{item.label}</span>
+                    <span className="line-clamp-2 font-semibold">
+                      <span className="text-[8px] uppercase tracking-wide">Sundae · </span>
+                      {item.label}
+                    </span>
                     {item.role && (
                       <span className="block truncate text-[8px] uppercase tracking-wide opacity-70">
                         {item.role}

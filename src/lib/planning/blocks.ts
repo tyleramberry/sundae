@@ -192,14 +192,22 @@ type DaySlots = {
   slots: TimeRange[];
 };
 
-// "HH:MM" -> minutes since local midnight, or null if it's not a parseable
-// 24-hour time. Defensive: preferredTime ultimately comes from a model
-// tool call (or a client request body), never something to trust blindly.
-function parseTimeToMinutes(time: string | undefined): number | null {
+// "HH:MM", "7am", "7:00 PM" -> minutes since local midnight, or null.
+export function parseTimeToMinutes(time: string | undefined): number | null {
   if (!time) return null;
-  const match = /^([0-1]?\d|2[0-3]):([0-5]\d)$/.exec(time.trim());
-  if (!match) return null;
-  return Number(match[1]) * 60 + Number(match[2]);
+  const t = time.trim().toLowerCase();
+  const ampm = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/.exec(t);
+  if (ampm) {
+    let h = Number(ampm[1]);
+    const m = Number(ampm[2] ?? 0);
+    if (h < 1 || h > 12 || m > 59) return null;
+    if (ampm[3] === "pm" && h < 12) h += 12;
+    if (ampm[3] === "am" && h === 12) h = 0;
+    return h * 60 + m;
+  }
+  const hm = /^([0-1]?\d|2[0-3]):([0-5]\d)$/.exec(t);
+  if (!hm) return null;
+  return Number(hm[1]) * 60 + Number(hm[2]);
 }
 
 // Slots the weekly session's classified actions onto the week's real free
@@ -227,10 +235,17 @@ export function proposeActionBlocks(
   windowEnd: Date,
   options: ProposeBlocksOptions = {},
 ): ProposedAction[] {
-  const now = options.now ?? new Date();
+  const nowRaw = options.now ?? new Date();
+  // If the planning window is in the future (Friday/Saturday rolling to
+  // next week), wall-clock `now` would clip every gap as "already past".
+  const now = nowRaw < windowStart ? new Date(windowStart) : nowRaw;
   const blockMinutes = options.blockMinutes ?? DEFAULT_BLOCK_MINUTES;
 
   const busy = busyRangesFromEvents(events);
+  const claimed: TimeRange[] = busy.map((b) => ({
+    start: new Date(b.start),
+    end: new Date(b.end),
+  }));
   const gaps = findFreeGaps(
     busy,
     windowStart,
@@ -308,6 +323,35 @@ export function proposeActionBlocks(
     return takeOnDay(day);
   };
 
+  // Places a block at an exact clock time even when that time sits
+  // outside the 8am–8pm gap window (a 7am run) or gap-finding returned
+  // nothing. Skips days that are already past or already claimed.
+  const fillExact = (
+    weekday: number | null,
+    minutesOfDay: number,
+    wanted: number,
+  ): TimeRange[] => {
+    const out: TimeRange[] = [];
+    const order =
+      weekday !== null
+        ? [weekday, ...[0, 1, 2, 3, 4, 5, 6].filter((d) => d !== weekday)]
+        : [1, 2, 3, 4, 5, 0, 6];
+    for (const offset of order) {
+      if (out.length >= wanted) break;
+      const start = new Date(windowStart);
+      start.setHours(0, 0, 0, 0);
+      start.setDate(start.getDate() + offset);
+      start.setHours(Math.floor(minutesOfDay / 60), minutesOfDay % 60, 0, 0);
+      if (start < now || start < windowStart || start >= windowEnd) continue;
+      const end = new Date(start.getTime() + blockMinutes * 60_000);
+      if (claimed.some((r) => start < r.end && end > r.start)) continue;
+      const slot = { start, end };
+      claimed.push(slot);
+      out.push(slot);
+    }
+    return out;
+  };
+
   return actions.map((action): ProposedAction => {
     const base = { role: action.role, description: action.description, type: action.type };
 
@@ -319,34 +363,41 @@ export function proposeActionBlocks(
     const preferredMinutes = parseTimeToMinutes(action.preferredTime);
     const blocks: TimeRange[] = [];
 
-    if (action.type === "goal") {
-      // One block. On its named day (at its preferred time if it has one)
-      // if it has one, else the earliest slot.
-      const day = targetWeekday !== null ? dayForWeekday(targetWeekday) : null;
-      const slot = pickFromDay(day, preferredMinutes) ?? takeEarliest();
-      if (slot) blocks.push(slot);
-    } else {
-      // Habit: cadenceCount occurrences, one per distinct day.
-      const wanted = Math.max(1, action.cadenceCount ?? 1);
+    const wanted = action.type === "habit" ? Math.max(1, action.cadenceCount ?? 1) : 1;
 
-      if (targetWeekday !== null) {
-        // Names a specific weekday ("stretch every Sunday") -- stack the
-        // occurrences on that day, falling back to the earliest open slot
-        // once that day is full.
-        for (let i = 0; i < wanted; i++) {
+    // Prefer an exact clock time when the user gave one, including times
+    // outside the 8am–8pm gap window (a 7am run). Gap-finding is the
+    // fallback when that slot is busy or no time was given.
+    if (preferredMinutes !== null) {
+      blocks.push(...fillExact(targetWeekday, preferredMinutes, wanted));
+    }
+
+    if (blocks.length < wanted) {
+      const remaining = wanted - blocks.length;
+      if (action.type === "goal") {
+        const day = targetWeekday !== null ? dayForWeekday(targetWeekday) : null;
+        const slot = pickFromDay(day, preferredMinutes) ?? takeEarliest();
+        if (slot) {
+          blocks.push(slot);
+          claimed.push(slot);
+        }
+      } else if (targetWeekday !== null) {
+        for (let i = 0; i < remaining; i++) {
           const day = dayForWeekday(targetWeekday);
           const slot = pickFromDay(day, preferredMinutes) ?? takeEarliest();
-          if (slot) blocks.push(slot);
+          if (slot) {
+            blocks.push(slot);
+            claimed.push(slot);
+          }
         }
       } else if (dayList.length > 0) {
-        // "Every day" / "3x a week": one block per day, cycling through the
-        // days that have free time so a 7x cadence over 6 open days lands
-        // six-then-one rather than all-on-one-day. Same day still honors a
-        // preferred time if one was given.
-        for (let i = 0; i < wanted; i++) {
+        for (let i = 0; i < remaining; i++) {
           const day = dayList[i % dayList.length];
           const slot = pickFromDay(day, preferredMinutes) ?? takeEarliest();
-          if (slot) blocks.push(slot);
+          if (slot) {
+            blocks.push(slot);
+            claimed.push(slot);
+          }
         }
       }
     }
