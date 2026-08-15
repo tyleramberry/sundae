@@ -19,10 +19,16 @@
   }
 }
 
+/* Geist is loaded in src/app/layout.tsx and exposed as --font-geist-sans.
+   This used to say `Arial, Helvetica, sans-serif`, which meant any page
+   that didn't remember to add Tailwind's `font-sans` class rendered in
+   Arial while the rest of the app rendered in Geist. Defaulting to the
+   real font here makes `font-sans` a no-op reinforcement instead of a
+   requirement. */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
 /* Onboarding demo animation (Day 7 redesign) -- the live goal -> action ->
@@ -67,5 +73,222 @@ body {
   }
   to {
     stroke-dashoffset: var(--ring-offset);
+  }
+}
+
+/* ==========================================================================
+   Landing page motion layer
+
+   Everything below here is marketing-page only -- none of it is loaded by
+   the signed-in app's own components. It's plain CSS rather than a motion
+   library on purpose: the whole set is a handful of keyframes and one
+   IntersectionObserver (src/components/Reveal.tsx), which is a lot less
+   weight on the ad destination than shipping an animation runtime to
+   animate six things.
+
+   The reduced-motion block at the bottom of this file neutralizes all of
+   it, so add new landing animations here rather than as inline styles that
+   would escape that guard.
+   ========================================================================== */
+
+/* Scroll reveal. Elements start displaced and are un-displaced by the
+   `.is-visible` class Reveal.tsx adds when they enter the viewport.
+   `--reveal-delay` lets a parent stagger its children without a keyframe
+   per position. There's a <noscript> override in src/app/page.tsx that
+   forces the visible state, so a JS failure can't leave the page blank. */
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+
+.reveal-scale {
+  transform: translateY(20px) scale(0.97);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Ambient hero backdrop -- two slow-drifting radial washes. Sits behind
+   the hero at low opacity; the drift is long enough (20s+) to read as
+   atmosphere rather than movement competing with the demo card. */
+@keyframes aurora-drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(6%, -4%, 0) scale(1.12);
+  }
+}
+
+@keyframes aurora-drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.08);
+  }
+  50% {
+    transform: translate3d(-7%, 5%, 0) scale(1);
+  }
+}
+
+.aurora-a {
+  animation: aurora-drift-a 24s ease-in-out infinite;
+}
+
+.aurora-b {
+  animation: aurora-drift-b 31s ease-in-out infinite;
+}
+
+/* Role ticker. The track holds two identical copies of the role list and
+   slides exactly -50%, so the seam lands where the second copy's first
+   item sits on top of the first copy's -- an unbroken loop with no JS. */
+@keyframes marquee-slide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.marquee-track {
+  animation: marquee-slide 32s linear infinite;
+}
+
+.marquee-mask {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 12%,
+    black 88%,
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 12%,
+    black 88%,
+    transparent
+  );
+}
+
+/* Typing caret for the agent demo's typewriter lines. */
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.caret {
+  animation: caret-blink 1.05s steps(1, end) infinite;
+}
+
+/* "Thinking" shimmer -- a highlight sweeping across the placeholder text
+   while the agent is working. Reads as activity without another spinner. */
+@keyframes shimmer-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.shimmer-text {
+  background-size: 200% 100%;
+  animation: shimmer-sweep 1.6s linear infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Calendar blocks landing in the week grid. Slight overshoot so a block
+   reads as dropping into place rather than fading up. */
+@keyframes block-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.94);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.block-drop {
+  animation: block-drop 0.45s cubic-bezier(0.22, 1.2, 0.36, 1) backwards;
+}
+
+/* Soft pulse behind a block the moment it lands. */
+@keyframes land-pulse {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+.land-pulse {
+  animation: land-pulse 0.7s ease-out forwards;
+}
+
+/* Gentle float for the hero's detached stat chips. */
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+.float-soft {
+  animation: float-soft 6s ease-in-out infinite;
+}
+
+/* One accessibility guard for the whole landing motion layer. Anything
+   added above should be listed here too. */
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .aurora-a,
+  .aurora-b,
+  .marquee-track,
+  .caret,
+  .shimmer-text,
+  .block-drop,
+  .land-pulse,
+  .float-soft {
+    animation: none;
+  }
+
+  .shimmer-text {
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: inherit;
   }
 }
