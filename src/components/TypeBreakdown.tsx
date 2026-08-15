@@ -24,7 +24,7 @@ export default function TypeBreakdown({ rows }: { rows: TypeBreakdownRow[] }) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
       <span className="text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-        This week's mix
+        This week&apos;s mix
       </span>
       <div className="flex flex-col gap-3">
         {visible.map((row) => {
