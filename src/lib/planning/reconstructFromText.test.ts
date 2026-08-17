@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cadenceCountFromText, preferredTimeFromText, relativeDayWeekdayName } from "./reconstructFromText";
+import { cadenceCountFromText, preferredTimeFromText, relativeDayWeekday } from "./reconstructFromText";
 
 describe("preferredTimeFromText", () => {
   it("extracts an explicit 'at H(:MM)(am|pm)' time", () => {
@@ -47,24 +47,24 @@ describe("cadenceCountFromText", () => {
 // on whatever day the placement fallback happened to find room,
 // disconnected from the day it was actually said. This resolves the
 // relative-day word against the row's real createdAt instead.
-describe("relativeDayWeekdayName", () => {
+describe("relativeDayWeekday", () => {
   it("resolves 'tonight'/'today' against the real creation date", () => {
-    // 2026-08-17 is a Monday.
+    // 2026-08-17 is a Monday (weekday 1).
     const createdAt = new Date(2026, 7, 17, 16, 38, 0);
     assert.equal(
-      relativeDayWeekdayName("Budgeting with Brooklyn tonight at 6:30pm", createdAt, "America/Denver"),
-      "Monday",
+      relativeDayWeekday("Budgeting with Brooklyn tonight at 6:30pm", createdAt, "America/Denver"),
+      1,
     );
     assert.equal(
-      relativeDayWeekdayName("Slack Spencer about offer letter today at 4:00pm", createdAt, "America/Denver"),
-      "Monday",
+      relativeDayWeekday("Slack Spencer about offer letter today at 4:00pm", createdAt, "America/Denver"),
+      1,
     );
   });
 
   it("returns null when the text has no relative-day word", () => {
     const createdAt = new Date(2026, 7, 17, 16, 38, 0);
     assert.equal(
-      relativeDayWeekdayName("Temple shift on Saturday from 5:00 to 10:00am", createdAt, "America/Denver"),
+      relativeDayWeekday("Temple shift on Saturday from 5:00 to 10:00am", createdAt, "America/Denver"),
       null,
     );
   });

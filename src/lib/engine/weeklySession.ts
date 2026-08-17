@@ -18,6 +18,7 @@
 // gets classified into a Habit, Goal, or Project.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { DateTime } from "luxon";
 import { getAnthropicModel } from "@/lib/anthropic/model";
 import type {
   ClassifiedAction,
@@ -43,7 +44,9 @@ const MODEL = getAnthropicModel();
 // prompts drifting apart on the classification rules. Written without
 // "Stage 2"/"Stage 3" vocabulary so it reads correctly stitched into
 // either prompt.
-const SHARED_ITEM_RULES = `**When you name a specific day, put it in the description.** If an action item is tied to a particular day of the week -- a standing "date night on Tuesday", a "temple shift on Saturday", a "Sunday meal prep" -- include that weekday name in the action's \`description\` text. Scheduling reads the day straight out of the description to place the block on the right day, so "Plan date night on Tuesday" lands on Tuesday while a bare "Plan date night" gets whatever slot is open first.
+const SHARED_ITEM_RULES = `**When you name a specific day, capture it in \`weekday\`, not the description.** If an action item is tied to a particular day of the week -- a standing "date night on Tuesday", a "temple shift on Saturday", "budgeting tonight", "Slack Spencer today" -- set \`weekday\` (0=Sunday..6=Saturday) to that day. Resolve a relative word ("today", "tonight", "tomorrow", "this morning") against the actual current date given below -- never leave \`weekday\` out just because the user said "tonight" instead of naming the day outright; that's still a specific day, just stated relatively. Leave \`weekday\` out entirely when no single day applies: a cadence-only habit ("every day," "3x this week") with no particular day named, or the user genuinely didn't say. Bug fix, worth being precise about: a Habit that recurs across MULTIPLE days ("Monday through Friday," "every day") is a cadence, not a single day -- set \`cadenceCount\` for that, and leave \`weekday\` out; setting \`weekday\` to the first day of a range used to make the whole habit collapse onto that one day instead of spreading across the week, which is exactly the bug this field exists to prevent.
+
+**The description names the action, never restates when it happens.** Do not put a day of the week or a clock time in \`description\` -- \`weekday\` and \`preferredTime\` already carry that, and the calendar block itself will show it once placed, so repeating it in the title is just clutter ("Temple shift on Saturday from 5:00 to 10:00am" -> \`description\` is "Temple shift", \`weekday\` is 6, \`preferredTime\` is "05:00"; "Deep work on Sundae AI Monday through Friday from 9:00am to noon" -> \`description\` is "Deep work on Sundae AI", \`cadenceCount\` is 5, \`preferredTime\` is "09:00"). A name the user actually said stays in the description, though -- "Budgeting with Brooklyn tonight at 6:30pm" -> \`description\` is "Budgeting with Brooklyn" (keep "Brooklyn"), \`weekday\` is whatever "tonight" resolves to, \`preferredTime\` is "18:30". Only strip the scheduling info (day, time); never invent a shorter description than what the user actually said minus that.
 
 **Every Habit/Goal action item needs a real clock time, not a day-part.** This is the whole point of the session -- Sundae hands the user back specific calendar blocks, not a vague plan. "Make a block on Thursday afternoon" is not done yet: a day-part ("morning", "afternoon", "evening", "sometime this week") is not a time. Before an action item counts as captured, ask a direct follow-up until you have either an actual clock time ("2pm", "7am", "after the kids are in bed" -> ask what time that usually is) or a tight window you can anchor a start time to ("2-3pm" -> "14:00"). One follow-up is usually enough -- "What time Thursday afternoon works best?" -- don't interrogate over multiple turns once you have a real answer. Record it in \`preferredTime\` as 24-hour "HH:MM", local time. The only exception is a user who explicitly has no preference after being asked ("whenever, you pick") -- then leave \`preferredTime\` out and let scheduling pick the slot, but only after you actually asked, never by skipping the question. Project action items never get calendar time, so never ask this for a Project.
 
@@ -94,6 +97,8 @@ A single answer can contain multiple distinct actions in one sentence ("work out
 
 A "This week's real Google Calendar" section is included below with the user's actual already-scheduled busy times, refreshed every turn. Use it directly to answer "do I have time for this," "what does my week look like," or "when am I free" -- never say you lack visibility into their calendar when this section is present; only say that if it explicitly says the calendar isn't available. Treat it as read-only reference for the conversation, not a scheduling tool: don't promise a specific slot is locked in from this alone -- exact block placement still happens later, after the session, when the plan is proposed against the calendar directly.
 
+If the user's requested time genuinely conflicts with something already on their calendar, you can mention that in conversation if it's useful, but never talk them out of the time they asked for or steer them toward a different one on your own -- record exactly what they said in \`preferredTime\`/\`weekday\` regardless. Placement never moves a request to a different time behind the user's back; if their exact slot turns out to be busy, the app asks them directly, after this conversation, whether to double-book it -- that's not something you need to negotiate here.
+
 ## If the user asks why something isn't on their calendar, or asks you to push/sync/fix it directly in this chat
 
 Never invent an explanation for this -- there is no separate "support team," "technical side," or "sync" process outside this product for you to defer to, and saying so is a fabrication, not a hedge. The real, honest answer is one of these:
@@ -141,7 +146,7 @@ ${SHARED_ITEM_RULES}
 On every turn you must call the weekly_session_turn tool exactly once. Its fields:
 - reply: what you say back to the user next (a question, a rollover check, a reflection, or nothing further once done -- though normally the tool call on the final turn still includes a short wrap-up line).
 - done: true only once every role listed in "Roles this week" has been through Stage 2+3 (or been explicitly skipped) and Stage 1 (if applicable) is fully resolved. False on every other turn.
-- actions: the full, current list of every classified action item captured so far across all roles (including rollovers from Stage 1), in the order captured. Not reset between turns -- always the complete running list. If "Already locked in this round" is listed below, start from exactly that list and only add to or revise it -- never silently change an already-locked item's role, type, cadenceCount, or preferredTime just because you're re-reading the conversation from the top. Only touch one of those items if the user's latest message is explicitly revising that specific item.`;
+- actions: the full, current list of every classified action item captured so far across all roles (including rollovers from Stage 1), in the order captured. Not reset between turns -- always the complete running list. If "Already locked in this round" is listed below, start from exactly that list and only add to or revise it -- never silently change an already-locked item's role, type, cadenceCount, weekday, or preferredTime just because you're re-reading the conversation from the top. Only touch one of those items if the user's latest message is explicitly revising that specific item.`;
 
 // Day 16 addendum mode: the user is back in the *same chat* mid-week,
 // after their full session for this week has already been confirmed and
@@ -165,7 +170,7 @@ ${SHARED_ITEM_RULES}
 On every turn you must call the weekly_session_turn tool exactly once. Its fields:
 - reply: what you say back to the user next (a drill-down question, an "anything else?" check, or a short confirmation once done).
 - done: true only once at least one action item is fully captured this round AND the user has signaled there's nothing else to add right now. False on every other turn.
-- actions: the full, current list of every classified action item captured so far THIS ROUND, in the order captured. Not reset between turns -- always the complete running list for this round only. If "Already locked in this round" is listed below, start from exactly that list and only add to or revise it -- never silently change an already-locked item's role, type, cadenceCount, or preferredTime just because you're re-reading the conversation from the top. Only touch one of those items if the user's latest message is explicitly revising that specific item.`;
+- actions: the full, current list of every classified action item captured so far THIS ROUND, in the order captured. Not reset between turns -- always the complete running list for this round only. If "Already locked in this round" is listed below, start from exactly that list and only add to or revise it -- never silently change an already-locked item's role, type, cadenceCount, weekday, or preferredTime just because you're re-reading the conversation from the top. Only touch one of those items if the user's latest message is explicitly revising that specific item.`;
 
 function formatLastWeek(lastWeek: LastWeekContext | null | undefined): string {
   if (!lastWeek || lastWeek.items.length === 0) {
@@ -194,9 +199,11 @@ function formatLastWeek(lastWeek: LastWeekContext | null | undefined): string {
 function formatLockedActions(lockedActions: ClassifiedAction[]): string {
   if (lockedActions.length === 0) return "";
 
+  const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const lines = lockedActions.map((a) => {
     const bits: string[] = [a.type];
     if (a.cadenceCount) bits.push(`${a.cadenceCount}x`);
+    if (a.weekday !== undefined) bits.push(WEEKDAY_NAMES[a.weekday]);
     if (a.preferredTime) bits.push(a.preferredTime);
     return `- [${a.role}] "${a.description}" (${bits.join(", ")})`;
   });
@@ -222,10 +229,22 @@ function buildSystemBlocks(
   weekLabel?: string,
   weekStart?: string,
   calendarSummary?: string,
+  timeZone?: string,
 ): Anthropic.TextBlockParam[] {
   const weekLine = weekLabel
     ? `You are planning **${weekLabel}**${weekStart ? ` (Sunday ${weekStart} through the following Saturday)` : ""}. Whenever you say "this week", you mean that exact range — not last week, and not leftover days of a week that's already almost over.\n\n`
     : "";
+
+  // Bug fix: without knowing what "today" actually is, "tonight"/"today"/
+  // "tomorrow" had nothing to resolve against, so `weekday` (see
+  // ClassifiedAction and the rules above) couldn't be set for them --
+  // "Budgeting with Brooklyn tonight" landed with no day preference at
+  // all. Computed in the user's real zone (falls back to the server's own
+  // if the caller hasn't threaded one through yet) so "today" actually
+  // matches the day the user is looking at, not whatever the server's
+  // clock reads.
+  const now = DateTime.now().setZone(timeZone ?? "local");
+  const todayLine = `Today is **${now.toFormat("cccc, LLLL d")}**. Resolve "today"/"tonight"/"tomorrow"/"this morning" against this exact date when setting \`weekday\`.\n\n`;
 
   // Falls back to an explicit "not available" line rather than omitting
   // the section outright -- see calendarSummary.ts's CALENDAR_UNAVAILABLE_SUMMARY.
@@ -237,7 +256,7 @@ function buildSystemBlocks(
   if (mode === "addendum") {
     const dynamic = `## This round's actual data
 
-${weekLine}${calendarLine}Roles on file for this user, exactly as they must appear in \`role\` (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above): ${roles.map((r) => `"${r}"`).join(", ")}${formatLockedActions(lockedActions)}`;
+${todayLine}${weekLine}${calendarLine}Roles on file for this user, exactly as they must appear in \`role\` (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above): ${roles.map((r) => `"${r}"`).join(", ")}${formatLockedActions(lockedActions)}`;
 
     return [
       { type: "text", text: ADDENDUM_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
@@ -247,7 +266,7 @@ ${weekLine}${calendarLine}Roles on file for this user, exactly as they must appe
 
   const dynamic = `## This session's actual data
 
-${weekLine}${calendarLine}Roles this week, in the exact order to run Stage 2+3 (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above, not one of the user's declared roles): ${roles.map((r) => `"${r}"`).join(", ")}
+${todayLine}${weekLine}${calendarLine}Roles this week, in the exact order to run Stage 2+3 (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above, not one of the user's declared roles): ${roles.map((r) => `"${r}"`).join(", ")}
 
 ${formatLastWeek(lastWeek)}${formatLockedActions(lockedActions)}`;
 
@@ -283,7 +302,11 @@ function buildTool(mode: WeeklySessionMode): Anthropic.Tool {
             type: "object",
             properties: {
               role: { type: "string" },
-              description: { type: "string" },
+              description: {
+                type: "string",
+                description:
+                  "The action itself -- never restates the day of week or clock time (those go in `weekday`/`preferredTime`, and the calendar block will show them once placed). Keep any name the user actually said.",
+              },
               type: { type: "string", enum: ["habit", "goal", "project"] },
               cadenceCount: {
                 type: "integer",
@@ -293,6 +316,13 @@ function buildTool(mode: WeeklySessionMode): Anthropic.Tool {
                 type: "string",
                 description:
                   "Habit/Goal only, \"HH:MM\" 24-hour local time the user actually stated -- never inferred or guessed from a day-part like \"afternoon\"/\"morning\"/\"evening\". Omit for Project. Omit for Habit/Goal if the user hasn't given a real clock time yet (including when this turn's reply is the question asking for one), or if they were asked and genuinely have no preference.",
+              },
+              weekday: {
+                type: "integer",
+                minimum: 0,
+                maximum: 6,
+                description:
+                  "Habit/Goal only, 0=Sunday..6=Saturday. Set when the user named ONE specific day, including a relative word (\"today\", \"tonight\", \"tomorrow\") resolved against the real current date given above. Omit for a multi-day cadence (\"every day\", \"Monday through Friday\" -- that's `cadenceCount`, not a single weekday) or when the user simply didn't name a day. Omit for Project.",
               },
             },
             required: ["role", "description", "type"],
@@ -365,6 +395,7 @@ export async function processWeeklySessionMessage(
       input.weekLabel,
       input.weekStart,
       input.calendarSummary,
+      input.timeZone,
     ),
     tools: [buildTool(mode)],
     tool_choice: { type: "tool", name: "weekly_session_turn" },

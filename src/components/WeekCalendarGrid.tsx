@@ -30,6 +30,10 @@ export type ProposedBlock = {
   description: string;
   start: string; // ISO
   end: string;
+  // Set when this exact slot overlaps something already on the calendar
+  // (see src/lib/planning/blocks.ts's placement redesign) -- the block is
+  // never silently moved for this, only flagged so the user can decide.
+  conflictsWith?: string;
 };
 
 type PositionedItem = {
@@ -40,6 +44,7 @@ type PositionedItem = {
   topPercent: number;
   heightPercent: number;
   kind: "real" | "proposed";
+  conflictsWith?: string;
 };
 
 // Turn a raw Google Calendar event into the grid coordinates -- returns
@@ -67,7 +72,7 @@ function eventToPositioned(event: CalendarEvent, weekStart: Date): PositionedIte
 }
 
 function proposedToPositioned(block: ProposedBlock, weekStart: Date): PositionedItem | null {
-  return positionOnGrid({
+  const positioned = positionOnGrid({
     key: `proposed-${block.start}-${block.role}-${block.description}`,
     label: block.description,
     role: block.role,
@@ -76,6 +81,7 @@ function proposedToPositioned(block: ProposedBlock, weekStart: Date): Positioned
     weekStart,
     kind: "proposed",
   });
+  return positioned && block.conflictsWith ? { ...positioned, conflictsWith: block.conflictsWith } : positioned;
 }
 
 function positionOnGrid({
@@ -171,6 +177,10 @@ export default function WeekCalendarGrid({
             <span className="inline-block h-2.5 w-2.5 rounded-sm border-2 border-emerald-600 bg-emerald-400 dark:border-emerald-400 dark:bg-emerald-600" />
             Sundae proposal (not written yet)
           </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm border-2 border-amber-600 bg-amber-300 dark:border-amber-400 dark:bg-amber-600" />
+            Overlaps something real — asks before writing
+          </span>
         </div>
       </div>
 
@@ -242,12 +252,23 @@ export default function WeekCalendarGrid({
                 {dayProposed.map((item) => (
                   <div
                     key={item.key}
-                    className="pointer-events-auto absolute inset-x-0.5 z-[1] overflow-hidden rounded-sm border-2 border-emerald-600 bg-emerald-400 px-1 text-[9px] leading-tight text-emerald-950 dark:border-emerald-300 dark:bg-emerald-600 dark:text-emerald-50"
+                    className={[
+                      "pointer-events-auto absolute inset-x-0.5 z-[1] overflow-hidden rounded-sm border-2 px-1 text-[9px] leading-tight",
+                      item.conflictsWith
+                        ? "border-amber-600 bg-amber-300 text-amber-950 dark:border-amber-400 dark:bg-amber-600 dark:text-amber-50"
+                        : "border-emerald-600 bg-emerald-400 text-emerald-950 dark:border-emerald-300 dark:bg-emerald-600 dark:text-emerald-50",
+                    ].join(" ")}
                     style={{ top: `${item.topPercent}%`, height: `${item.heightPercent}%` }}
-                    title={`Sundae proposal: ${item.role ? `${item.role} · ` : ""}${item.label}`}
+                    title={
+                      item.conflictsWith
+                        ? `Overlaps: ${item.conflictsWith} — ${item.role ? `${item.role} · ` : ""}${item.label}`
+                        : `Sundae proposal: ${item.role ? `${item.role} · ` : ""}${item.label}`
+                    }
                   >
                     <span className="line-clamp-2 font-semibold">
-                      <span className="text-[8px] uppercase tracking-wide">Sundae · </span>
+                      <span className="text-[8px] uppercase tracking-wide">
+                        {item.conflictsWith ? "Overlaps · " : "Sundae · "}
+                      </span>
                       {item.label}
                     </span>
                     {item.role && (

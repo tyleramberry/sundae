@@ -69,6 +69,11 @@ export async function POST(request: Request) {
     // Dates -> ISO strings for the JSON boundary, same pattern the old Day
     // 8 route used. cadenceCount/preferredTime round-trip through here too
     // now (bug fix) -- see PendingProposedAction's comment for why.
+    // conflictsWith rides along per-block: the whole point of the
+    // exact-placement redesign (see blocks.ts's file header) is that a
+    // block can be proposed AND overlap something real -- the confirm
+    // screen needs this to ask the user before writing it, not just the
+    // block's time.
     const serialized = proposed.map((action) => ({
       role: action.role,
       description: action.description,
@@ -78,6 +83,7 @@ export async function POST(request: Request) {
       blocks: action.blocks.map((b) => ({
         start: b.start.toISOString(),
         end: b.end.toISOString(),
+        conflictsWith: b.conflictsWith,
       })),
     }));
 

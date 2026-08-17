@@ -6,11 +6,11 @@ import {
   deleteCalendarEvent,
   listWeekEvents,
 } from "@/lib/google/calendar";
-import { proposeActionBlocks, type GoogleCalendarEvent } from "@/lib/planning/blocks";
+import { proposeActionBlocks, weekdayFromText, type GoogleCalendarEvent } from "@/lib/planning/blocks";
 import {
   cadenceCountFromText,
   preferredTimeFromText,
-  relativeDayWeekdayName,
+  relativeDayWeekday,
 } from "@/lib/planning/reconstructFromText";
 import { planningWeekEndDate, planningWeekStart, planningWeekStartDate } from "@/lib/weeklySession/week";
 import type { ActionType, ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
@@ -149,28 +149,24 @@ export async function POST(request: Request) {
     // description text alone -- see reconstructFromText.ts. `cadenceCount`
     // only applies to habits; a bare 1 for everything else keeps
     // proposeActionBlocks's `wanted` formula (Math.max(1, cadenceCount ?? 1))
-    // correct without special-casing goals here too. The description
-    // handed to the scheduler can differ from the row's real `title` --
-    // see relativeDayWeekdayName -- but the calendar event and the plan
-    // panel always keep the original title.
+    // correct without special-casing goals here too. `weekday` tries an
+    // explicit day name in the text first, then a relative word ("tonight")
+    // resolved against the row's real creation date -- same structured
+    // field the live engine sets directly now, so this recovery path and
+    // the normal path both feed proposeActionBlocks identically. The
+    // row's `title` itself is never rewritten -- it's already what the
+    // calendar event and the plan panel show.
     const actions: ClassifiedAction[] = rows.map((row) => {
-      const relativeDay = relativeDayWeekdayName(row.title, new Date(row.created_at), timeZone ?? "UTC");
+      const createdAt = new Date(row.created_at);
+      const weekday =
+        weekdayFromText(row.title) ?? relativeDayWeekday(row.title, createdAt, timeZone ?? "UTC") ?? undefined;
       return {
         role: row.role,
-        // Bug fix: "Budgeting with Brooklyn tonight at 6:30pm" names no
-        // weekday at all -- weekdayFromText has no way to know "tonight"
-        // meant anything, so the item got no day preference and could
-        // land on whatever day the fallback happened to find room,
-        // completely disconnected from the day it was actually said.
-        // Appending the day it was actually created on (resolved from
-        // created_at, not guessed) gives weekdayFromText something to
-        // find -- appended, not prepended, so an already-explicit weekday
-        // earlier in the text still wins (weekdayFromText keeps whichever
-        // match comes first).
-        description: relativeDay ? `${row.title} (${relativeDay})` : row.title,
+        description: row.title,
         type: row.type as ActionType,
         cadenceCount: row.type === "habit" ? (cadenceCountFromText(row.title) ?? undefined) : undefined,
         preferredTime: preferredTimeFromText(row.title) ?? undefined,
+        weekday,
       };
     });
 
@@ -197,6 +193,14 @@ export async function POST(request: Request) {
     let placed = 0;
     const stillUnplaced: string[] = [];
     let calendarWarning: string | null = null;
+    // Bug fix (placement redesign, see blocks.ts): a block is now placed
+    // at exactly the requested day+time even when it collides with
+    // something -- `conflictsWith` says what. This route has no
+    // interactive confirmation step (it's already gated behind the
+    // "Redo"/"Fix missing" button's own confirm), so it writes overlaps
+    // anyway rather than leaving the item unplaced, and reports which
+    // ones so the user can check and adjust by hand if they want to.
+    const overlapping: string[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -204,6 +208,9 @@ export async function POST(request: Request) {
       if (blocks.length === 0) {
         stillUnplaced.push(row.title);
         continue;
+      }
+      if (blocks.some((b) => b.conflictsWith)) {
+        overlapping.push(row.title);
       }
 
       // First block updates the existing row. Any additional blocks
@@ -259,14 +266,22 @@ export async function POST(request: Request) {
     const totalWanted = rows.length + proposed.reduce((sum, p) => sum + Math.max(0, p.blocks.length - 1), 0);
     const verb = redo ? "Redid" : "Placed";
     const message = ((): string => {
-      if (placed === totalWanted) {
-        return `${verb} all ${placed} item${placed === 1 ? "" : "s"} on your calendar.`;
+      const parts: string[] = [
+        placed === totalWanted
+          ? `${verb} all ${placed} item${placed === 1 ? "" : "s"} on your calendar.`
+          : `${verb} ${placed} of ${totalWanted} item${totalWanted === 1 ? "" : "s"} on your calendar.`,
+      ];
+      if (overlapping.length > 0) {
+        parts.push(
+          `${overlapping.length} overlap${overlapping.length === 1 ? "s" : ""} something already there: ${overlapping.join(", ")}. Check your calendar and move anything you'd rather not double-book.`,
+        );
       }
-      const base = `${verb} ${placed} of ${totalWanted} item${totalWanted === 1 ? "" : "s"} on your calendar.`;
       if (calendarWarning) {
-        return `${base} Calendar write failed for the rest: ${calendarWarning}`;
+        parts.push(`Calendar write failed for the rest: ${calendarWarning}`);
+      } else if (stillUnplaced.length > 0) {
+        parts.push(`Couldn't place at all (the requested time has already passed): ${stillUnplaced.join(", ")}.`);
       }
-      return `${base} Still no free gap this week for: ${stillUnplaced.join(", ")}.`;
+      return parts.join(" ");
     })();
 
     return NextResponse.json({
@@ -274,6 +289,7 @@ export async function POST(request: Request) {
       retried: rows.length,
       placed,
       stillUnplaced,
+      overlapping,
       calendarWarning: calendarWarning ?? undefined,
       message,
     });

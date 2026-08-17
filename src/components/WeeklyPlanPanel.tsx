@@ -177,7 +177,11 @@ export default function WeeklyPlanPanel({
             ) : (
               <ul className="mt-2 flex flex-col gap-2">
                 {items.map((action, i) => {
-                  const dayIdx = weekdayFromText(action.description);
+                  // Structured field first -- the live engine captures the
+                  // day this way now (see ClassifiedAction.weekday); the
+                  // text-parse fallback only still matters for items
+                  // classified before that field existed.
+                  const dayIdx = action.weekday ?? weekdayFromText(action.description);
                   const cadence = cadenceLabel(action);
                   const time = timeLabel(action);
                   return (

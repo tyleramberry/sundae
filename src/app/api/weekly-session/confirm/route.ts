@@ -194,13 +194,34 @@ export async function POST(request: Request) {
       (a) => a.type !== "project" && a.eventIds.length === 0,
     ).length;
 
+    // Placement redesign (see blocks.ts): a block conflicting with
+    // something real is still written -- the client only ever sends
+    // `proposed` here after the user has already seen and confirmed each
+    // conflict on the confirm screen (see weekly-session/page.tsx's
+    // confirm()). Surfacing the count again here is just an honest receipt
+    // of what actually happened, not a second gate.
+    const overlappingCount = (proposed as PendingProposedAction[]).filter(
+      (a) => a.type !== "project" && a.blocks.some((b) => b.conflictsWith),
+    ).length;
+
     const confirmationMessage = ((): string => {
       const savedLine = `${created} item${created === 1 ? "" : "s"} saved to this week's plan.`;
       if (calendarWarning) {
         return `${savedLine} Calendar write failed: ${calendarWarning}`;
       }
+      const parts: string[] = [];
       if (unplacedCount > 0) {
-        return `${savedLine} ${unplacedCount} of ${created} didn't get a real time on your calendar -- no free gap was found this week. Check the plan panel and try replanning those, or free up some time and confirm again.`;
+        parts.push(
+          `${unplacedCount} of ${created} couldn't be placed -- the exact time you asked for has already passed. Check the plan panel and replan those.`,
+        );
+      }
+      if (overlappingCount > 0) {
+        parts.push(
+          `${overlappingCount} item${overlappingCount === 1 ? "" : "s"} written on top of something already on your calendar, as you confirmed.`,
+        );
+      }
+      if (parts.length > 0) {
+        return `${savedLine} ${parts.join(" ")}`;
       }
       return `${created} item${created === 1 ? "" : "s"} written to your calendar.`;
     })();
@@ -227,6 +248,7 @@ export async function POST(request: Request) {
       recapEmailSent,
       calendarWarning: calendarWarning ?? undefined,
       unplacedCount,
+      overlappingCount,
       // Bug fix: the client used to rebuild its own version of this string
       // from itemsCreated/calendarWarning instead of using this one -- two
       // independently-maintained copies of the same message, drifting the

@@ -15,33 +15,23 @@
 
 import { DateTime } from "luxon";
 
-const WEEKDAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
-
 const RELATIVE_DAY = /\b(today|tonight|this morning|this afternoon|this evening)\b/i;
 
-// "Budgeting with Brooklyn tonight at 6:30pm" names no weekday at all --
-// weekdayFromText (blocks.ts) has no way to know "tonight" meant anything,
-// so the item got no day preference and landed on whatever day the
-// fallback order happened to find room, disconnected from when it was
-// actually said. Resolves a relative-day word against the row's real
-// `createdAt` (the day the user actually said "tonight") and returns the
-// weekday NAME so it can be appended to the text handed to
-// proposeActionBlocks -- never rewrites the user-facing title/event
-// summary, only the copy used for scheduling. Returns null if the text
-// has no relative-day word, or already names an explicit weekday (that
-// one wins, this function isn't called in that case).
-export function relativeDayWeekdayName(text: string, createdAt: Date, timeZone: string): string | null {
+// "Budgeting with Brooklyn tonight at 6:30pm" names no weekday word at
+// all -- weekdayFromText (blocks.ts) has no way to know "tonight" meant
+// anything, so the item used to get no day preference and land on
+// whatever day the fallback order happened to find room, disconnected
+// from when it was actually said. Resolves a relative-day word against
+// the row's real `createdAt` (the day the user actually said "tonight")
+// and returns the weekday NUMBER directly (0=Sunday..6=Saturday), for the
+// caller to set on ClassifiedAction.weekday -- same structured field the
+// live engine populates itself now, so this recovery path and the normal
+// path both feed proposeActionBlocks the same way. Returns null if the
+// text has no relative-day word, or already names an explicit weekday
+// (weekdayFromText already covers that case on its own).
+export function relativeDayWeekday(text: string, createdAt: Date, timeZone: string): number | null {
   if (!RELATIVE_DAY.test(text)) return null;
-  const weekday = DateTime.fromJSDate(createdAt, { zone: timeZone }).weekday % 7;
-  return WEEKDAY_NAMES[weekday];
+  return DateTime.fromJSDate(createdAt, { zone: timeZone }).weekday % 7;
 }
 
 const AT_TIME = /\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i;

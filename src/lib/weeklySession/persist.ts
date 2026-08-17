@@ -190,7 +190,12 @@ export type PendingProposedAction = {
   role: string;
   description: string;
   type: ActionType;
-  blocks: { start: string; end: string }[];
+  // conflictsWith: set when this exact slot overlaps something already on
+  // the calendar (or another block this same round already placed) -- see
+  // blocks.ts's file header for the placement redesign this supports.
+  // Never causes a block to move; only tells the confirm screen to ask
+  // before writing it.
+  blocks: { start: string; end: string; conflictsWith?: string }[];
   // Bug fix: round-trips the engine's original cadenceCount/preferredTime
   // through the propose -> client -> confirm boundary, same reasoning as
   // ProposedAction gaining these fields in blocks.ts -- without them,

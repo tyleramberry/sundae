@@ -33,6 +33,21 @@ export type ClassifiedAction = {
   // preference after being asked. Project: always omitted, same as
   // cadenceCount -- no calendar block to time.
   preferredTime?: string;
+  // Habit/Goal only, 0=Sunday..6=Saturday -- the SINGLE specific day the
+  // user named for this item, including a relative reference ("today",
+  // "tonight") resolved against the actual date the message was sent.
+  // Omitted when no single day applies: a cadence-only habit ("every day",
+  // "3x this week") with no particular day named, or the user genuinely
+  // didn't say. Bug fix: this used to live only as text inside
+  // `description` ("...on Saturday", "...Monday through Friday") and get
+  // reverse-engineered by a regex at scheduling time -- which silently
+  // mis-fired on a range ("Monday through Friday" read as plain Monday)
+  // and had no way to understand a relative word ("tonight") at all,
+  // since it never saw the date the message was sent. Capturing it here,
+  // resolved by the model with today's real date already in front of it,
+  // removes that whole class of bug at the source instead of patching the
+  // regex again. Project: always omitted, same as cadenceCount/preferredTime.
+  weekday?: number;
 };
 
 // What the caller already knows about last week, read from `weekly_items`
@@ -121,6 +136,15 @@ export type WeeklySessionInput = {
   // still passes an explicit "not available" string in that case rather
   // than omitting silently, so the model tells the user the real reason.
   calendarSummary?: string;
+  // The user's real IANA timezone (e.g. "America/Denver"), forwarded from
+  // the browser (see weekly-session/page.tsx's browserTimeZone()). Used to
+  // state today's actual weekday/date in the user's own local time, so the
+  // model can resolve "today"/"tonight"/"tomorrow" into the right
+  // `weekday` (see ClassifiedAction.weekday) instead of guessing or
+  // leaving it out. Falls back to the server's own zone if omitted --
+  // still usually right, just not guaranteed to match the user like the
+  // browser-supplied one is.
+  timeZone?: string;
 };
 
 export type WeeklySessionAction =

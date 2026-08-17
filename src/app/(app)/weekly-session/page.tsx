@@ -18,7 +18,7 @@ import { parseDateOnly } from "@/lib/weeklySession/week";
 
 type Turn = { from: "engine" | "user"; text: string };
 
-type ProposedBlock = { start: string; end: string };
+type ProposedBlock = { start: string; end: string; conflictsWith?: string };
 type ProposedAction = {
   role: string;
   description: string;
@@ -146,6 +146,15 @@ export default function WeeklySessionPage() {
   // chat -- the two-column split doesn't fit under ~600px, same call the
   // AppSidebar makes to collapse into a top bar.
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+
+  // Feature: "toggle between the planned task ... and a calendar view ...
+  // rendered at the beginning of the chat, updating as you go" -- during
+  // "chatting" the right panel used to only ever show the plan-so-far
+  // audit trail; the real calendar (already fetched on load, see
+  // loadCalendarEvents below) had nowhere to show until /propose ran.
+  // This is chatting-stage only -- proposing/confirming/writing already
+  // show the calendar grid unconditionally (with the proposed overlay).
+  const [chatPanelView, setChatPanelView] = useState<"plan" | "calendar">("plan");
 
   // Confirm-screen revision chat.
   const [reviseTurns, setReviseTurns] = useState<Turn[]>([]);
@@ -449,6 +458,7 @@ export default function WeeklySessionPage() {
           description: action.description,
           start: block.start,
           end: block.end,
+          conflictsWith: block.conflictsWith,
         });
       }
     }
@@ -489,8 +499,36 @@ export default function WeeklySessionPage() {
     }
   }
 
+  // Placement redesign (see blocks.ts's file header + the user's own
+  // framing: "if Sundae knows it's gonna overlap an existing event, do
+  // not change it -- tell the user, are you sure, and if they say yes,
+  // write it on top"). /propose no longer avoids a busy slot; it flags
+  // it with `conflictsWith` instead. This is where that gets asked --
+  // once, summarizing every conflict, right before the actual write.
+  function describeConflicts(): string[] {
+    if (!proposed) return [];
+    const lines: string[] = [];
+    for (const action of proposed) {
+      for (const block of action.blocks) {
+        if (block.conflictsWith) {
+          lines.push(`${action.role} · ${action.description} — overlaps ${block.conflictsWith}`);
+        }
+      }
+    }
+    return lines;
+  }
+
   async function confirm() {
     if (!proposed || confirmInFlight.current) return;
+    const conflicts = describeConflicts();
+    if (
+      conflicts.length > 0 &&
+      !window.confirm(
+        `${conflicts.length} item${conflicts.length === 1 ? "" : "s"} overlap${conflicts.length === 1 ? "s" : ""} something already on your calendar:\n\n${conflicts.join("\n")}\n\nWrite them anyway?`,
+      )
+    ) {
+      return;
+    }
     confirmInFlight.current = true;
     setStage("writing");
     setError(null);
@@ -618,6 +656,9 @@ export default function WeeklySessionPage() {
     return `${day}, ${time(s)}–${time(e)}`;
   }
 
+  // Placement redesign: a block only ever comes back empty now when the
+  // exact requested time is genuinely unreachable (already passed) --
+  // busy no longer means unplaced, it means `conflictsWith` (see below).
   function unplacedHint(action: ProposedAction): string {
     const classified = sessionActions.find(
       (a) => a.role === action.role && a.description === action.description,
@@ -625,9 +666,9 @@ export default function WeeklySessionPage() {
     const bits: string[] = [];
     if (classified?.preferredTime) bits.push(classified.preferredTime);
     if (bits.length > 0) {
-      return `You asked for ${bits.join(" ")} — no free calendar gap at that time. The item still saves to this week's plan when you confirm.`;
+      return `You asked for ${bits.join(" ")} — that's already passed this week. The item still saves to this week's plan; replan it for a real time.`;
     }
-    return "No free calendar gap for this. The item still saves to this week's plan when you confirm.";
+    return "That time has already passed this week. The item still saves to this week's plan; replan it for a real time.";
   }
 
   if (stage === "checking" || stage === "signed-out") {
@@ -659,8 +700,17 @@ export default function WeeklySessionPage() {
   // once /propose has run) on the right. Runs for chatting, proposing,
   // confirming, and writing -- the whole arc where either a "plan so far"
   // or a "here's what I'll put on your calendar" is worth showing.
-  const showCalendarPanel =
+  //
+  // Two distinct "show the calendar" cases, kept separate because they
+  // render differently: once /propose has run there's a real proposed
+  // overlay + per-item list to show alongside the grid; during plain
+  // chatting (the calendar toggle above) there's nothing proposed yet --
+  // just the real calendar, so the user can see their actual week while
+  // still talking, not only after the session completes.
+  const showProposedCalendarPanel =
     stage === "confirming" || stage === "writing" || stage === "proposing";
+  const showLiveCalendarPanel = stage === "chatting" && chatPanelView === "calendar";
+  const showCalendarPanel = showProposedCalendarPanel || showLiveCalendarPanel;
 
   return (
     // `min-h-0` here (and again one level down on the messages wrapper)
@@ -700,6 +750,34 @@ export default function WeeklySessionPage() {
                 This week&apos;s plan is set. Anything else you want to plan
                 for, just ask.
               </p>
+            )}
+            {/* Feature: see your real calendar while still chatting, not
+                just after /propose runs -- toggles the right panel between
+                the plan-so-far audit trail and the live calendar grid
+                (already loaded on mount; see loadCalendarEvents). */}
+            {stage === "chatting" && (
+              <div className="mt-2 inline-flex rounded-full border border-zinc-300 p-0.5 text-xs dark:border-zinc-700">
+                <button
+                  onClick={() => setChatPanelView("plan")}
+                  className={`rounded-full px-3 py-1 ${
+                    chatPanelView === "plan"
+                      ? "bg-black text-white dark:bg-white dark:text-black"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  Plan
+                </button>
+                <button
+                  onClick={() => setChatPanelView("calendar")}
+                  className={`rounded-full px-3 py-1 ${
+                    chatPanelView === "calendar"
+                      ? "bg-black text-white dark:bg-white dark:text-black"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  Calendar
+                </button>
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -813,7 +891,18 @@ export default function WeeklySessionPage() {
           mobilePanelOpen ? "flex" : "hidden"
         } min-h-0 flex-1 flex-col overflow-hidden bg-zinc-50 md:flex md:max-w-2xl md:bg-white md:dark:bg-zinc-950`}
       >
-        {showCalendarPanel ? (
+        {showLiveCalendarPanel ? (
+          // Chatting-stage calendar toggle: nothing's been proposed yet,
+          // so this is just the real calendar -- see loadCalendarEvents,
+          // already fetched on mount so this is instant, not a fresh
+          // round-trip on every toggle click.
+          <WeekCalendarGrid
+            events={calendarEvents}
+            proposed={[]}
+            weekStart={weekStart ?? new Date()}
+            weekLabel={weekLabel}
+          />
+        ) : showProposedCalendarPanel ? (
           // `min-h-0` on the grid wrapper + `overflow-y-auto` on the list
           // below it split this column into two independently-scrollable
           // regions (grid gets a fair, non-greedy share via flex-1/min-h-0
@@ -861,9 +950,17 @@ export default function WeeklySessionPage() {
                         {unplacedHint(action)}
                       </p>
                     ) : (
-                      <ul className="mt-1 flex flex-col gap-0.5 text-zinc-500 dark:text-zinc-400">
+                      <ul className="mt-1 flex flex-col gap-1 text-zinc-500 dark:text-zinc-400">
                         {action.blocks.map((b, j) => (
-                          <li key={j}>{formatRange(b)}</li>
+                          <li key={j}>
+                            <span>{formatRange(b)}</span>
+                            {b.conflictsWith && (
+                              <span className="mt-0.5 flex items-start gap-1 text-amber-700 dark:text-amber-400">
+                                <span aria-hidden>⚠</span>
+                                <span>Overlaps {b.conflictsWith} — asks before writing</span>
+                              </span>
+                            )}
+                          </li>
                         ))}
                       </ul>
                     )}

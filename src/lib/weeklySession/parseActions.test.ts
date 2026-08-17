@@ -15,6 +15,17 @@ describe("isClassifiedAction", () => {
     );
     assert.equal(isClassifiedAction({ role: "Athlete" }), false);
   });
+
+  it("accepts an optional weekday 0-6 and rejects an out-of-range one", () => {
+    assert.equal(
+      isClassifiedAction({ role: "Athlete", description: "Run", type: "goal", weekday: 6 }),
+      true,
+    );
+    assert.equal(
+      isClassifiedAction({ role: "Athlete", description: "Run", type: "goal", weekday: 7 }),
+      false,
+    );
+  });
 });
 
 describe("isIncomingAction", () => {
@@ -36,6 +47,24 @@ describe("isIncomingAction", () => {
         blocks: [{ start: 1, end: 2 }],
       }),
       false,
+    );
+  });
+
+  it("accepts an optional conflictsWith string on a block", () => {
+    assert.equal(
+      isIncomingAction({
+        role: "Founder",
+        description: "Write update",
+        type: "goal",
+        blocks: [
+          {
+            start: "2026-08-10T15:00:00.000Z",
+            end: "2026-08-10T15:45:00.000Z",
+            conflictsWith: "Standup (9:00 AM–9:30 AM)",
+          },
+        ],
+      }),
+      true,
     );
   });
 });
