@@ -165,10 +165,32 @@ export async function POST(request: Request) {
     const priorTranscript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
     const roundTurns: Turn[] = priorTranscript?.active_state.turns ?? [];
 
-    const confirmationMessage =
-      calendarWarning && created > 0
-        ? `${created} item${created === 1 ? "" : "s"} saved to this week's plan. Calendar write failed: ${calendarWarning}`
-        : `${created} item${created === 1 ? "" : "s"} written to your calendar.`;
+    // Bug fix: this used to only distinguish "a Google write actually threw
+    // (calendarWarning set)" from "everything's fine" -- but a Habit/Goal
+    // action can end up with zero eventIds without ever throwing, if
+    // /propose simply never found a free block for it (empty
+    // action.blocks, so the createCalendarEvent loop above never even ran).
+    // createWeeklyItems still persists a row for it either way (so nothing
+    // in the user's plan gets silently dropped), which meant `created` was
+    // never 0 and the message defaulted to the success line -- "written to
+    // your calendar" -- even when NONE of the items had actually landed on
+    // Google Calendar. Count anything that isn't a Project and ended up
+    // with no real calendar event, regardless of which of those two ways
+    // it happened, and say so honestly.
+    const unplacedCount = withEventIds.filter(
+      (a) => a.type !== "project" && a.eventIds.length === 0,
+    ).length;
+
+    const confirmationMessage = ((): string => {
+      const savedLine = `${created} item${created === 1 ? "" : "s"} saved to this week's plan.`;
+      if (calendarWarning) {
+        return `${savedLine} Calendar write failed: ${calendarWarning}`;
+      }
+      if (unplacedCount > 0) {
+        return `${savedLine} ${unplacedCount} of ${created} didn't get a real time on your calendar -- no free gap was found this week. Check the plan panel and try replanning those, or free up some time and confirm again.`;
+      }
+      return `${created} item${created === 1 ? "" : "s"} written to your calendar.`;
+    })();
     const { isFirstConfirmThisWeek } = await recordWeeklySessionConfirmed(supabase, {
       userId: user.id,
       weekStart,
@@ -191,6 +213,15 @@ export async function POST(request: Request) {
       itemsCreated: created,
       recapEmailSent,
       calendarWarning: calendarWarning ?? undefined,
+      unplacedCount,
+      // Bug fix: the client used to rebuild its own version of this string
+      // from itemsCreated/calendarWarning instead of using this one -- two
+      // independently-maintained copies of the same message, drifting the
+      // moment one of them changes (which is exactly what happened: this
+      // one gained the "no free gap found" case above, the client's copy
+      // didn't). Sending the already-correct message once means there's
+      // only one place this wording lives.
+      message: confirmationMessage,
     });
   } catch (error) {
     if (error instanceof ConfirmInProgressError) {

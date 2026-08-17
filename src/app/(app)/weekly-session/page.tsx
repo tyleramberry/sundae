@@ -495,22 +495,20 @@ export default function WeeklySessionPage() {
       return;
     }
     // Day 16: no dead-end "done" screen -- drop back into the same chat,
-    // ready for whatever comes up mid-week. Mirrors the confirmation
-    // bubble the server itself appended to display_turns (see
-    // recordWeeklySessionConfirmed) so the user sees it land immediately
-    // rather than waiting on a refetch.
-    const created = body.itemsCreated as number;
+    // ready for whatever comes up mid-week. Uses the server's own message
+    // verbatim (bug fix: this used to rebuild its own copy of the same
+    // string from itemsCreated/calendarWarning, which drifted out of sync
+    // with the route's actual logic -- specifically, it had no way to know
+    // an item got zero eventIds because /propose never found it a free
+    // slot rather than because a write threw, so it always said "written
+    // to your calendar" in that case even though nothing had been. The
+    // server's `message` is the one place this wording lives now; see
+    // recordWeeklySessionConfirmed, which appends this same string to
+    // display_turns so a reload shows the identical line.
     const already = Boolean(body.alreadyConfirmed);
     const confirmationBubbles: Turn[] = already
       ? [{ from: "engine", text: "This plan was already written to your calendar." }]
-      : [
-          {
-            from: "engine",
-            text: body.calendarWarning
-              ? `${created} item${created === 1 ? "" : "s"} saved to this week's plan. Calendar: ${body.calendarWarning}`
-              : `${created} item${created === 1 ? "" : "s"} written to your calendar.`,
-          },
-        ];
+      : [{ from: "engine", text: body.message as string }];
     if (body.recapEmailSent) {
       confirmationBubbles.push({
         from: "engine",

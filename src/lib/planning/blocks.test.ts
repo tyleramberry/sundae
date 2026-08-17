@@ -117,4 +117,31 @@ describe("busyRangesFromEvents", () => {
     ]);
     assert.equal(ranges.length, 0);
   });
+
+  // Bug fix regression: a production account with one all-day marker event
+  // per day of the week ("Sundae AI - Day 17", a build-log entry, not a
+  // literal "unavailable all day" block) had every single day read as 100%
+  // busy, so /propose found zero free slots for anything, all week, with
+  // no error raised -- /confirm then reported success anyway. All-day
+  // events must never count as busy time for gap-finding.
+  it("does not treat all-day events as busy", () => {
+    const ranges = busyRangesFromEvents([
+      { status: "confirmed", start: { date: "2026-08-17" }, end: { date: "2026-08-18" } },
+      { status: "confirmed", start: { date: "2026-08-18" }, end: { date: "2026-08-19" } },
+    ]);
+    assert.equal(ranges.length, 0);
+  });
+
+  it("still treats a real timed event as busy alongside an all-day event", () => {
+    const ranges = busyRangesFromEvents([
+      { status: "confirmed", start: { date: "2026-08-17" }, end: { date: "2026-08-18" } },
+      {
+        status: "confirmed",
+        start: { dateTime: "2026-08-17T15:00:00.000Z" },
+        end: { dateTime: "2026-08-17T16:00:00.000Z" },
+      },
+    ]);
+    assert.equal(ranges.length, 1);
+    assert.equal(ranges[0].start.toISOString(), "2026-08-17T15:00:00.000Z");
+  });
 });

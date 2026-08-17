@@ -53,9 +53,19 @@ type ProposeBlocksOptions = {
   dayEndHour?: number;
 };
 
-// Converts raw Google Calendar events into normalized busy ranges. All-day
-// events block the entire local day (Google represents an all-day event's
-// `end.date` as exclusive, i.e. the day after it ends).
+// Converts raw Google Calendar events into normalized busy ranges. Bug fix:
+// this used to also treat every all-day event (start.date/end.date, no
+// dateTime) as blocking its entire local day. That's wrong for what this
+// app actually uses all-day events for -- day-labels, reminders, birthdays,
+// build-log markers ("Sundae AI - Day 17") -- not literal "unavailable
+// sunrise to sunset" blocks, and Google itself defaults all-day events to
+// *not* showing as Busy in the UI's own free/busy sense. In production this
+// wasn't hypothetical: a user with one all-day marker event per day of the
+// week had /propose read the entire week as 100% booked and hand back zero
+// blocks for every single action, silently -- no error, no calendarWarning,
+// so /confirm's "written to your calendar" message fired anyway (see that
+// route's own fix) while nothing had actually been scheduled. Only a timed
+// event (a real start/end clock time) counts as busy for gap-finding now.
 export function busyRangesFromEvents(events: GoogleCalendarEvent[]): TimeRange[] {
   const ranges: TimeRange[] = [];
 
@@ -67,20 +77,12 @@ export function busyRangesFromEvents(events: GoogleCalendarEvent[]): TimeRange[]
         start: new Date(event.start.dateTime),
         end: new Date(event.end.dateTime),
       });
-    } else if (event.start?.date && event.end?.date) {
-      ranges.push({
-        start: dateOnlyToLocalMidnight(event.start.date),
-        end: dateOnlyToLocalMidnight(event.end.date),
-      });
     }
+    // All-day events (start.date/end.date, no dateTime) are deliberately
+    // never added as busy time -- see the function comment above.
   }
 
   return mergeRanges(ranges);
-}
-
-function dateOnlyToLocalMidnight(dateStr: string): Date {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  return new Date(year, month - 1, day);
 }
 
 function mergeRanges(ranges: TimeRange[]): TimeRange[] {
