@@ -7,18 +7,20 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/lib/kpi/compute.test.ts src/lib/planning/blocks.test.ts src/lib/cron/auth.test.ts src/lib/weeklySession/throttle.test.ts src/lib/weeklySession/persist.test.ts src/lib/weeklySession/week.test.ts src/lib/weeklySession/parseActions.test.ts src/lib/engine/stabilizeActions.test.ts"
+    "test": "tsx --test src/lib/kpi/compute.test.ts src/lib/planning/blocks.test.ts src/lib/planning/reconstructFromText.test.ts src/lib/cron/auth.test.ts src/lib/weeklySession/throttle.test.ts src/lib/weeklySession/persist.test.ts src/lib/weeklySession/week.test.ts src/lib/weeklySession/parseActions.test.ts src/lib/engine/stabilizeActions.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.0",
+    "luxon": "^3.7.2",
     "next": "16.3.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/luxon": "^3.7.4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

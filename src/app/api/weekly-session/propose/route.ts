@@ -31,8 +31,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => null)) as { actions?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as
+    | { actions?: unknown; timeZone?: unknown }
+    | null;
   const actions = body?.actions;
+  // Bug fix: without a real IANA timezone, every "8am-8pm working hours"
+  // and every preferred-clock-time placement was computed in the SERVER's
+  // zone (UTC on Vercel), not the user's -- see blocks.ts's DEFAULT_TIME_ZONE
+  // comment for the exact mechanism and a production repro. Optional only
+  // so a stale client that hasn't reloaded yet still gets a response
+  // (falling back to the old, wrong-for-non-UTC-users behavior) instead of
+  // a hard 400.
+  const timeZone = typeof body?.timeZone === "string" ? body.timeZone : undefined;
 
   if (!Array.isArray(actions) || !actions.every(isClassifiedAction)) {
     return NextResponse.json(
@@ -46,22 +56,25 @@ export async function POST(request: Request) {
 
   try {
     const now = new Date();
-    const weekStartDate = planningWeekStartDate(now);
+    const weekStartDate = planningWeekStartDate(now, timeZone);
     const events = await listWeekEvents(supabase, user.id, weekStartDate);
     const proposed = proposeActionBlocks(
       actions,
       events.items ?? [],
       weekStartDate,
-      planningWeekEndDate(weekStartDate),
-      { now },
+      planningWeekEndDate(weekStartDate, timeZone),
+      { now, timeZone },
     );
 
     // Dates -> ISO strings for the JSON boundary, same pattern the old Day
-    // 8 route used.
+    // 8 route used. cadenceCount/preferredTime round-trip through here too
+    // now (bug fix) -- see PendingProposedAction's comment for why.
     const serialized = proposed.map((action) => ({
       role: action.role,
       description: action.description,
       type: action.type,
+      cadenceCount: action.cadenceCount,
+      preferredTime: action.preferredTime,
       blocks: action.blocks.map((b) => ({
         start: b.start.toISOString(),
         end: b.end.toISOString(),
@@ -71,7 +84,7 @@ export async function POST(request: Request) {
     await savePendingProposal(
       supabase,
       user.id,
-      planningWeekStart(now),
+      planningWeekStart(now, timeZone),
       serialized,
       actions as ClassifiedAction[],
     ).catch((err) => {
@@ -82,8 +95,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       proposed: serialized,
-      weekStart: planningWeekStart(now),
-      weekLabel: formatPlanningWeekRange(weekStartDate),
+      weekStart: planningWeekStart(now, timeZone),
+      weekLabel: formatPlanningWeekRange(weekStartDate, timeZone),
     });
   } catch (error) {
     if (error instanceof GoogleCalendarError) {

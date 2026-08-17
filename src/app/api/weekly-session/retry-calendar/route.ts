@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { GoogleCalendarError, createCalendarEvent, listWeekEvents } from "@/lib/google/calendar";
+import {
+  GoogleCalendarError,
+  createCalendarEvent,
+  deleteCalendarEvent,
+  listWeekEvents,
+} from "@/lib/google/calendar";
 import { proposeActionBlocks, type GoogleCalendarEvent } from "@/lib/planning/blocks";
+import { cadenceCountFromText, preferredTimeFromText } from "@/lib/planning/reconstructFromText";
 import { planningWeekEndDate, planningWeekStart, planningWeekStartDate } from "@/lib/weeklySession/week";
 import type { ActionType, ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
 
@@ -10,26 +16,29 @@ import type { ActionType, ClassifiedAction } from "@/lib/engine/weeklySessionTyp
 // all-day event on every day of the week used to make /propose read the
 // whole week as booked, so a confirmed session's Habit/Goal items could end
 // up saved to weekly_items with no real Google Calendar event and no
-// warning. This route is the recovery path for exactly that state -- find
-// this week's already-confirmed items that never got a calendar slot, and
-// retry them now that the underlying bug is fixed, using the real fixed
-// scheduler and the real calendar.
+// warning.
 //
-// Deliberately narrow: it only ever touches rows that already exist and
-// already have `google_event_id is null` -- it UPDATEs those rows in place
-// (setting google_event_id once a write succeeds), it never INSERTs a new
-// weekly_items row and never re-runs the chat/classification. A row this
-// route can't place still ends up with no google_event_id, same as before
-// -- it's surfaced in the response, not silently dropped or retried forever.
+// Two modes, both driven by an explicit `redo` flag in the request body:
 //
-// One known fidelity gap, called out here rather than hidden: because the
-// original bug meant createWeeklyItems only ever inserted ONE fallback row
-// per action (see that function's `eventIds.length === 0` branch), a Habit
-// meant to recur several times a week (cadenceCount > 1) only has a single
-// row to retry -- this route gives it exactly one calendar block, not the
-// originally-intended cadence. The user can always add the rest as new
-// items through the normal chat.
-export async function POST() {
+// - `redo: false` (default) -- "fix what's missing". Only touches rows
+//   with `google_event_id is null`. Never deletes anything.
+// - `redo: true` -- "start over". Touches EVERY non-project row for the
+//   week, deleting any existing calendar event first. Exists because this
+//   route's own first version (bug fix, second pass) shipped without the
+//   timezone fix or the cadence/preferredTime reconstruction below, so an
+//   earlier click of the plain "fix missing" button could already have
+//   written real events at the wrong time/cadence -- once that's happened,
+//   `google_event_id` is no longer null, so the safe default mode can't
+//   see anything wrong with those rows anymore. Redo is the explicit,
+//   user-triggered way out of that: never runs itself, always requires the
+//   user to ask for it (see WeeklyPlanPanel's confirmation-gated button).
+//
+// Either way: a Habit reconstructed as needing more than one block gets
+// the extra rows INSERTed (a single row can't hold more than one
+// google_event_id); everything else is an UPDATE in place. A row this
+// route can't place still ends up with no google_event_id -- surfaced in
+// the response, never silently dropped or retried forever.
+export async function POST(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -39,23 +48,31 @@ export async function POST() {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  try {
-    const weekStart = planningWeekStart();
-    const weekStartDate = planningWeekStartDate();
-    const weekEndDate = planningWeekEndDate(weekStartDate);
+  const body = (await request.json().catch(() => null)) as
+    | { timeZone?: unknown; redo?: unknown }
+    | null;
+  const timeZone = typeof body?.timeZone === "string" ? body.timeZone : undefined;
+  const redo = body?.redo === true;
 
-    const { data: rows, error: fetchError } = await supabase
+  try {
+    const weekStart = planningWeekStart(new Date(), timeZone);
+    const weekStartDate = planningWeekStartDate(new Date(), timeZone);
+    const weekEndDate = planningWeekEndDate(weekStartDate, timeZone);
+
+    let query = supabase
       .from("weekly_items")
-      .select("id, role, type, title")
+      .select("id, role, type, title, google_event_id")
       .eq("user_id", user.id)
       .eq("week_start", weekStart)
       .is("removed_at", null)
-      .is("google_event_id", null)
-      .neq("type", "project")
-      .order("created_at", { ascending: true });
+      .neq("type", "project");
+    if (!redo) {
+      query = query.is("google_event_id", null);
+    }
+    const { data: rows, error: fetchError } = await query.order("created_at", { ascending: true });
 
     if (fetchError) {
-      throw new Error(`Failed to load unplaced items: ${fetchError.message}`);
+      throw new Error(`Failed to load items: ${fetchError.message}`);
     }
 
     if (!rows || rows.length === 0) {
@@ -63,14 +80,38 @@ export async function POST() {
         ok: true,
         retried: 0,
         placed: 0,
-        message: "Everything this week already has a real time on your calendar.",
+        message: redo
+          ? "Nothing to redo -- this week has no Habit/Goal items."
+          : "Everything this week already has a real time on your calendar.",
       });
     }
 
+    // Redo deletes whatever was there before it recomputes -- best-effort,
+    // logged rather than fatal, since a stale duplicate on the calendar is
+    // recoverable (the user can delete it by hand) but aborting the whole
+    // redo over one delete failure isn't a better outcome.
+    if (redo) {
+      for (const row of rows) {
+        if (!row.google_event_id) continue;
+        try {
+          await deleteCalendarEvent(supabase, user.id, row.google_event_id);
+        } catch (err) {
+          console.error(`Retry-calendar redo: failed to delete stale event for "${row.title}":`, err);
+        }
+      }
+    }
+
+    // Reconstruct what the structured fields would have said, from the
+    // description text alone -- see reconstructFromText.ts. `cadenceCount`
+    // only applies to habits; a bare 1 for everything else keeps
+    // proposeActionBlocks's `wanted` formula (Math.max(1, cadenceCount ?? 1))
+    // correct without special-casing goals here too.
     const actions: ClassifiedAction[] = rows.map((row) => ({
       role: row.role,
       description: row.title,
       type: row.type as ActionType,
+      cadenceCount: row.type === "habit" ? (cadenceCountFromText(row.title) ?? undefined) : undefined,
+      preferredTime: preferredTimeFromText(row.title) ?? undefined,
     }));
 
     let events: GoogleCalendarEvent[];
@@ -88,7 +129,10 @@ export async function POST() {
     // Index-aligned with `rows`/`actions` -- proposeActionBlocks preserves
     // input order (a straight `actions.map(...)`), so `proposed[i]` is
     // always the slot(s) for `rows[i]`.
-    const proposed = proposeActionBlocks(actions, events, weekStartDate, weekEndDate, { now });
+    const proposed = proposeActionBlocks(actions, events, weekStartDate, weekEndDate, {
+      now,
+      timeZone,
+    });
 
     let placed = 0;
     const stillUnplaced: string[] = [];
@@ -96,45 +140,69 @@ export async function POST() {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const block = proposed[i]?.blocks[0];
-      if (!block) {
+      const blocks = proposed[i]?.blocks ?? [];
+      if (blocks.length === 0) {
         stillUnplaced.push(row.title);
         continue;
       }
 
-      try {
-        const event = await createCalendarEvent(supabase, user.id, {
-          summary: row.title,
-          description: `Sundae ${row.type} — ${row.role}`,
-          start: block.start,
-          end: block.end,
-        });
+      // First block updates the existing row. Any additional blocks
+      // (a reconstructed multi-day habit) get their own new weekly_items
+      // rows, since one existing row can't hold more than one
+      // google_event_id. Each block is written and saved independently so
+      // a failure partway through still keeps whatever already succeeded.
+      for (let b = 0; b < blocks.length; b++) {
+        const block = blocks[b];
+        try {
+          const event = await createCalendarEvent(supabase, user.id, {
+            summary: row.title,
+            description: `Sundae ${row.type} — ${row.role}`,
+            start: block.start,
+            end: block.end,
+          });
 
-        const { error: updateError } = await supabase
-          .from("weekly_items")
-          .update({ google_event_id: event.id, updated_at: new Date().toISOString() })
-          .eq("id", row.id);
+          if (b === 0) {
+            const { error: updateError } = await supabase
+              .from("weekly_items")
+              .update({ google_event_id: event.id, updated_at: new Date().toISOString() })
+              .eq("id", row.id);
+            if (updateError) {
+              throw new Error(`Failed to save calendar event on weekly_items: ${updateError.message}`);
+            }
+          } else {
+            const { error: insertError } = await supabase.from("weekly_items").insert({
+              user_id: user.id,
+              role: row.role,
+              week_start: weekStart,
+              type: row.type,
+              title: row.title,
+              google_event_id: event.id,
+              percent: null,
+            });
+            if (insertError) {
+              throw new Error(`Failed to save extra habit block: ${insertError.message}`);
+            }
+          }
 
-        if (updateError) {
-          throw new Error(`Failed to save calendar event on weekly_items: ${updateError.message}`);
+          placed += 1;
+        } catch (error) {
+          if (error instanceof GoogleCalendarError) {
+            calendarWarning = error.message;
+            if (b === 0) stillUnplaced.push(row.title);
+            continue;
+          }
+          throw error;
         }
-
-        placed += 1;
-      } catch (error) {
-        if (error instanceof GoogleCalendarError) {
-          calendarWarning = error.message;
-          stillUnplaced.push(row.title);
-          continue;
-        }
-        throw error;
       }
     }
 
+    const totalWanted = rows.length + proposed.reduce((sum, p) => sum + Math.max(0, p.blocks.length - 1), 0);
+    const verb = redo ? "Redid" : "Placed";
     const message = ((): string => {
-      if (placed === rows.length) {
-        return `Placed all ${placed} item${placed === 1 ? "" : "s"} on your calendar.`;
+      if (placed === totalWanted) {
+        return `${verb} all ${placed} item${placed === 1 ? "" : "s"} on your calendar.`;
       }
-      const base = `Placed ${placed} of ${rows.length} item${rows.length === 1 ? "" : "s"} on your calendar.`;
+      const base = `${verb} ${placed} of ${totalWanted} item${totalWanted === 1 ? "" : "s"} on your calendar.`;
       if (calendarWarning) {
         return `${base} Calendar write failed for the rest: ${calendarWarning}`;
       }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { DateTime } from "luxon";
 import {
   busyRangesFromEvents,
   findFreeGaps,
@@ -95,6 +96,56 @@ describe("proposeActionBlocks", () => {
     );
     assert.equal(proposed[0].blocks[0].start.getHours(), 7);
     assert.equal(proposed[0].blocks[0].start.getDay(), 2);
+  });
+});
+
+// Bug fix regression: every "local hour" computation used to go through
+// native Date methods, which read the RUNNING PROCESS's timezone, not the
+// timezone actually passed in -- correct by coincidence whenever the two
+// happened to match (a laptop in the same zone as the user), silently
+// wrong the moment they didn't (a server in UTC, a user anywhere else).
+// These tests build their windows with Luxon directly, in a zone chosen
+// specifically so it does NOT match whatever zone the test runner happens
+// to execute in -- the point is to prove the *zone argument* is what
+// controls the result, not the ambient environment. Confirmed against the
+// actual mechanism found in production: `TZ=UTC node -e
+// "new Date().setHours(8,0,0,0)"` prints 2:00 AM in America/Denver.
+describe("proposeActionBlocks (explicit timezone)", () => {
+  const zone = "America/Denver"; // MDT, UTC-6 in August -- deliberately not assumed to match CI's TZ.
+
+  function zoned(parts: { day: number; hour: number; minute?: number }) {
+    return DateTime.fromObject(
+      { year: 2026, month: 8, day: parts.day, hour: parts.hour, minute: parts.minute ?? 0 },
+      { zone },
+    ).toJSDate();
+  }
+
+  it("places a preferred clock time in the zone given, not the process's own zone", () => {
+    const windowStart = zoned({ day: 9, hour: 0 }); // Sunday
+    const windowEnd = zoned({ day: 16, hour: 0 });
+    const now = zoned({ day: 9, hour: 7 });
+
+    const proposed = proposeActionBlocks(
+      [{ role: "Employee", description: "Slack Spencer about offer letter today at 4:00pm", type: "goal", preferredTime: "16:00" }],
+      [],
+      windowStart,
+      windowEnd,
+      { now, timeZone: zone },
+    );
+
+    const zonedStart = DateTime.fromJSDate(proposed[0].blocks[0].start, { zone });
+    assert.equal(zonedStart.hour, 16);
+    assert.equal(zonedStart.minute, 0);
+  });
+
+  it("computes the working-hours gap window in the zone given, not the process's own zone", () => {
+    const windowStart = zoned({ day: 9, hour: 0 });
+    const windowEnd = zoned({ day: 10, hour: 0 });
+
+    const gaps = findFreeGaps([], windowStart, windowEnd, windowStart, 8, 20, zone);
+    assert.equal(gaps.length, 1);
+    assert.equal(DateTime.fromJSDate(gaps[0].start, { zone }).hour, 8);
+    assert.equal(DateTime.fromJSDate(gaps[0].end, { zone }).hour, 20);
   });
 });
 

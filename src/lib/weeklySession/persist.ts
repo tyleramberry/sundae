@@ -128,32 +128,27 @@ export async function createWeeklyItems(
       continue;
     }
 
-    // One row per written block -- a Habit with cadenceCount 7 gets 7
-    // independently-checkable rows, each counting 1 toward the role's
-    // denominator, per the pooled KPI formula. If Google wrote nothing
-    // (no free slot, or the calendar call failed), still persist one
-    // row so the dashboard and right-hand plan aren't empty after confirm.
-    if (action.eventIds.length === 0) {
+    // One row per INTENDED block -- `wanted` total, matching the exact
+    // formula proposeActionBlocks used to decide how many slots to look
+    // for -- each independently-checkable toward the role's denominator
+    // per the pooled KPI formula. Bug fix: this used to insert one row per
+    // *actual* eventId only, so a Habit that got fewer real calendar
+    // blocks than its cadence -- including the all-day-event incident,
+    // where every action got zero -- silently lost the difference with no
+    // record it was ever meant to be more than however many happened to
+    // land. Any block short of `wanted` still gets a row, just with
+    // google_event_id left null, so the dashboard, the plan panel, and a
+    // later retry (see /api/weekly-session/retry-calendar) all see the
+    // true intended count, not a collapsed one.
+    const wanted = action.type === "habit" ? Math.max(1, action.cadenceCount ?? 1) : 1;
+    for (let i = 0; i < wanted; i++) {
       rows.push({
         user_id: userId,
         role: action.role,
         week_start: weekStart,
         type: action.type,
         title: action.description,
-        google_event_id: null,
-        percent: null,
-      });
-      continue;
-    }
-
-    for (const eventId of action.eventIds) {
-      rows.push({
-        user_id: userId,
-        role: action.role,
-        week_start: weekStart,
-        type: action.type,
-        title: action.description,
-        google_event_id: eventId,
+        google_event_id: action.eventIds[i] ?? null,
         percent: null,
       });
     }
@@ -196,6 +191,13 @@ export type PendingProposedAction = {
   description: string;
   type: ActionType;
   blocks: { start: string; end: string }[];
+  // Bug fix: round-trips the engine's original cadenceCount/preferredTime
+  // through the propose -> client -> confirm boundary, same reasoning as
+  // ProposedAction gaining these fields in blocks.ts -- without them,
+  // createWeeklyItems has no way to know a Habit with 0 (or fewer than
+  // cadenceCount) real blocks was ever meant to be more than a single row.
+  cadenceCount?: number;
+  preferredTime?: string;
 };
 
 export type WeeklySessionTranscriptRow = {

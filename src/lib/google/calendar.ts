@@ -208,6 +208,31 @@ export async function getCalendarEvent(
   return response.json();
 }
 
+// Deletes a single event, for /api/weekly-session/retry-calendar's "redo"
+// mode -- replacing a block that was placed at the wrong time (e.g. by the
+// pre-timezone-fix version of that route) needs the stale event actually
+// removed, not just orphaned on the user's real calendar while a second,
+// correct one gets created alongside it. A 404/410 (already gone) is
+// treated as success, same "already achieved the goal" reasoning as
+// getCalendarEvent's null-on-404/410 above -- nothing left to delete.
+export async function deleteCalendarEvent(
+  supabase: SupabaseClient,
+  userId: string,
+  eventId: string,
+): Promise<void> {
+  const accessToken = await getValidAccessToken(supabase, userId);
+
+  const response = await fetch(
+    `${CALENDAR_API}/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+
+  if (!response.ok && response.status !== 404 && response.status !== 410) {
+    const body = await response.text();
+    throw new GoogleCalendarError(`Failed to delete event ${eventId}: ${body}`);
+  }
+}
+
 // Creates a short test event ~1 hour from now, to prove the write path
 // works end-to-end. Kept as a thin wrapper around createCalendarEvent
 // (Day 10) for the existing Day 5 debug screen (/debug/calendar).

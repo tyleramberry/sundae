@@ -73,18 +73,25 @@ export default function WeeklyPlanPanel({
   actionsSoFar,
   weekConfirmed = false,
   onRetryCalendar,
+  onRedoCalendar,
   retryingCalendar = false,
 }: {
   roles: string[];
   actionsSoFar: ClassifiedAction[];
   weekConfirmed?: boolean;
-  // Bug-fix recovery action (see /api/weekly-session/retry-calendar): shown
-  // once the week is confirmed so a user whose items got saved to the plan
-  // without a real Google Calendar time (the all-day-event bug) has a way
-  // to fix it from the app itself, not just a one-off script. Optional --
-  // omitted entirely outside the "chatting" stage where this panel and a
-  // confirmed week can both be true at once.
+  // Bug-fix recovery actions (see /api/weekly-session/retry-calendar):
+  // shown once the week is confirmed so a user whose items got saved to
+  // the plan without a real Google Calendar time (the all-day-event bug)
+  // has a way to fix it from the app itself, not just a one-off script.
+  // Optional -- omitted entirely outside the "chatting" stage where this
+  // panel and a confirmed week can both be true at once.
   onRetryCalendar?: () => void;
+  // "Redo" (route's `redo: true`) deletes and rewrites EVERY event this
+  // week, not just missing ones -- the escape hatch for a week that
+  // already got real-but-wrong events written by an earlier, buggier
+  // version of this same recovery flow (see the route's file header).
+  // Confirmed in-component before firing since it's destructive.
+  onRedoCalendar?: () => void;
   retryingCalendar?: boolean;
 }) {
   // Group by the exact role order onboarding_answers.roles supplied -- the
@@ -120,13 +127,36 @@ export default function WeeklyPlanPanel({
             : ". Nothing here is on your calendar until you confirm."}
         </p>
         {weekConfirmed && onRetryCalendar && (
-          <button
-            onClick={onRetryCalendar}
-            disabled={retryingCalendar}
-            className="mt-2 rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
-          >
-            {retryingCalendar ? "Checking your calendar…" : "Fix missing calendar times"}
-          </button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              onClick={onRetryCalendar}
+              disabled={retryingCalendar}
+              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+            >
+              {retryingCalendar ? "Checking your calendar…" : "Fix missing calendar times"}
+            </button>
+            {onRedoCalendar && (
+              <button
+                onClick={() => {
+                  // Deletes and rewrites every event this week -- confirm
+                  // before touching the real calendar, since unlike "fix
+                  // missing" this one does overwrite things that already
+                  // exist.
+                  if (
+                    window.confirm(
+                      "This deletes and re-creates every calendar event for this week's plan, at the correct times. Continue?",
+                    )
+                  ) {
+                    onRedoCalendar();
+                  }
+                }}
+                disabled={retryingCalendar}
+                className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+              >
+                {retryingCalendar ? "Working…" : "Redo all calendar times"}
+              </button>
+            )}
+          </div>
         )}
       </div>
 

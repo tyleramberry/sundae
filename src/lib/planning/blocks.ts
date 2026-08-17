@@ -15,6 +15,7 @@
 // involvement at all — their progress lives entirely in the in-app percent
 // slider (Day 12), not on the calendar.
 
+import { DateTime } from "luxon";
 import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
 
 export type TimeRange = {
@@ -31,6 +32,16 @@ export type ProposedAction = {
   description: string;
   type: ClassifiedAction["type"];
   blocks: TimeRange[];
+  // Bug fix: carried through from the input ClassifiedAction (previously
+  // dropped here entirely) so a Habit/Goal that ends up with 0 blocks --
+  // no free slot found this week -- doesn't also lose the ONLY record of
+  // what it was actually supposed to be. createWeeklyItems (persist.ts)
+  // reads this to persist the right number of fallback rows instead of
+  // silently collapsing a "5x this week" habit down to one row with no way
+  // to tell it was ever anything but a one-off. See that function's
+  // comment for the incident this fixes.
+  cadenceCount?: number;
+  preferredTime?: string;
 };
 
 // A Google Calendar API event is either timed (start.dateTime/end.dateTime)
@@ -43,14 +54,34 @@ export type GoogleCalendarEvent = {
 };
 
 const DEFAULT_BLOCK_MINUTES = 45;
-const DEFAULT_DAY_START_HOUR = 8; // 8am local
-const DEFAULT_DAY_END_HOUR = 20; // 8pm local
+const DEFAULT_DAY_START_HOUR = 8; // 8am
+const DEFAULT_DAY_END_HOUR = 20; // 8pm
+
+// Bug fix: every "local day"/"local hour" computation in this file used to
+// go through native Date methods (.setHours, .getDay, .getFullYear, ...),
+// which are always in the RUNNING PROCESS's timezone -- fine on a laptop
+// where that happens to match the user, silently wrong the moment this
+// runs on a server in a different zone. In production (Vercel, TZ=UTC) for
+// a Denver (UTC-6) user, "8am-8pm working hours" was actually computed as
+// 8am-8pm UTC = 2am-2pm Denver, and every preferred-clock-time request
+// ("4:00pm") landed at 16:00 UTC = 10:00am Denver instead. Confirmed
+// directly: `TZ=UTC node -e "new Date().setHours(8,0,0,0)"` prints as
+// 2:00 AM in America/Denver. Every function below that used to read the
+// wall clock now takes an explicit IANA `timeZone` and goes through Luxon,
+// which actually knows how to ask "what hour is it in this zone" instead
+// of assuming the answer is whatever zone the process happens to be in.
+// Defaults to the process's own zone only so callers that genuinely don't
+// have a real one yet (existing tests, anything not yet threading a user
+// timezone through) keep their prior behavior rather than silently
+// changing -- every live route now passes the browser's actual zone.
+const DEFAULT_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 type ProposeBlocksOptions = {
   now?: Date;
   blockMinutes?: number;
   dayStartHour?: number;
   dayEndHour?: number;
+  timeZone?: string;
 };
 
 // Converts raw Google Calendar events into normalized busy ranges. Bug fix:
@@ -103,10 +134,11 @@ function mergeRanges(ranges: TimeRange[]): TimeRange[] {
 }
 
 // Finds the open gaps within each day's working-hours window (default
-// 8am-8pm local) across [windowStart, windowEnd), after subtracting busy
-// ranges. Gaps entirely in the past (relative to `now`) are dropped, and a
-// gap straddling `now` is clipped to start at `now` — there is no point
-// proposing a block for a time slot that has already passed today.
+// 8am-8pm *in `timeZone`*) across [windowStart, windowEnd), after
+// subtracting busy ranges. Gaps entirely in the past (relative to `now`)
+// are dropped, and a gap straddling `now` is clipped to start at `now` --
+// there is no point proposing a block for a time slot that has already
+// passed today.
 export function findFreeGaps(
   busy: TimeRange[],
   windowStart: Date,
@@ -114,18 +146,16 @@ export function findFreeGaps(
   now: Date,
   dayStartHour: number = DEFAULT_DAY_START_HOUR,
   dayEndHour: number = DEFAULT_DAY_END_HOUR,
+  timeZone: string = DEFAULT_TIME_ZONE,
 ): TimeRange[] {
   const gaps: TimeRange[] = [];
 
-  for (
-    let day = new Date(windowStart);
-    day < windowEnd;
-    day.setDate(day.getDate() + 1)
-  ) {
-    const dayStart = new Date(day);
-    dayStart.setHours(dayStartHour, 0, 0, 0);
-    const dayEnd = new Date(day);
-    dayEnd.setHours(dayEndHour, 0, 0, 0);
+  let day = DateTime.fromJSDate(windowStart, { zone: timeZone }).startOf("day");
+  const end = DateTime.fromJSDate(windowEnd, { zone: timeZone });
+
+  while (day < end) {
+    const dayStart = day.set({ hour: dayStartHour, minute: 0, second: 0, millisecond: 0 }).toJSDate();
+    const dayEnd = day.set({ hour: dayEndHour, minute: 0, second: 0, millisecond: 0 }).toJSDate();
 
     // Busy ranges that overlap this day's working window, sorted.
     const dayBusy = busy
@@ -144,6 +174,8 @@ export function findFreeGaps(
     if (cursor < dayEnd) {
       gaps.push({ start: cursor, end: dayEnd });
     }
+
+    day = day.plus({ days: 1 });
   }
 
   // Drop anything fully in the past, clip anything straddling `now`.
@@ -212,6 +244,13 @@ export function parseTimeToMinutes(time: string | undefined): number | null {
   return Number(hm[1]) * 60 + Number(hm[2]);
 }
 
+// Luxon's weekday is 1=Monday..7=Sunday; this file (and Date.getDay())
+// uses 0=Sunday..6=Saturday throughout, so every zoned-weekday read goes
+// through this one conversion.
+function zonedWeekday(date: Date, timeZone: string): number {
+  return DateTime.fromJSDate(date, { zone: timeZone }).weekday % 7;
+}
+
 // Slots the weekly session's classified actions onto the week's real free
 // time. Two rules drive placement, both fixing the Day 10 behavior where
 // everything piled onto the earliest gaps (a "run every day" habit landed as
@@ -237,6 +276,7 @@ export function proposeActionBlocks(
   windowEnd: Date,
   options: ProposeBlocksOptions = {},
 ): ProposedAction[] {
+  const timeZone = options.timeZone ?? DEFAULT_TIME_ZONE;
   const nowRaw = options.now ?? new Date();
   // If the planning window is in the future (Friday/Saturday rolling to
   // next week), wall-clock `now` would clip every gap as "already past".
@@ -255,11 +295,13 @@ export function proposeActionBlocks(
     now,
     options.dayStartHour,
     options.dayEndHour,
+    timeZone,
   ).sort((a, b) => a.start.getTime() - b.start.getTime());
 
-  // Bucket blockMinutes-long candidate slots by calendar day, preserving
-  // chronological order both across days and within each day. This is what
-  // lets us hand out "one per day" instead of "next in a flat queue".
+  // Bucket blockMinutes-long candidate slots by calendar day (in
+  // `timeZone`), preserving chronological order both across days and
+  // within each day. This is what lets us hand out "one per day" instead
+  // of "next in a flat queue".
   const dayList: DaySlots[] = [];
   const dayByKey = new Map<string, DaySlots>();
   for (const gap of gaps) {
@@ -267,10 +309,11 @@ export function proposeActionBlocks(
     while (true) {
       const slotEnd = new Date(slotStart.getTime() + blockMinutes * 60_000);
       if (slotEnd > gap.end) break;
-      const key = `${slotStart.getFullYear()}-${slotStart.getMonth()}-${slotStart.getDate()}`;
+      const zoned = DateTime.fromJSDate(slotStart, { zone: timeZone });
+      const key = `${zoned.year}-${zoned.month}-${zoned.day}`;
       let day = dayByKey.get(key);
       if (!day) {
-        day = { weekday: slotStart.getDay(), slots: [] };
+        day = { weekday: zoned.weekday % 7, slots: [] };
         dayByKey.set(key, day);
         dayList.push(day);
       }
@@ -285,14 +328,15 @@ export function proposeActionBlocks(
   const takeOnDay = (day: DaySlots): TimeRange | null => day.slots.shift() ?? null;
 
   // Removes and returns the day's earliest remaining slot that starts at
-  // or after `minutesOfDay` (local time-of-day), or null if every
+  // or after `minutesOfDay` (clock time in `timeZone`), or null if every
   // remaining slot on this day is earlier than that. Splices out of the
   // middle of the list rather than shifting, since the target slot isn't
   // necessarily the day's first one left.
   const takeAtOrAfterTime = (day: DaySlots, minutesOfDay: number): TimeRange | null => {
-    const idx = day.slots.findIndex(
-      (s) => s.start.getHours() * 60 + s.start.getMinutes() >= minutesOfDay,
-    );
+    const idx = day.slots.findIndex((s) => {
+      const zoned = DateTime.fromJSDate(s.start, { zone: timeZone });
+      return zoned.hour * 60 + zoned.minute >= minutesOfDay;
+    });
     return idx === -1 ? null : day.slots.splice(idx, 1)[0];
   };
 
@@ -325,9 +369,10 @@ export function proposeActionBlocks(
     return takeOnDay(day);
   };
 
-  // Places a block at an exact clock time even when that time sits
-  // outside the 8am–8pm gap window (a 7am run) or gap-finding returned
-  // nothing. Skips days that are already past or already claimed.
+  // Places a block at an exact clock time (in `timeZone`) even when that
+  // time sits outside the 8am–8pm gap window (a 7am run) or gap-finding
+  // returned nothing. Skips days that are already past or already claimed.
+  const zonedWindowStart = DateTime.fromJSDate(windowStart, { zone: timeZone }).startOf("day");
   const fillExact = (
     weekday: number | null,
     minutesOfDay: number,
@@ -340,10 +385,10 @@ export function proposeActionBlocks(
         : [1, 2, 3, 4, 5, 0, 6];
     for (const offset of order) {
       if (out.length >= wanted) break;
-      const start = new Date(windowStart);
-      start.setHours(0, 0, 0, 0);
-      start.setDate(start.getDate() + offset);
-      start.setHours(Math.floor(minutesOfDay / 60), minutesOfDay % 60, 0, 0);
+      const start = zonedWindowStart
+        .plus({ days: offset })
+        .set({ hour: Math.floor(minutesOfDay / 60), minute: minutesOfDay % 60, second: 0, millisecond: 0 })
+        .toJSDate();
       if (start < now || start < windowStart || start >= windowEnd) continue;
       const end = new Date(start.getTime() + blockMinutes * 60_000);
       if (claimed.some((r) => start < r.end && end > r.start)) continue;
@@ -355,7 +400,13 @@ export function proposeActionBlocks(
   };
 
   return actions.map((action): ProposedAction => {
-    const base = { role: action.role, description: action.description, type: action.type };
+    const base = {
+      role: action.role,
+      description: action.description,
+      type: action.type,
+      cadenceCount: action.cadenceCount,
+      preferredTime: action.preferredTime,
+    };
 
     if (action.type === "project") {
       return { ...base, blocks: [] };
@@ -408,3 +459,7 @@ export function proposeActionBlocks(
     return { ...base, blocks };
   });
 }
+
+// Exported for callers (retry-calendar's recovery route) that need to know
+// a slot's zoned weekday without re-deriving the Luxon call themselves.
+export { zonedWeekday };

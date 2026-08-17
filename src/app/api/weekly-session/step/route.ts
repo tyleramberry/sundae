@@ -48,7 +48,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => null)) as { message?: string } | null;
+  const body = (await request.json().catch(() => null)) as
+    | { message?: string; timeZone?: unknown }
+    | null;
 
   if (!body || typeof body.message !== "string") {
     return NextResponse.json(
@@ -56,6 +58,10 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  // Bug fix: threaded through to week.ts so this route's "which week is
+  // this" boundary agrees with /propose and /confirm's -- see those
+  // routes and blocks.ts's DEFAULT_TIME_ZONE comment.
+  const timeZone = typeof body.timeZone === "string" ? body.timeZone : undefined;
 
   // Bug fix: everything from here down used to run partly outside this
   // route's own try/catch (only the engine call + save were guarded). Any
@@ -80,9 +86,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const weekStart = planningWeekStart();
-    const weekStartDate = planningWeekStartDate();
-    const weekLabel = formatPlanningWeekRange(weekStartDate);
+    const weekStart = planningWeekStart(new Date(), timeZone);
+    const weekStartDate = planningWeekStartDate(new Date(), timeZone);
+    const weekLabel = formatPlanningWeekRange(weekStartDate, timeZone);
     const transcript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
     const expectedRoundSeq = transcript?.round_seq ?? 0;
 

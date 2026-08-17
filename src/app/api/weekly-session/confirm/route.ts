@@ -94,8 +94,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => null)) as { proposed?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as
+    | { proposed?: unknown; timeZone?: unknown }
+    | null;
   const proposed = body?.proposed;
+  // Bug fix: threaded through so this route's own week-boundary math agrees
+  // with /propose's (see that route and blocks.ts's DEFAULT_TIME_ZONE
+  // comment) -- without it, a request near a local midnight could confirm
+  // into a different week_start than the one the user was actually just
+  // looking at.
+  const timeZone = typeof body?.timeZone === "string" ? body.timeZone : undefined;
 
   if (!Array.isArray(proposed) || !proposed.every(isIncomingAction)) {
     return NextResponse.json(
@@ -104,7 +112,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const weekStart = planningWeekStart();
+  const weekStart = planningWeekStart(new Date(), timeZone);
   const fingerprint = fingerprintProposed(proposed as PendingProposedAction[]);
   let wroteAnyEvent = false;
   let calendarWarning: string | null = null;
@@ -157,6 +165,11 @@ export async function POST(request: Request) {
         type: action.type,
         blocks: action.blocks.map((b) => ({ start: new Date(b.start), end: new Date(b.end) })),
         eventIds,
+        // Bug fix: carried through so createWeeklyItems knows the true
+        // intended block count even when eventIds falls short of it (see
+        // that function's comment).
+        cadenceCount: action.cadenceCount,
+        preferredTime: action.preferredTime,
       });
     }
 

@@ -76,6 +76,20 @@ type Stage =
 // WeeklySessionMode) instead of the full Accountability/Goal-Setting arc,
 // so something that comes up mid-week goes through the same
 // drill-down -> propose -> confirm pipeline without restarting the week.
+
+// Bug fix: every server-side "8am-8pm working hours" / "which week is
+// this" / preferred-clock-time computation used to trust the SERVER's own
+// timezone (UTC on Vercel), not the user's -- see
+// src/lib/planning/blocks.ts's DEFAULT_TIME_ZONE comment for the exact
+// mechanism and a production repro (blocks landing at 2am for a Denver
+// user). The browser always knows its own real IANA zone; this is called
+// fresh inside each request handler below (never hoisted to module scope,
+// which could evaluate during server-side rendering and capture the
+// server's zone instead) and sent to every route that does scheduling math.
+function browserTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 export default function WeeklySessionPage() {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>("checking");
@@ -336,7 +350,7 @@ export default function WeeklySessionPage() {
       const res = await fetch("/api/weekly-session/step", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, timeZone: browserTimeZone() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -395,7 +409,7 @@ export default function WeeklySessionPage() {
       const res = await fetch("/api/weekly-session/propose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actions }),
+        body: JSON.stringify({ actions, timeZone: browserTimeZone() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -487,7 +501,7 @@ export default function WeeklySessionPage() {
     const res = await fetch("/api/weekly-session/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ proposed }),
+      body: JSON.stringify({ proposed, timeZone: browserTimeZone() }),
     });
     const body = await res.json();
     if (!res.ok) {
@@ -545,15 +559,23 @@ export default function WeeklySessionPage() {
   }
 
   // Bug-fix recovery action: see /api/weekly-session/retry-calendar's file
-  // header for the underlying bug. Surfaced as a button in WeeklyPlanPanel
-  // once the week is confirmed, so a user whose items got saved without a
-  // real calendar time doesn't need a one-off fix -- reports the outcome as
-  // a chat bubble, same pattern as confirm()'s own confirmation line.
-  async function retryCalendar() {
+  // header for the underlying bug(s). Surfaced as buttons in
+  // WeeklyPlanPanel once the week is confirmed, so a user whose items got
+  // saved without a real calendar time -- or with a real-but-wrong one,
+  // from this same recovery flow's own earlier, buggier version -- doesn't
+  // need a one-off fix. Reports the outcome as a chat bubble, same pattern
+  // as confirm()'s own confirmation line. `redo` deletes and rewrites
+  // every event this week, not just missing ones -- WeeklyPlanPanel
+  // confirms with the user before ever passing `redo: true` here.
+  async function retryCalendar(redo = false) {
     setRetryingCalendar(true);
     setError(null);
     try {
-      const res = await fetch("/api/weekly-session/retry-calendar", { method: "POST" });
+      const res = await fetch("/api/weekly-session/retry-calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeZone: browserTimeZone(), redo }),
+      });
       const body = await res.json();
       if (!res.ok) {
         setError(body.error ?? "Couldn't retry the calendar write.");
@@ -855,7 +877,8 @@ export default function WeeklySessionPage() {
             roles={withPersonalRole(roles)}
             actionsSoFar={mergePlan(committedActions, actionsSoFar)}
             weekConfirmed={weekConfirmed}
-            onRetryCalendar={retryCalendar}
+            onRetryCalendar={() => retryCalendar(false)}
+            onRedoCalendar={() => retryCalendar(true)}
             retryingCalendar={retryingCalendar}
           />
         )}

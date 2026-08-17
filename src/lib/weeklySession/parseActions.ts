@@ -27,6 +27,8 @@ export function isIncomingAction(value: unknown): value is PendingProposedAction
         typeof b === "object" &&
         typeof (b as Record<string, unknown>).start === "string" &&
         typeof (b as Record<string, unknown>).end === "string",
-    )
+    ) &&
+    (v.cadenceCount === undefined || typeof v.cadenceCount === "number") &&
+    (v.preferredTime === undefined || typeof v.preferredTime === "string")
   );
 }
