@@ -9,11 +9,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // the engine itself -- weeklySession.ts stays channel-agnostic per its file
 // header.
 
-// Hard-stop per session. ~40-50 turns per the Day 11 plan; picked the top
-// of that range since a real 3-stage session (Accountability + SMART
-// drill-down per role) can legitimately run long for a user with several
-// roles.
-export const TURN_CAP = 50;
+// Hard-stop per session. Bug fix: 50 was the top of the Day 11 plan's
+// ~40-50 range, picked before any real multi-role session had actually run
+// end to end. A real user with several roles blew straight through it --
+// 51 turns for a 7-role Accountability + SMART drill-down (Founder,
+// Athlete, Husband, Employee, Student, Disciple of Jesus Christ, Personal)
+// that wasn't even done yet, at which point every further message 429s
+// before it reaches Claude, with no way to finish (or reset) the round --
+// a dead end, not just a slowdown. Raised generously so a genuinely
+// thorough multi-role session has real headroom; still nowhere near what
+// an actual scripted/unbounded loop would rack up, so it doesn't meaningfully
+// weaken the cost guard this exists for.
+export const TURN_CAP = 150;
 
 export function hasHitTurnCap(turnCount: number): boolean {
   return turnCount >= TURN_CAP;
