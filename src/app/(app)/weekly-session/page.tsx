@@ -271,6 +271,13 @@ export default function WeeklySessionPage() {
       if (body.action?.type === "complete") {
         await finishRolesSetup(body.action.roles, body.action.answers);
       }
+    } catch {
+      // Bug fix: a thrown fetch (network drop) or a res.json() parse
+      // failure (a non-JSON error page from an upstream crash/timeout) used
+      // to propagate past this function uncaught -- `finally` below still
+      // reset `sending`, so the input looked idle again, but the user got
+      // no reply and no error: the chat just silently stopped responding.
+      setError("Sundae lost the connection there — try sending that again.");
     } finally {
       setSending(false);
     }
@@ -300,6 +307,8 @@ export default function WeeklySessionPage() {
       setStage("chatting");
       void loadCalendarEvents(weekStart);
       void send("");
+    } catch {
+      setError("Lost the connection saving your roles — try again.");
     } finally {
       setSending(false);
     }
@@ -348,6 +357,15 @@ export default function WeeklySessionPage() {
       ) {
         continueToNextRole = true;
       }
+    } catch {
+      // Bug fix (the "chat just stopped responding" report): this fetch had
+      // no catch at all before. A network drop, or a non-JSON error page
+      // from an upstream crash/timeout tripping up res.json(), threw here
+      // and escaped uncaught -- `finally` still flipped `sending` back to
+      // false so the compose box re-enabled, but no reply and no error ever
+      // appeared, and it silently repeated on every message after. Now it
+      // surfaces and the user can just retry.
+      setError("Sundae lost the connection there — try sending that again.");
     } finally {
       if (!continueToNextRole) setSending(false);
     }
@@ -360,18 +378,30 @@ export default function WeeklySessionPage() {
   // the initial propose (session complete) and every in-place re-propose
   // after a revision, so scheduling always runs the same route.
   async function fetchProposed(actions: ClassifiedAction[]): Promise<ProposedAction[] | null> {
-    const res = await fetch("/api/weekly-session/propose", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ actions }),
-    });
-    const body = await res.json();
-    if (!res.ok) {
-      setError(body.error ?? "Couldn't propose calendar blocks — your answers aren't lost.");
+    // Bug fix: this had no try/catch at all -- a thrown fetch/parse error
+    // propagated straight up to propose()/sendRevision(), which also had no
+    // catch, so it kept going until it hit send()'s try (now caught, see
+    // above) while `stage` was stuck on "proposing" the whole time (the
+    // spinner that never resolves). Catching here and returning null lets
+    // the existing null-handling in propose()/sendRevision() reset the
+    // stage the same way an ordinary !res.ok failure already does.
+    try {
+      const res = await fetch("/api/weekly-session/propose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actions }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body.error ?? "Couldn't propose calendar blocks — your answers aren't lost.");
+        return null;
+      }
+      applyWeekMeta(body);
+      return body.proposed as ProposedAction[];
+    } catch {
+      setError("Lost the connection proposing calendar blocks — your answers aren't lost, try again.");
       return null;
     }
-    applyWeekMeta(body);
-    return body.proposed as ProposedAction[];
   }
 
   async function propose(actions: ClassifiedAction[]) {
@@ -432,6 +462,8 @@ export default function WeeklySessionPage() {
       setActionsSoFar(body.actions);
       const p = await fetchProposed(body.actions);
       if (p) setProposed(p);
+    } catch {
+      setError("Lost the connection there — try that revision again.");
     } finally {
       setRevising(false);
     }
@@ -494,6 +526,15 @@ export default function WeeklySessionPage() {
     setReviseTurns([]);
     void loadCalendarEvents(weekStart);
     setStage("chatting");
+    } catch {
+      // Bug fix: same missing-catch class as send()/fetchProposed() above,
+      // just higher stakes here since this is the actual calendar write --
+      // must not leave `stage` stuck on "writing" with no way to tell
+      // whether it went through.
+      setError(
+        "Lost the connection while writing to your calendar — check your calendar before confirming again.",
+      );
+      setStage("confirming");
     } finally {
       confirmInFlight.current = false;
     }

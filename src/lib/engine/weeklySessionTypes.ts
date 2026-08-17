@@ -111,6 +111,16 @@ export type WeeklySessionInput = {
   // re-classifying an item's role/type/cadence differently turn to turn as
   // new context arrives. Omit/empty for a fresh round.
   lockedActions?: ClassifiedAction[];
+  // Bug fix: plain-text summary of this week's real Google Calendar busy
+  // times (see src/lib/weeklySession/calendarSummary.ts), read-only context
+  // so the engine can actually answer "do I have time for this?" instead of
+  // claiming it has no calendar visibility. The caller (step/route.ts)
+  // fetches and formats this fresh every turn -- same pattern as `lastWeek`
+  // -- so it stays accurate if the user's calendar changes mid-session.
+  // Omit when the calendar read itself failed/isn't connected; the caller
+  // still passes an explicit "not available" string in that case rather
+  // than omitting silently, so the model tells the user the real reason.
+  calendarSummary?: string;
 };
 
 export type WeeklySessionAction =

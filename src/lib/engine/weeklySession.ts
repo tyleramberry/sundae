@@ -88,7 +88,11 @@ Anything that gives no cadence signal at all either way is NOT covered by this r
 
 ## An action item can name more than one distinct action
 
-A single answer can contain multiple distinct actions in one sentence ("work out every day and stretch every night" is two actions). Split it into separate entries in \`actions\`, each classified on its own -- do not merge them into one item.`;
+A single answer can contain multiple distinct actions in one sentence ("work out every day and stretch every night" is two actions). Split it into separate entries in \`actions\`, each classified on its own -- do not merge them into one item.
+
+## You have real calendar context
+
+A "This week's real Google Calendar" section is included below with the user's actual already-scheduled busy times, refreshed every turn. Use it directly to answer "do I have time for this," "what does my week look like," or "when am I free" -- never say you lack visibility into their calendar when this section is present; only say that if it explicitly says the calendar isn't available. Treat it as read-only reference for the conversation, not a scheduling tool: don't promise a specific slot is locked in from this alone -- exact block placement still happens later, after the session, when the plan is proposed against the calendar directly.`;
 
 const FULL_SYSTEM_PROMPT = `You are running Sundae's weekly planning session with a returning user. This is the core value of the product: you don't accept the first thing the user types and move on -- you ask the questions a good planner would ask, until each role has a real, actionable plan for the week.
 
@@ -210,15 +214,23 @@ function buildSystemBlocks(
   lockedActions: ClassifiedAction[],
   weekLabel?: string,
   weekStart?: string,
+  calendarSummary?: string,
 ): Anthropic.TextBlockParam[] {
   const weekLine = weekLabel
     ? `You are planning **${weekLabel}**${weekStart ? ` (Sunday ${weekStart} through the following Saturday)` : ""}. Whenever you say "this week", you mean that exact range — not last week, and not leftover days of a week that's already almost over.\n\n`
     : "";
 
+  // Falls back to an explicit "not available" line rather than omitting
+  // the section outright -- see calendarSummary.ts's CALENDAR_UNAVAILABLE_SUMMARY.
+  // An omitted section reads to the model as "no info either way," which is
+  // exactly the ambiguity that let it fall back to a vague "I don't have a
+  // view of your calendar" instead of stating the real reason.
+  const calendarLine = `${calendarSummary ?? "This week's real Google Calendar: not available right now."}\n\n`;
+
   if (mode === "addendum") {
     const dynamic = `## This round's actual data
 
-${weekLine}Roles on file for this user, exactly as they must appear in \`role\` (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above): ${roles.map((r) => `"${r}"`).join(", ")}${formatLockedActions(lockedActions)}`;
+${weekLine}${calendarLine}Roles on file for this user, exactly as they must appear in \`role\` (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above): ${roles.map((r) => `"${r}"`).join(", ")}${formatLockedActions(lockedActions)}`;
 
     return [
       { type: "text", text: ADDENDUM_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
@@ -228,7 +240,7 @@ ${weekLine}Roles on file for this user, exactly as they must appear in \`role\` 
 
   const dynamic = `## This session's actual data
 
-${weekLine}Roles this week, in the exact order to run Stage 2+3 (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above, not one of the user's declared roles): ${roles.map((r) => `"${r}"`).join(", ")}
+${weekLine}${calendarLine}Roles this week, in the exact order to run Stage 2+3 (the last one, "Personal", is the engine's own reserved catch-all -- see the rule above, not one of the user's declared roles): ${roles.map((r) => `"${r}"`).join(", ")}
 
 ${formatLastWeek(lastWeek)}${formatLockedActions(lockedActions)}`;
 
@@ -345,6 +357,7 @@ export async function processWeeklySessionMessage(
       lockedActions,
       input.weekLabel,
       input.weekStart,
+      input.calendarSummary,
     ),
     tools: [buildTool(mode)],
     tool_choice: { type: "tool", name: "weekly_session_turn" },
