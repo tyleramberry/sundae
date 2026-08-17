@@ -72,10 +72,20 @@ export default function WeeklyPlanPanel({
   roles,
   actionsSoFar,
   weekConfirmed = false,
+  onRetryCalendar,
+  retryingCalendar = false,
 }: {
   roles: string[];
   actionsSoFar: ClassifiedAction[];
   weekConfirmed?: boolean;
+  // Bug-fix recovery action (see /api/weekly-session/retry-calendar): shown
+  // once the week is confirmed so a user whose items got saved to the plan
+  // without a real Google Calendar time (the all-day-event bug) has a way
+  // to fix it from the app itself, not just a one-off script. Optional --
+  // omitted entirely outside the "chatting" stage where this panel and a
+  // confirmed week can both be true at once.
+  onRetryCalendar?: () => void;
+  retryingCalendar?: boolean;
 }) {
   // Group by the exact role order onboarding_answers.roles supplied -- the
   // same order the session runs through -- so the visual reads top-to-
@@ -109,6 +119,15 @@ export default function WeeklyPlanPanel({
             ? " — this week's plan stays here after you confirm."
             : ". Nothing here is on your calendar until you confirm."}
         </p>
+        {weekConfirmed && onRetryCalendar && (
+          <button
+            onClick={onRetryCalendar}
+            disabled={retryingCalendar}
+            className="mt-2 rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+          >
+            {retryingCalendar ? "Checking your calendar…" : "Fix missing calendar times"}
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-3">

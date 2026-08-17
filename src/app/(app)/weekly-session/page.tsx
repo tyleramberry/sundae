@@ -106,6 +106,12 @@ export default function WeeklySessionPage() {
   const [sessionActions, setSessionActions] = useState<ClassifiedAction[]>([]);
   const [proposed, setProposed] = useState<ProposedAction[] | null>(null);
 
+  // Bug-fix recovery action (see /api/weekly-session/retry-calendar): lets
+  // a user whose confirmed items got saved to the plan without a real
+  // Google Calendar time (the all-day-event bug) retry the write from the
+  // app itself.
+  const [retryingCalendar, setRetryingCalendar] = useState(false);
+
   // Day 16: true once this week's plan has been confirmed at least once --
   // flips the chat from "the one and only weekly session" into "still open
   // for whatever comes up mid-week" (addendum mode server-side). Hydrated
@@ -538,6 +544,30 @@ export default function WeeklySessionPage() {
     }
   }
 
+  // Bug-fix recovery action: see /api/weekly-session/retry-calendar's file
+  // header for the underlying bug. Surfaced as a button in WeeklyPlanPanel
+  // once the week is confirmed, so a user whose items got saved without a
+  // real calendar time doesn't need a one-off fix -- reports the outcome as
+  // a chat bubble, same pattern as confirm()'s own confirmation line.
+  async function retryCalendar() {
+    setRetryingCalendar(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/weekly-session/retry-calendar", { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body.error ?? "Couldn't retry the calendar write.");
+        return;
+      }
+      setTurns((t) => [...t, { from: "engine", text: body.message as string }]);
+      if (body.placed > 0) void loadCalendarEvents(weekStart);
+    } catch {
+      setError("Lost the connection retrying the calendar write — try again.");
+    } finally {
+      setRetryingCalendar(false);
+    }
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || sending) return;
@@ -825,6 +855,8 @@ export default function WeeklySessionPage() {
             roles={withPersonalRole(roles)}
             actionsSoFar={mergePlan(committedActions, actionsSoFar)}
             weekConfirmed={weekConfirmed}
+            onRetryCalendar={retryCalendar}
+            retryingCalendar={retryingCalendar}
           />
         )}
       </div>
