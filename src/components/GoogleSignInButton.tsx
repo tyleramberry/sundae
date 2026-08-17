@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { getAppUrl } from "@/lib/appUrl";
 
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 
@@ -23,7 +24,21 @@ export default function GoogleSignInButton({
   async function signInWithGoogle() {
     setLoading(true);
     const supabase = createClient();
-    const redirectTo = new URL("/auth/callback", window.location.origin);
+    // Bug fix: this used to be `window.location.origin`, which follows
+    // whatever host actually served the page -- including one of Vercel's
+    // per-deployment *.vercel.app URLs (a stale bookmark/tab/link; every
+    // deploy gets a fresh one, see `vercel ls`). proxy.ts already 308s any
+    // *.vercel.app request to the canonical domain, but only on the *next*
+    // request -- so a user who started sign-in from vercel.app got a real
+    // Google auth, a session cookie scoped to vercel.app, then got bounced
+    // to sundaeplanner.com on the very next navigation with no session
+    // cookie able to follow across that domain change. That's the
+    // "signs in, kicks me out, works on retry" loop: the retry happens
+    // after the bounce, once window.location.origin is already canonical.
+    // Anchoring to the canonical URL here means the whole OAuth round trip
+    // -- and the cookie it sets -- always lands on the one domain that
+    // actually serves the signed-in app, on the first attempt.
+    const redirectTo = new URL("/auth/callback", getAppUrl());
     if (next) redirectTo.searchParams.set("next", next);
     await supabase.auth.signInWithOAuth({
       provider: "google",
