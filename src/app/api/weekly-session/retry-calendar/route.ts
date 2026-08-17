@@ -7,7 +7,11 @@ import {
   listWeekEvents,
 } from "@/lib/google/calendar";
 import { proposeActionBlocks, type GoogleCalendarEvent } from "@/lib/planning/blocks";
-import { cadenceCountFromText, preferredTimeFromText } from "@/lib/planning/reconstructFromText";
+import {
+  cadenceCountFromText,
+  preferredTimeFromText,
+  relativeDayWeekdayName,
+} from "@/lib/planning/reconstructFromText";
 import { planningWeekEndDate, planningWeekStart, planningWeekStartDate } from "@/lib/weeklySession/week";
 import type { ActionType, ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
 
@@ -61,7 +65,7 @@ export async function POST(request: Request) {
 
     let query = supabase
       .from("weekly_items")
-      .select("id, role, type, title, google_event_id")
+      .select("id, role, type, title, google_event_id, created_at")
       .eq("user_id", user.id)
       .eq("week_start", weekStart)
       .is("removed_at", null)
@@ -69,13 +73,13 @@ export async function POST(request: Request) {
     if (!redo) {
       query = query.is("google_event_id", null);
     }
-    const { data: rows, error: fetchError } = await query.order("created_at", { ascending: true });
+    const { data: fetchedRows, error: fetchError } = await query.order("created_at", { ascending: true });
 
     if (fetchError) {
       throw new Error(`Failed to load items: ${fetchError.message}`);
     }
 
-    if (!rows || rows.length === 0) {
+    if (!fetchedRows || fetchedRows.length === 0) {
       return NextResponse.json({
         ok: true,
         retried: 0,
@@ -85,6 +89,46 @@ export async function POST(request: Request) {
           : "Everything this week already has a real time on your calendar.",
       });
     }
+
+    // Bug fix: a Habit reconstructed with the wrong cadence by an earlier,
+    // buggier redo (see weekdayFromText's "Monday through Friday" fix in
+    // blocks.ts) can have left several duplicate rows behind -- same role,
+    // type, and title, each with its own (wrong) google_event_id, because
+    // that earlier run's cadenceCount reconstruction correctly said "5"
+    // but the placement bug still only ever asked for one weekday, so this
+    // route's own "insert one extra row per additional block" logic ran
+    // for each of them independently. Collapse back to one row per unique
+    // (role, type, title) BEFORE reconstructing anything -- keep the
+    // earliest, delete its calendar event same as any other redo target,
+    // and hard-delete the extras (not just their events) so they don't
+    // each independently ask for another 5 blocks and multiply further.
+    const seen = new Map<string, (typeof fetchedRows)[number]>();
+    const duplicateRowIds: string[] = [];
+    for (const row of fetchedRows) {
+      const key = `${row.role}\0${row.type}\0${row.title}`;
+      const existing = seen.get(key);
+      if (!existing) {
+        seen.set(key, row);
+        continue;
+      }
+      const [older, newer] = row.created_at < existing.created_at ? [row, existing] : [existing, row];
+      seen.set(key, older);
+      duplicateRowIds.push(newer.id);
+      if (newer.google_event_id) {
+        try {
+          await deleteCalendarEvent(supabase, user.id, newer.google_event_id);
+        } catch (err) {
+          console.error(`Retry-calendar: failed to delete duplicate's stale event for "${newer.title}":`, err);
+        }
+      }
+    }
+    if (duplicateRowIds.length > 0) {
+      const { error: dedupeError } = await supabase.from("weekly_items").delete().in("id", duplicateRowIds);
+      if (dedupeError) {
+        throw new Error(`Failed to remove duplicate rows: ${dedupeError.message}`);
+      }
+    }
+    const rows = [...seen.values()];
 
     // Redo deletes whatever was there before it recomputes -- best-effort,
     // logged rather than fatal, since a stale duplicate on the calendar is
@@ -105,14 +149,30 @@ export async function POST(request: Request) {
     // description text alone -- see reconstructFromText.ts. `cadenceCount`
     // only applies to habits; a bare 1 for everything else keeps
     // proposeActionBlocks's `wanted` formula (Math.max(1, cadenceCount ?? 1))
-    // correct without special-casing goals here too.
-    const actions: ClassifiedAction[] = rows.map((row) => ({
-      role: row.role,
-      description: row.title,
-      type: row.type as ActionType,
-      cadenceCount: row.type === "habit" ? (cadenceCountFromText(row.title) ?? undefined) : undefined,
-      preferredTime: preferredTimeFromText(row.title) ?? undefined,
-    }));
+    // correct without special-casing goals here too. The description
+    // handed to the scheduler can differ from the row's real `title` --
+    // see relativeDayWeekdayName -- but the calendar event and the plan
+    // panel always keep the original title.
+    const actions: ClassifiedAction[] = rows.map((row) => {
+      const relativeDay = relativeDayWeekdayName(row.title, new Date(row.created_at), timeZone ?? "UTC");
+      return {
+        role: row.role,
+        // Bug fix: "Budgeting with Brooklyn tonight at 6:30pm" names no
+        // weekday at all -- weekdayFromText has no way to know "tonight"
+        // meant anything, so the item got no day preference and could
+        // land on whatever day the fallback happened to find room,
+        // completely disconnected from the day it was actually said.
+        // Appending the day it was actually created on (resolved from
+        // created_at, not guessed) gives weekdayFromText something to
+        // find -- appended, not prepended, so an already-explicit weekday
+        // earlier in the text still wins (weekdayFromText keeps whichever
+        // match comes first).
+        description: relativeDay ? `${row.title} (${relativeDay})` : row.title,
+        type: row.type as ActionType,
+        cadenceCount: row.type === "habit" ? (cadenceCountFromText(row.title) ?? undefined) : undefined,
+        preferredTime: preferredTimeFromText(row.title) ?? undefined,
+      };
+    });
 
     let events: GoogleCalendarEvent[];
     try {

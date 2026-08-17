@@ -199,10 +199,35 @@ const WEEKDAY_WORDS: string[][] = [
   ["saturday", "sat"],
 ];
 
-// Returns the weekday (0-6) named in `text`, or null if none is. Whole-word
-// match only, so "sunscreen" doesn't read as Sunday and "satisfy" doesn't
-// read as Saturday. If two different days are named, the first one wins.
+const ANY_WEEKDAY_WORD = WEEKDAY_WORDS.flat().join("|");
+// "Monday through Friday" / "Mon-Fri" / "Tuesday to Thursday" -- a range
+// naming two DIFFERENT weekdays connected by "through"/"to"/"-". Checked
+// before the single-weekday match below.
+const WEEKDAY_RANGE = new RegExp(
+  `\\b(?:${ANY_WEEKDAY_WORD})\\b\\s*(?:through|to|-)\\s*\\b(?:${ANY_WEEKDAY_WORD})\\b`,
+  "i",
+);
+const EVERY_DAY_PHRASE = /\bevery\s+day\b|\bevery\s+morning\b|\bevery\s+night\b|\bdaily\b|\bweekdays?\b/i;
+
+// Returns the weekday (0-6) named in `text`, or null if none is (including
+// when the only weekday-shaped words found are part of a RANGE, not a
+// single day -- see the bug-fix note below). Whole-word match only, so
+// "sunscreen" doesn't read as Sunday and "satisfy" doesn't read as
+// Saturday. If two different single days are named, the first one wins.
+//
+// Bug fix: this used to match the first weekday word found anywhere in the
+// text, with no regard for what surrounded it -- "Work out Monday through
+// Friday" matched "Monday" and returned 1, and every caller treats a
+// non-null weekday as "stack every block for this action on THIS one day".
+// In production that meant a 5x/week habit landed as five back-to-back
+// blocks all on Monday instead of spread across the week -- confirmed
+// directly against a real account's data. A range or "every day"/"daily"/
+// "weekdays" phrase means "no single day," not "the first day mentioned,"
+// so both return null here and let the normal day-spreading logic (the
+// `targetWeekday === null` branch in proposeActionBlocks) do its job.
 export function weekdayFromText(text: string): number | null {
+  if (WEEKDAY_RANGE.test(text) || EVERY_DAY_PHRASE.test(text)) return null;
+
   const lower = text.toLowerCase();
   let best: { index: number; at: number } | null = null;
   for (let day = 0; day < WEEKDAY_WORDS.length; day++) {
@@ -372,6 +397,21 @@ export function proposeActionBlocks(
   // Places a block at an exact clock time (in `timeZone`) even when that
   // time sits outside the 8am–8pm gap window (a 7am run) or gap-finding
   // returned nothing. Skips days that are already past or already claimed.
+  //
+  // Bug fix: when a specific weekday WAS named and only one block is
+  // wanted (every Goal; a Habit with cadenceCount 1), this used to still
+  // fall through to every other day of the week if that exact day+time
+  // collided with something -- silently overriding the user's explicit
+  // "on Saturday" the moment Saturday at that hour happened to be busy.
+  // In production: "Temple shift on Saturday from 5:00 to 10:00am"
+  // collided with a real pre-existing Saturday 5-10am event and landed on
+  // Tuesday instead. A single-block ask for a named day now tries ONLY
+  // that day here; if the exact time is taken, it falls through to the
+  // day-scoped gap fallback below (pickFromDay(dayForWeekday(...), ...)),
+  // which finds a different TIME on the SAME day rather than a different
+  // day. Cascading across every other weekday is still correct -- and
+  // still happens -- for a multi-block Habit whose one named day can't fit
+  // all of its occurrences by itself.
   const zonedWindowStart = DateTime.fromJSDate(windowStart, { zone: timeZone }).startOf("day");
   const fillExact = (
     weekday: number | null,
@@ -381,7 +421,9 @@ export function proposeActionBlocks(
     const out: TimeRange[] = [];
     const order =
       weekday !== null
-        ? [weekday, ...[0, 1, 2, 3, 4, 5, 6].filter((d) => d !== weekday)]
+        ? wanted > 1
+          ? [weekday, ...[0, 1, 2, 3, 4, 5, 6].filter((d) => d !== weekday)]
+          : [weekday]
         : [1, 2, 3, 4, 5, 0, 6];
     for (const offset of order) {
       if (out.length >= wanted) break;

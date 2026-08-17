@@ -14,6 +14,21 @@ describe("weekdayFromText", () => {
     assert.equal(weekdayFromText("temple shift on Saturday"), 6);
     assert.equal(weekdayFromText("wear sunscreen"), null);
   });
+
+  // Bug fix regression: this used to match the FIRST weekday word found
+  // anywhere in the text with no regard for context, so "Work out Monday
+  // through Friday" returned Monday -- and every caller treats a non-null
+  // weekday as "stack every block on this one day." In production a
+  // 5x/week habit landed as five back-to-back blocks all on Monday
+  // instead of spread across the week. A range, or "every day"/"daily"/
+  // "weekdays", means no single day -- must return null so the normal
+  // day-spreading logic runs instead.
+  it("returns null for a weekday range or an every-day phrase, not the first day mentioned", () => {
+    assert.equal(weekdayFromText("Work out Monday through Friday from 6:15 to 7:15am"), null);
+    assert.equal(weekdayFromText("Mon-Fri deep work block"), null);
+    assert.equal(weekdayFromText("Stretch every morning"), null);
+    assert.equal(weekdayFromText("Personal study on weekdays"), null);
+  });
 });
 
 describe("findFreeGaps", () => {
@@ -96,6 +111,67 @@ describe("proposeActionBlocks", () => {
     );
     assert.equal(proposed[0].blocks[0].start.getHours(), 7);
     assert.equal(proposed[0].blocks[0].start.getDay(), 2);
+  });
+
+  // Bug fix regression: "Work out Monday through Friday" used to have
+  // weekdayFromText return Monday (see that function's own regression
+  // test), which fed a non-null `targetWeekday` into the habit dispatch
+  // branch and pinned every one of the 5 wanted blocks to the SAME day.
+  // With weekdayFromText correctly returning null for a range, this must
+  // spread across 5 distinct days again, same as the "no day named"
+  // multi-block case just above.
+  it("spreads a 'Monday through Friday' habit across the week instead of stacking Monday", () => {
+    const proposed = proposeActionBlocks(
+      [
+        {
+          role: "Athlete",
+          description: "Work out Monday through Friday from 6:15 to 7:15am",
+          type: "habit",
+          cadenceCount: 5,
+          preferredTime: "06:15",
+        },
+      ],
+      [],
+      sunday,
+      nextSunday,
+      { now, blockMinutes: 45 },
+    );
+    const days = new Set(proposed[0].blocks.map((b) => b.start.getDay()));
+    assert.equal(proposed[0].blocks.length, 5);
+    assert.equal(days.size, 5);
+  });
+
+  // Bug fix regression: when a Goal names a specific weekday and that
+  // exact clock time collides with something already on the calendar,
+  // this used to fall through to trying every OTHER weekday in a fixed
+  // order -- silently overriding the user's explicit "on Saturday" the
+  // moment Saturday at that hour happened to be busy. In production,
+  // "Temple shift on Saturday 5-10am" collided with a real pre-existing
+  // Saturday 5-10am event and landed on Tuesday instead. It must stay on
+  // the named day and take a different time there instead.
+  it("stays on the named weekday when the exact preferred time is busy there, instead of jumping to a different day", () => {
+    const busySaturday: import("./blocks").GoogleCalendarEvent = {
+      status: "confirmed",
+      // Sunday 2026-08-09 + 6 days = Saturday 2026-08-15.
+      start: { dateTime: new Date(2026, 7, 15, 5, 0, 0).toISOString() },
+      end: { dateTime: new Date(2026, 7, 15, 10, 0, 0).toISOString() },
+    };
+    const proposed = proposeActionBlocks(
+      [
+        {
+          role: "Disciple of Jesus Christ",
+          description: "Temple shift on Saturday from 5:00 to 10:00am",
+          type: "goal",
+          preferredTime: "05:00",
+        },
+      ],
+      [busySaturday],
+      sunday,
+      nextSunday,
+      { now, blockMinutes: 45 },
+    );
+    assert.equal(proposed[0].blocks.length, 1);
+    assert.equal(proposed[0].blocks[0].start.getDay(), 6); // still Saturday
   });
 });
 

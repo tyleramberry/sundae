@@ -13,6 +13,37 @@
 // guessing when the text doesn't clearly say so, since a wrong guess here
 // writes a real event to the user's real calendar.
 
+import { DateTime } from "luxon";
+
+const WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+const RELATIVE_DAY = /\b(today|tonight|this morning|this afternoon|this evening)\b/i;
+
+// "Budgeting with Brooklyn tonight at 6:30pm" names no weekday at all --
+// weekdayFromText (blocks.ts) has no way to know "tonight" meant anything,
+// so the item got no day preference and landed on whatever day the
+// fallback order happened to find room, disconnected from when it was
+// actually said. Resolves a relative-day word against the row's real
+// `createdAt` (the day the user actually said "tonight") and returns the
+// weekday NAME so it can be appended to the text handed to
+// proposeActionBlocks -- never rewrites the user-facing title/event
+// summary, only the copy used for scheduling. Returns null if the text
+// has no relative-day word, or already names an explicit weekday (that
+// one wins, this function isn't called in that case).
+export function relativeDayWeekdayName(text: string, createdAt: Date, timeZone: string): string | null {
+  if (!RELATIVE_DAY.test(text)) return null;
+  const weekday = DateTime.fromJSDate(createdAt, { zone: timeZone }).weekday % 7;
+  return WEEKDAY_NAMES[weekday];
+}
+
 const AT_TIME = /\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i;
 // "from 6:00 to 10:00pm" -- the start time (6:00) commonly omits its own
 // am/pm, inheriting it from the end of the range by ordinary English
