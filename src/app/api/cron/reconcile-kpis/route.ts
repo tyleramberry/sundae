@@ -39,7 +39,7 @@ export async function GET(request: Request) {
 
   const rows = candidates ?? [];
   const idsToRemove: string[] = [];
-  const failures: { userId: string; eventId: string; message: string }[] = [];
+  const failures: { userId: string; itemCount: number; message: string }[] = [];
 
   // Group by user so we resolve/refresh each user's Google access token
   // once instead of once per event.
@@ -51,23 +51,26 @@ export async function GET(request: Request) {
   }
 
   for (const [userId, items] of byUser) {
-    for (const item of items) {
-      try {
+    // Catch at the per-user boundary, not per-item: the dominant failure
+    // mode is a revoked/expired token, which would throw identically for
+    // every item and produce N duplicate log lines + N redundant refresh
+    // attempts. Skip the rest of this user's items on the first throw and
+    // move on to the next user -- same batch-doesn't-die stance as before,
+    // just at the right granularity.
+    try {
+      for (const item of items) {
         const event = await getCalendarEvent(supabase, userId, item.google_event_id);
         if (!event || event.status === "cancelled") {
           idsToRemove.push(item.id);
         }
-      } catch (err) {
-        // One user's expired/revoked Google tokens shouldn't stop the rest
-        // of the run -- log it and keep going, same "don't let one bad row
-        // sink the batch" stance as the daily-follow-up cron.
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          `Reconcile-KPIs: failed to check event ${item.google_event_id} for user ${userId}:`,
-          message,
-        );
-        failures.push({ userId, eventId: item.google_event_id, message });
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `Reconcile-KPIs: failed for user ${userId} (${items.length} items skipped):`,
+        message,
+      );
+      failures.push({ userId, itemCount: items.length, message });
     }
   }
 

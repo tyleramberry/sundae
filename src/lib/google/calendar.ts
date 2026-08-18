@@ -58,12 +58,22 @@ async function getValidAccessToken(
     Date.now() + refreshed.expires_in * 1000,
   ).toISOString();
 
-  await saveGoogleTokens(supabase, {
-    userId,
-    accessToken: refreshed.access_token,
-    refreshToken: tokens.refresh_token,
-    expiresAt,
-  });
+  // If the Supabase write fails we must not return the fresh access_token:
+  // the DB still holds the old expires_at, so the next call would read it
+  // as expired, refresh against Google again, and loop -- burning quota on
+  // every calendar-backed route until the DB recovers. Throw instead so
+  // the caller knows the token state is unreliable.
+  try {
+    await saveGoogleTokens(supabase, {
+      userId,
+      accessToken: refreshed.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new GoogleCalendarError(`Failed to persist refreshed token: ${message}`);
+  }
 
   return refreshed.access_token;
 }
