@@ -180,7 +180,9 @@ function formatLastWeek(lastWeek: LastWeekContext | null | undefined): string {
   const lines = lastWeek.items.map((item) => {
     const status =
       item.type === "project"
-        ? `${item.percent ?? 0}% complete`
+        ? item.percent === null
+          ? "no progress recorded"
+          : `${item.percent}% complete`
         : item.done
           ? "done"
           : "not done";

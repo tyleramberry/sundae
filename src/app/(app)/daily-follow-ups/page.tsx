@@ -204,26 +204,48 @@ function DailyFollowUpsInner() {
                             {item.title}
                           </span>
                           <span className="shrink-0 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                            {item.percent ?? 0}%
+                            {item.percent === null ? "—" : `${item.percent}%`}
                           </span>
                         </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={5}
-                          value={item.percent ?? 0}
-                          disabled={busy}
-                          onChange={(e) => setPercentLocal(item.id, Number(e.target.value))}
-                          onPointerUp={(e) =>
-                            void commit(item.id, { percent: Number(e.currentTarget.value) })
-                          }
-                          onKeyUp={(e) =>
-                            void commit(item.id, { percent: Number(e.currentTarget.value) })
-                          }
-                          className="w-full accent-emerald-500"
-                          aria-label={`Progress on ${item.title}`}
-                        />
+                        {item.percent === null ? (
+                          <input
+                            key={`${item.id}-unplanned`}
+                            type="range"
+                            min={0}
+                            max={100}
+                            step={5}
+                            defaultValue={0}
+                            disabled={busy}
+                            onChange={(e) => setPercentLocal(item.id, Number(e.target.value))}
+                            onPointerUp={(e) =>
+                              void commit(item.id, { percent: Number(e.currentTarget.value) })
+                            }
+                            onKeyUp={(e) =>
+                              void commit(item.id, { percent: Number(e.currentTarget.value) })
+                            }
+                            className="w-full accent-emerald-500 opacity-60"
+                            aria-label={`Progress on ${item.title} — no progress recorded yet`}
+                          />
+                        ) : (
+                          <input
+                            key={`${item.id}-planned`}
+                            type="range"
+                            min={0}
+                            max={100}
+                            step={5}
+                            value={item.percent}
+                            disabled={busy}
+                            onChange={(e) => setPercentLocal(item.id, Number(e.target.value))}
+                            onPointerUp={(e) =>
+                              void commit(item.id, { percent: Number(e.currentTarget.value) })
+                            }
+                            onKeyUp={(e) =>
+                              void commit(item.id, { percent: Number(e.currentTarget.value) })
+                            }
+                            className="w-full accent-emerald-500"
+                            aria-label={`Progress on ${item.title}`}
+                          />
+                        )}
                         <span className="text-xs uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
                           Project · counts once it hits 100%
                         </span>

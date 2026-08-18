@@ -339,7 +339,9 @@ export default function DashboardPage() {
                                 </span>
                                 <span className="shrink-0 text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
                                   {item.type === "project"
-                                    ? `${item.percent ?? 0}%`
+                                    ? item.percent === null
+                                      ? "—"
+                                      : `${item.percent}%`
                                     : complete
                                       ? "done"
                                       : item.type}

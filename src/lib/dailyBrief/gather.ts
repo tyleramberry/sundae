@@ -110,12 +110,14 @@ export async function getTodayBrief(
   }
 
   const ongoingProjects: OngoingProject[] = rows
-    .filter((r) => r.type === "project" && (r.percent ?? 0) < 100)
+    .filter(
+      (r) => r.type === "project" && r.percent !== null && (r.percent as number) < 100,
+    )
     .map((r) => ({
       id: r.id as string,
       role: r.role as string,
       title: r.title as string,
-      percent: r.percent ?? 0,
+      percent: r.percent as number,
     }))
     .sort((a, b) => a.percent - b.percent)
     .slice(0, MAX_PROJECTS_IN_BRIEF);
