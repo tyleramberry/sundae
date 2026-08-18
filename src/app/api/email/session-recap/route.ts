@@ -52,26 +52,26 @@ export async function POST() {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const lastWeek = await getLastWeekContext(supabase, user.id);
-  if (!lastWeek) {
-    return NextResponse.json(
-      { error: "No prior week on file yet for this account -- nothing to recap." },
-      { status: 400 },
-    );
-  }
-
-  const onboarding = await getOnboardingAnswers(supabase, user.id);
-  const roles = onboarding?.roles ?? [];
-  const kpiItems: (KpiItem & { role: string })[] = lastWeek.items.map((i) => ({
-    role: i.role,
-    type: i.type,
-    done: i.done,
-    percent: i.percent,
-  }));
-  const roleKpis = computeKpisForRoles(roles, groupItemsByRole(kpiItems));
-  const recap = await getSessionRecap(EXAMPLE_TRANSCRIPT);
-
   try {
+    const lastWeek = await getLastWeekContext(supabase, user.id);
+    if (!lastWeek) {
+      return NextResponse.json(
+        { error: "No prior week on file yet for this account -- nothing to recap." },
+        { status: 400 },
+      );
+    }
+
+    const onboarding = await getOnboardingAnswers(supabase, user.id);
+    const roles = onboarding?.roles ?? [];
+    const kpiItems: (KpiItem & { role: string })[] = lastWeek.items.map((i) => ({
+      role: i.role,
+      type: i.type,
+      done: i.done,
+      percent: i.percent,
+    }));
+    const roleKpis = computeKpisForRoles(roles, groupItemsByRole(kpiItems));
+    const recap = await getSessionRecap(EXAMPLE_TRANSCRIPT);
+
     const result = await sendSessionRecapEmail({
       to: user.email,
       weekStart: lastWeek.weekStart,
@@ -83,6 +83,10 @@ export async function POST() {
     if (error instanceof EmailError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    throw error;
+    console.error("[session-recap] failed to prepare or send:", error);
+    return NextResponse.json(
+      { error: "Failed to prepare or send session recap." },
+      { status: 500 },
+    );
   }
 }
