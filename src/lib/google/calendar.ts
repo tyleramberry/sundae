@@ -127,10 +127,16 @@ export async function listWeekEvents(
     orderBy: "startTime",
   });
 
-  const response = await fetch(
-    `${CALENDAR_API}/calendars/primary/events?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `${CALENDAR_API}/calendars/primary/events?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new GoogleCalendarError(`Network error listing events: ${message}`);
+  }
 
   if (!response.ok) {
     const body = await response.text();
@@ -217,10 +223,16 @@ export async function getCalendarEvent(
 ): Promise<GoogleCalendarEventDetail | null> {
   const accessToken = await getValidAccessToken(supabase, userId);
 
-  const response = await fetch(
-    `${CALENDAR_API}/calendars/primary/events/${encodeURIComponent(eventId)}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `${CALENDAR_API}/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new GoogleCalendarError(`Network error fetching event ${eventId}: ${message}`);
+  }
 
   if (response.status === 404 || response.status === 410) {
     return null;
@@ -248,10 +260,16 @@ export async function deleteCalendarEvent(
 ): Promise<void> {
   const accessToken = await getValidAccessToken(supabase, userId);
 
-  const response = await fetch(
-    `${CALENDAR_API}/calendars/primary/events/${encodeURIComponent(eventId)}`,
-    { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } },
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `${CALENDAR_API}/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new GoogleCalendarError(`Network error deleting event ${eventId}: ${message}`);
+  }
 
   if (!response.ok && response.status !== 404 && response.status !== 410) {
     const body = await response.text();
