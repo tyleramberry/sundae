@@ -36,12 +36,22 @@ export async function GET(request: NextRequest) {
   if (provider_token) {
     // Google access tokens are valid for 1 hour.
     const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
-    await saveGoogleTokens(supabase, {
-      userId: user.id,
-      accessToken: provider_token,
-      refreshToken: provider_refresh_token ?? null,
-      expiresAt,
-    });
+    try {
+      await saveGoogleTokens(supabase, {
+        userId: user.id,
+        accessToken: provider_token,
+        refreshToken: provider_refresh_token ?? null,
+        expiresAt,
+      });
+    } catch (err) {
+      // The Supabase OAuth session is already valid at this point -- token
+      // storage failing (network blip, DB timeout) shouldn't strand the user
+      // on the callback with a crashed route and no visible outcome. Log it
+      // and let sign-in complete; calendar-backed features will error at
+      // first use with the existing GoogleCalendarError path and the user
+      // can retry sign-in to re-issue the provider tokens.
+      console.error("[auth/callback] failed to persist Google tokens:", err);
+    }
   }
 
   // An explicit deep-link destination wins. Otherwise, route new users into
@@ -50,8 +60,17 @@ export async function GET(request: NextRequest) {
   // straight into the app, defaulting to the dashboard.
   let destination = next;
   if (!destination) {
-    const answers = await getOnboardingAnswers(supabase, user.id);
-    destination = answers ? "/dashboard" : "/onboarding";
+    try {
+      const answers = await getOnboardingAnswers(supabase, user.id);
+      destination = answers ? "/dashboard" : "/onboarding";
+    } catch (err) {
+      // Same reasoning: session is already valid. If we can't tell whether
+      // they've onboarded, /onboarding is the safer fallback -- /dashboard
+      // would fail anyway if the DB is unreachable, and /onboarding is
+      // self-guarding for the returning-user case.
+      console.error("[auth/callback] failed to read onboarding answers:", err);
+      destination = "/onboarding";
+    }
   }
 
   return NextResponse.redirect(`${origin}${destination}`);
