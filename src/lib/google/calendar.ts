@@ -33,16 +33,26 @@ async function getValidAccessToken(
     );
   }
 
-  const response = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      refresh_token: tokens.refresh_token,
-      grant_type: "refresh_token",
-    }),
-  });
+  // fetch throws TypeError on network drop -- must surface as
+  // GoogleCalendarError so the confirm route's inner catch treats it as
+  // "calendar failed, roll on" rather than an unknown throw that escapes
+  // to the outer catch and skips the lock-clear cleanup (see confirm/route.ts).
+  let response: Response;
+  try {
+    response = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+        refresh_token: tokens.refresh_token,
+        grant_type: "refresh_token",
+      }),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new GoogleCalendarError(`Network error refreshing Google token: ${message}`);
+  }
 
   if (!response.ok) {
     const body = await response.text();
@@ -160,19 +170,25 @@ export async function createCalendarEvent(
 ): Promise<GoogleCalendarWriteResult> {
   const accessToken = await getValidAccessToken(supabase, userId);
 
-  const response = await fetch(`${CALENDAR_API}/calendars/primary/events`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      summary: input.summary,
-      description: input.description,
-      start: { dateTime: input.start.toISOString() },
-      end: { dateTime: input.end.toISOString() },
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${CALENDAR_API}/calendars/primary/events`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        summary: input.summary,
+        description: input.description,
+        start: { dateTime: input.start.toISOString() },
+        end: { dateTime: input.end.toISOString() },
+      }),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new GoogleCalendarError(`Network error creating event: ${message}`);
+  }
 
   if (!response.ok) {
     const body = await response.text();
