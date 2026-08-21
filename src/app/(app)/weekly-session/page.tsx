@@ -33,7 +33,14 @@ type Stage =
   | "chatting"
   | "proposing"
   | "confirming"
-  | "writing";
+  | "writing"
+  // Terminal payoff screen after a successful calendar write -- read-only
+  // week view of the blocks just written, one CTA to close and start the
+  // week. Not a "dead-end" screen in the Day-16 sense: the user leaves
+  // via /dashboard, and returning to /weekly-session lands them in
+  // "chatting" with weekConfirmed=true (transcript.completedThisWeek is
+  // now server-side true), so the mid-week addendum chat still works.
+  | "written";
 
 // Real weekly-session UI. Accountability -> Goal Setting -> Planning,
 // driven by src/lib/engine/weeklySession.ts, then a confirmation screen
@@ -132,6 +139,26 @@ export default function WeeklySessionPage() {
   // from GET /api/weekly-session/transcript on mount, and set locally the
   // moment a confirm succeeds so the UI doesn't wait on a round-trip.
   const [weekConfirmed, setWeekConfirmed] = useState(false);
+
+  // Snapshot of what was just written to Google Calendar -- captured on
+  // confirm() success so the "written"-stage payoff screen can render a
+  // read-only week view of the exact blocks that landed, without depending
+  // on `proposed`/`sessionActions` which are cleared as part of the same
+  // handler. Cleared when the user leaves via the payoff CTA.
+  const [writtenProposed, setWrittenProposed] = useState<ProposedAction[] | null>(null);
+  const [writtenSummary, setWrittenSummary] = useState<{
+    itemsCreated: number;
+    recapEmailSent: boolean;
+    unplacedCount: number;
+    overlappingCount: number;
+    alreadyConfirmed: boolean;
+  } | null>(null);
+  const [referralCopied, setReferralCopied] = useState(false);
+  // Tracks the "copied ✓" auto-clear timer so a mid-copy navigation
+  // (user hits "Close and start your week" within 2.5s) doesn't leave a
+  // stale timeout firing setState after unmount. Cleared both in onClose
+  // and when a new copy overrides the previous one.
+  const referralCopiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Real Google Calendar events for this week -- powers the WeekCalendarGrid
   // background layer, so proposed blocks show up on top of what's actually
@@ -552,28 +579,22 @@ export default function WeeklySessionPage() {
       setStage("confirming");
       return;
     }
-    // Day 16: no dead-end "done" screen -- drop back into the same chat,
-    // ready for whatever comes up mid-week. Uses the server's own message
-    // verbatim (bug fix: this used to rebuild its own copy of the same
-    // string from itemsCreated/calendarWarning, which drifted out of sync
-    // with the route's actual logic -- specifically, it had no way to know
-    // an item got zero eventIds because /propose never found it a free
-    // slot rather than because a write threw, so it always said "written
-    // to your calendar" in that case even though nothing had been. The
-    // server's `message` is the one place this wording lives now; see
-    // recordWeeklySessionConfirmed, which appends this same string to
-    // display_turns so a reload shows the identical line.
-    const already = Boolean(body.alreadyConfirmed);
-    const confirmationBubbles: Turn[] = already
-      ? [{ from: "engine", text: "This plan was already written to your calendar." }]
-      : [{ from: "engine", text: body.message as string }];
-    if (body.recapEmailSent) {
-      confirmationBubbles.push({
-        from: "engine",
-        text: "A recap of last week — wins, what to improve, and how each role landed — just went out to your inbox.",
-      });
-    }
-    setTurns((t) => [...t, ...confirmationBubbles]);
+    // Design upgrade #4: a dedicated payoff screen after the write, instead
+    // of the Day-16 drop-straight-back-into-chat. The chat still owns the
+    // mid-week addendum flow -- the user returns to it via /dashboard, and
+    // /weekly-session then lands in "chatting" with weekConfirmed=true
+    // because transcript.completedThisWeek is server-side true. The server's
+    // `message` and the recap-sent detail move onto the payoff screen so
+    // nothing the user needed from the old confirmation bubbles goes
+    // missing.
+    setWrittenProposed(proposed);
+    setWrittenSummary({
+      itemsCreated: Number(body.itemsCreated ?? 0),
+      recapEmailSent: Boolean(body.recapEmailSent),
+      unplacedCount: Number(body.unplacedCount ?? 0),
+      overlappingCount: Number(body.overlappingCount ?? 0),
+      alreadyConfirmed: Boolean(body.alreadyConfirmed),
+    });
     setWeekConfirmed(true);
     setCommittedActions((prev) => mergePlan(prev, sessionActions));
     setActionsSoFar([]);
@@ -581,7 +602,7 @@ export default function WeeklySessionPage() {
     setProposed(null);
     setReviseTurns([]);
     void loadCalendarEvents(weekStart);
-    setStage("chatting");
+    setStage("written");
     } catch {
       // Bug fix: same missing-catch class as send()/fetchProposed() above,
       // just higher stakes here since this is the actual calendar write --
@@ -676,6 +697,54 @@ export default function WeeklySessionPage() {
       <div className="flex flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
       </div>
+    );
+  }
+
+  // Payoff screen (spec #4): full-page confirmation moment after a
+  // successful write. Runs pre-split like roles-setup -- nothing about
+  // the chat/calendar split makes sense once the week is locked in. The
+  // "Close and start your week" CTA is the only exit; the mid-week
+  // addendum flow still works from /weekly-session on a future visit
+  // (weekConfirmed=true will already be persisted server-side by then).
+  if (stage === "written" && writtenProposed && writtenSummary) {
+    return (
+      <PayoffScreen
+        proposed={writtenProposed}
+        summary={writtenSummary}
+        calendarEvents={calendarEvents}
+        weekStart={weekStart ?? new Date()}
+        weekLabel={weekLabel}
+        referralCopied={referralCopied}
+        onCopyReferral={async () => {
+          try {
+            await navigator.clipboard.writeText(window.location.origin);
+            if (referralCopiedTimerRef.current) {
+              clearTimeout(referralCopiedTimerRef.current);
+            }
+            setReferralCopied(true);
+            referralCopiedTimerRef.current = setTimeout(() => {
+              setReferralCopied(false);
+              referralCopiedTimerRef.current = null;
+            }, 2500);
+          } catch {
+            // Clipboard can be denied in insecure contexts or when the user
+            // hasn't interacted with the doc yet -- swallow rather than
+            // trip an error surface; the referral prompt is a nice-to-have
+            // and we don't want a clipboard hiccup to ruin the payoff.
+          }
+        }}
+        onClose={() => {
+          if (referralCopiedTimerRef.current) {
+            clearTimeout(referralCopiedTimerRef.current);
+            referralCopiedTimerRef.current = null;
+          }
+          setWrittenProposed(null);
+          setWrittenSummary(null);
+          setReferralCopied(false);
+          setStage("chatting");
+          router.push("/dashboard");
+        }}
+      />
     );
   }
 
@@ -979,6 +1048,132 @@ export default function WeeklySessionPage() {
             retryingCalendar={retryingCalendar}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+// Spec #4 payoff screen. Read-only: no chat, no revise input, no retry
+// buttons. Reuses WeekCalendarGrid so the visual language matches what
+// the user saw seconds ago on the confirm screen -- the difference is
+// that the proposed overlay is now what actually landed on Google
+// Calendar, not a preview. `flatWrittenBlocks` filters out projects
+// (no calendar block) and unplaced entries so the grid shows exactly
+// what got written, nothing else.
+function PayoffScreen({
+  proposed,
+  summary,
+  calendarEvents,
+  weekStart,
+  weekLabel,
+  referralCopied,
+  onCopyReferral,
+  onClose,
+}: {
+  proposed: ProposedAction[];
+  summary: {
+    itemsCreated: number;
+    recapEmailSent: boolean;
+    unplacedCount: number;
+    overlappingCount: number;
+    alreadyConfirmed: boolean;
+  };
+  calendarEvents: CalendarEvent[];
+  weekStart: Date;
+  weekLabel: string | null;
+  referralCopied: boolean;
+  onCopyReferral: () => void;
+  onClose: () => void;
+}) {
+  // Same shape flattenProposedForGrid produces during the live confirm
+  // screen, on purpose -- the payoff screen's grid is meant to look
+  // identical to the block layout the user just approved, minus the
+  // "still editable" affordances. Project actions have empty `blocks` so
+  // they naturally drop out of this flatten.
+  const flatWrittenBlocks: CalendarProposedBlock[] = proposed.flatMap((a) =>
+    a.blocks.map((b) => ({
+      role: a.role,
+      description: a.description,
+      start: b.start,
+      end: b.end,
+      conflictsWith: b.conflictsWith,
+    })),
+  );
+
+  const created = summary.itemsCreated;
+  const headline = summary.alreadyConfirmed
+    ? "This week was already set."
+    : "Your week is set.";
+  const subhead = summary.alreadyConfirmed
+    ? "The plan below is already on your calendar — nothing to do."
+    : created === 0
+      ? "Everything you planned is tracked in Sundae. No calendar block landed this round — replan any items with a time that hasn't passed."
+      : `${created} calendar block${created === 1 ? "" : "s"} landed on your Google Calendar. Everything below is live.`;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-zinc-50 font-sans dark:bg-black">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-12">
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium uppercase tracking-widest text-emerald-700 dark:text-emerald-400">
+            Locked in
+          </span>
+          <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
+            {headline}
+          </h1>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">{subhead}</p>
+          {summary.recapEmailSent && !summary.alreadyConfirmed && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-500">
+              A recap of last week — wins, what to improve, and how each role
+              landed — just went out to your inbox.
+            </p>
+          )}
+          {(summary.overlappingCount > 0 || summary.unplacedCount > 0) && !summary.alreadyConfirmed && (
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              {summary.overlappingCount > 0 &&
+                `${summary.overlappingCount} block${summary.overlappingCount === 1 ? "" : "s"} overlap${summary.overlappingCount === 1 ? "s" : ""} something you already had on your calendar. `}
+              {summary.unplacedCount > 0 &&
+                `${summary.unplacedCount} item${summary.unplacedCount === 1 ? "" : "s"} couldn't fit this week's remaining time.`}
+            </p>
+          )}
+        </div>
+
+        {/* Read-only week view. Height clamped so the CTA + referral stay
+            above the fold on a normal laptop screen; the grid scrolls
+            internally if it needs to. */}
+        <div className="h-[420px] overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+          <WeekCalendarGrid
+            events={calendarEvents}
+            proposed={flatWrittenBlocks}
+            weekStart={weekStart}
+            weekLabel={weekLabel ?? undefined}
+          />
+        </div>
+
+        <div className="flex flex-col items-start gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+          >
+            Close and start your week
+          </button>
+
+          {/* Light referral prompt (spec #4). Copies the landing-page URL
+              to the clipboard rather than routing through a real referral
+              endpoint -- that infra doesn't exist yet, and the goal here
+              is just the ask, not attribution. Swap for a signed referral
+              link once billing/attribution ships. */}
+          <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+            <span>Your week is locked in. Know someone who&apos;d want this?</span>
+            <button
+              type="button"
+              onClick={onCopyReferral}
+              className="rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-700 transition hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500"
+            >
+              {referralCopied ? "Link copied ✓" : "Copy share link"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
