@@ -104,7 +104,7 @@ export default function Home() {
                 <div className="flex flex-col items-center gap-3 lg:items-start">
                   <GoogleSignInButton label="Get started free" />
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Free for 7 days · cancel anytime
+                    7-day free trial. Cancel anytime from Settings — no hoops.
                   </span>
                   {/* Pre-empts Google's consent screen, which is the very
                       next thing this button shows and is the scariest-

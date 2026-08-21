@@ -22,6 +22,7 @@ export async function POST() {
       to: user.email,
       userId: user.id,
       supabase,
+      createdAt: user.created_at,
     });
     return NextResponse.json({ ok: true, id: result.id });
   } catch (error) {

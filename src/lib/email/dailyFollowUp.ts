@@ -16,6 +16,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getTodayBrief, type TodayBrief } from "@/lib/dailyBrief/gather";
 import { getNudgeCopy, type NudgeCopy } from "@/lib/agents/dailyNudgeAgent";
+import { formatTrialFooter, getTrialStatus } from "@/lib/trial";
 
 const RESEND_API = "https://api.resend.com/emails";
 
@@ -43,6 +44,7 @@ export function buildDailyFollowUpEmail(
   brief: TodayBrief,
   copy: NudgeCopy,
   appUrl?: string,
+  createdAt?: string | null,
 ): DailyFollowUpEmail {
   const base = resolveAppUrl(appUrl);
   // Deep-link straight to the in-app logging surface, not the app root, so
@@ -50,6 +52,12 @@ export function buildDailyFollowUpEmail(
   const url = `${base.replace(/\/$/, "")}/daily-follow-ups`;
 
   const subject = `${brief.weekdayLabel.split(",")[0]} — your Sundae brief`;
+
+  // Trust-signal footer (spec #5): only rendered when we actually know the
+  // user's account age -- callers that don't pass createdAt (e.g. the debug
+  // preview) skip it rather than showing a fabricated day count.
+  const trial = createdAt ? getTrialStatus(createdAt) : null;
+  const trialLine = trial?.isActive ? formatTrialFooter(trial) : null;
 
   const itemLines = brief.todayItems.map((i) => `- [${i.role}] ${i.title}`).join("\n");
   const projectLines = brief.ongoingProjects
@@ -69,6 +77,7 @@ export function buildDailyFollowUpEmail(
     brief.ongoingProjects.length > 0 ? projectLines : "  None in progress this week.",
     "",
     `Log your progress → ${url}`,
+    ...(trialLine ? ["", trialLine] : []),
   ].join("\n");
 
   const itemsHtml =
@@ -119,6 +128,7 @@ export function buildDailyFollowUpEmail(
   <a href="${url}" style="display: inline-block; margin-top: 28px; background: #000000; color: #ffffff; text-decoration: none; padding: 10px 22px; border-radius: 999px; font-size: 14px; font-weight: 500;">
     Log your progress &rarr;
   </a>
+${trialLine ? `\n  <p style="margin: 28px 0 0; padding-top: 16px; border-top: 1px solid #eee; font-size: 12px; color: #a1a1aa;">${escapeHtml(trialLine)}</p>` : ""}
 </div>`;
 
   return { subject, html, text };
@@ -130,6 +140,7 @@ export type SendDailyFollowUpInput = {
   supabase: SupabaseClient;
   appUrl?: string;
   referenceDate?: Date;
+  createdAt?: string | null;
 };
 
 export async function sendDailyFollowUpEmail(
@@ -142,7 +153,7 @@ export async function sendDailyFollowUpEmail(
   // real bug in the brief or the agent behind an earlier, unrelated error.
   const brief = await getTodayBrief(input.supabase, input.userId, input.referenceDate);
   const copy = await getNudgeCopy(brief);
-  const { subject, html, text } = buildDailyFollowUpEmail(brief, copy, input.appUrl);
+  const { subject, html, text } = buildDailyFollowUpEmail(brief, copy, input.appUrl, input.createdAt);
 
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {

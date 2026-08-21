@@ -51,6 +51,7 @@ export async function GET(request: Request) {
         to: userResult.user.email,
         userId,
         supabase,
+        createdAt: userResult.user.created_at,
       });
       sent += 1;
     } catch (err) {

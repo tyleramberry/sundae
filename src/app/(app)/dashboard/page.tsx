@@ -8,6 +8,7 @@ import KpiRing from "@/components/KpiRing";
 import DashboardStats, { type DashboardSummary } from "@/components/DashboardStats";
 import TypeBreakdown, { type TypeBreakdownRow } from "@/components/TypeBreakdown";
 import { isItemComplete } from "@/lib/kpi/compute";
+import { formatTrialStatus, getTrialStatus, type TrialStatus } from "@/lib/trial";
 
 type DashItem = {
   id: string;
@@ -66,6 +67,7 @@ export default function DashboardPage() {
   // the existing hover behavior (which stays exactly as-is for desktop
   // mouse users -- this is purely additive).
   const [openRole, setOpenRole] = useState<string | null>(null);
+  const [trial, setTrial] = useState<TrialStatus | null>(null);
   // Snapshot of `roles` from right before a drag starts -- if the save
   // below fails, this is what the tiles revert to, so a rejected reorder
   // (say, someone else's edit changed the role list mid-drag) can't leave
@@ -85,6 +87,7 @@ export default function DashboardPage() {
         return;
       }
 
+      setTrial(getTrialStatus(user.created_at));
       setLoad("loading");
       // Fired together -- the account-wide stat row isn't on the critical
       // path for the rings, so a slow /summary shouldn't hold up the rest
@@ -241,12 +244,19 @@ export default function DashboardPage() {
               {weekLabel ?? "This week"}
             </h1>
           </div>
-          <Link
-            href="/weekly-session"
-            className="rounded-full bg-black px-4 py-2 text-sm text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-          >
-            New weekly session
-          </Link>
+          <div className="flex items-center gap-3">
+            {trial?.isActive && (
+              <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 sm:inline">
+                {formatTrialStatus(trial)}
+              </span>
+            )}
+            <Link
+              href="/weekly-session"
+              className="rounded-full bg-black px-4 py-2 text-sm text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+            >
+              New weekly session
+            </Link>
+          </div>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}

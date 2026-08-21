@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { getTrialStatus } from "@/lib/trial";
 
 // New onboarding (Day 7 redesign): survey -> live demo -> hype -> straight
 // into the user's first weekly session. Replaces the old chat-transcript
@@ -28,6 +29,7 @@ export default function OnboardingPage() {
   const [roles, setRoles] = useState<string[]>([]);
   const [motivations, setMotivations] = useState<string[]>([]);
   const [demoResult, setDemoResult] = useState<DemoResult | null>(null);
+  const [trialEndDate, setTrialEndDate] = useState<string>("");
 
   useEffect(() => {
     void (async () => {
@@ -40,6 +42,7 @@ export default function OnboardingPage() {
         router.replace("/login?next=/onboarding");
         return;
       }
+      setTrialEndDate(getTrialStatus(user.created_at).endDate);
       setAuthChecked(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -79,18 +82,23 @@ export default function OnboardingPage() {
         </div>
 
         {screen === "heard-from" && (
-          <SingleSelectScreen
-            title="How did you hear about Sundae?"
-            subtitle="Helps us know what's actually working."
-            options={HEARD_FROM_OPTIONS}
-            value={heardFrom}
-            onChange={setHeardFrom}
-            onContinue={() => {
-              if (!heardFrom) return;
-              saveSurveyPatch({ heardFrom });
-              goNext();
-            }}
-          />
+          <>
+            <p className="-mt-4 text-xs text-zinc-500 dark:text-zinc-400">
+              Your card won&apos;t be charged until{trialEndDate ? ` ${trialEndDate}` : " the end of your 7-day free trial"}.
+            </p>
+            <SingleSelectScreen
+              title="How did you hear about Sundae?"
+              subtitle="Helps us know what's actually working."
+              options={HEARD_FROM_OPTIONS}
+              value={heardFrom}
+              onChange={setHeardFrom}
+              onContinue={() => {
+                if (!heardFrom) return;
+                saveSurveyPatch({ heardFrom });
+                goNext();
+              }}
+            />
+          </>
         )}
 
         {screen === "roles" && (
