@@ -61,6 +61,13 @@ export type ProposedAction = {
   // be -- see createWeeklyItems (persist.ts).
   cadenceCount?: number;
   preferredTime?: string;
+  // The block length the user asked for, in integer minutes. Applied per
+  // action rather than as one uniform batch default, so a 2-hour date
+  // night and a 15-min check-in in the same session end up as the sizes
+  // the user actually said. Falls back to the batch default (see
+  // ProposeBlocksOptions.blockMinutes / DEFAULT_BLOCK_MINUTES) when the
+  // engine never captured one for this item.
+  durationMinutes?: number;
 };
 
 // A Google Calendar API event is either timed (start.dateTime/end.dateTime)
@@ -287,14 +294,21 @@ export function proposeActionBlocks(
   // instant is genuinely outside what can be scheduled at all -- already
   // past, or outside this planning window -- never because something else
   // is already there; a real collision is *reported*, not treated as a
-  // reason to skip.
-  function placeAt(dayOffset: number, minutesOfDay: number): ProposedBlock | null {
+  // reason to skip. `lengthMinutes` is per-block so a 2-hour date night
+  // and a 15-min check-in in the same batch each get the size the user
+  // actually asked for -- falls back to the batch default only when the
+  // engine never captured one for this specific item.
+  function placeAt(
+    dayOffset: number,
+    minutesOfDay: number,
+    lengthMinutes: number,
+  ): ProposedBlock | null {
     const start = zonedWindowStart
       .plus({ days: dayOffset })
       .set({ hour: Math.floor(minutesOfDay / 60), minute: minutesOfDay % 60, second: 0, millisecond: 0 })
       .toJSDate();
     if (start < now || start < windowStart || start >= windowEnd) return null;
-    const end = new Date(start.getTime() + blockMinutes * 60_000);
+    const end = new Date(start.getTime() + lengthMinutes * 60_000);
     const conflictsWith = describeConflict(start, end);
     const block: ProposedBlock = conflictsWith ? { start, end, conflictsWith } : { start, end };
     // Reserve it (even if it conflicts) so later items in this same batch
@@ -311,6 +325,7 @@ export function proposeActionBlocks(
       type: action.type,
       cadenceCount: action.cadenceCount,
       preferredTime: action.preferredTime,
+      durationMinutes: action.durationMinutes,
     };
 
     if (action.type === "project") {
@@ -319,6 +334,13 @@ export function proposeActionBlocks(
 
     const wanted = action.type === "habit" ? Math.max(1, action.cadenceCount ?? 1) : 1;
     const minutesOfDay = parseTimeToMinutes(action.preferredTime) ?? DEFAULT_FALLBACK_MINUTES;
+    // Per-action length wins over the batch default. Only falls through to
+    // `blockMinutes` (which itself defaults to DEFAULT_BLOCK_MINUTES) when
+    // this item genuinely has no captured duration.
+    const lengthMinutes =
+      typeof action.durationMinutes === "number" && action.durationMinutes > 0
+        ? action.durationMinutes
+        : blockMinutes;
     // Structured field first (the live engine's own path); text-parsing is
     // only a fallback for data captured before this field existed, or the
     // rare case the model named a day in prose but somehow left the field
@@ -339,7 +361,7 @@ export function proposeActionBlocks(
       // multi-block Habit, or an action with no day named at all, keeps
       // going through the rest of `dayOrder` to fill every occurrence.
       if (namedDay !== null && wanted === 1 && day !== namedDay) break;
-      const block = placeAt(day, minutesOfDay);
+      const block = placeAt(day, minutesOfDay, lengthMinutes);
       if (block) blocks.push(block);
     }
 

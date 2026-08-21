@@ -30,6 +30,7 @@ Each action item has:
 - type: "habit", "goal", or "project".
 - cadenceCount: for a habit, how many times that week (7 = every day, 3 = three times a week, etc). Omit for goal and project.
 - preferredTime: for a habit or goal, "HH:MM" 24-hour local time -- the specific clock time that item is anchored to. Omit for project (no calendar block) and for any habit/goal that genuinely has no time preference.
+- durationMinutes: for a habit or goal, integer minutes -- how long the calendar block is ("1 hour" -> 60, "30 min" -> 30). Omit for project and for any habit/goal with no captured duration.
 
 Rules:
 - Classify exactly the way the planning session does -- you decide type, never ask the user to pick it:
@@ -38,6 +39,7 @@ Rules:
   - Project = a one-off, not-cleanly-countable push ("close the seed round"). No cadenceCount, no calendar block.
 - If the user ties an item to a specific day of the week -- "date night on Tuesday", "temple shift on Saturday", "Sunday meal prep" -- INCLUDE that weekday name in the item's description text. Scheduling reads the day out of the description, so the weekday must be in the words, e.g. description "Plan date night on Tuesday".
 - If the user's request names or changes a clock time ("move the run to 6am", "make date night 7:30 instead") -- update that item's preferredTime to match ("06:00", "19:30"). Leave every other item's preferredTime exactly as it was.
+- If the user's request names or changes a duration ("make date night 2 hours", "shorten the run to 30 min", "date night is 6-8pm" -> 120 min) -- update that item's durationMinutes to match. Leave every other item's durationMinutes exactly as it was.
 - Adding, removing, renaming, reclassifying, changing a cadence, changing a time, or moving an item to a different day are all fair game. Apply exactly what was asked -- don't invent extra changes.
 - If the request is unclear or you can't tell which item it refers to, make your best single interpretation and say what you did in the reply, so the user can correct you if you guessed wrong.
 
@@ -69,6 +71,13 @@ const TOOL: Anthropic.Tool = {
               type: "string",
               description:
                 "Habit/Goal only, \"HH:MM\" 24-hour local time. Omit for Project and for any item with no time preference.",
+            },
+            durationMinutes: {
+              type: "integer",
+              minimum: 5,
+              maximum: 1440,
+              description:
+                "Habit/Goal only, integer minutes -- the length of the calendar block. Omit for Project and for any item with no captured duration.",
             },
           },
           required: ["role", "description", "type"],

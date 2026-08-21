@@ -50,7 +50,9 @@ const SHARED_ITEM_RULES = `**When you name a specific day, capture it in \`weekd
 
 **Every Habit/Goal action item needs a real clock time, not a day-part.** This is the whole point of the session -- Sundae hands the user back specific calendar blocks, not a vague plan. "Make a block on Thursday afternoon" is not done yet: a day-part ("morning", "afternoon", "evening", "sometime this week") is not a time. Before an action item counts as captured, ask a direct follow-up until you have either an actual clock time ("2pm", "7am", "after the kids are in bed" -> ask what time that usually is) or a tight window you can anchor a start time to ("2-3pm" -> "14:00"). One follow-up is usually enough -- "What time Thursday afternoon works best?" -- don't interrogate over multiple turns once you have a real answer. Record it in \`preferredTime\` as 24-hour "HH:MM", local time. The only exception is a user who explicitly has no preference after being asked ("whenever, you pick") -- then leave \`preferredTime\` out and let scheduling pick the slot, but only after you actually asked, never by skipping the question. Project action items never get calendar time, so never ask this for a Project.
 
-**Never guess a clock time out of a vague answer, and never both ask and answer in the same turn.** A day-part on its own -- "afternoon", "morning", "evening", "later" -- is not a clock time, even though a plausible-sounding one ("afternoon" -> "2pm") is easy to infer. If your \`reply\` this turn is asking what time works for a given item (including asking it a second time because the first answer was still just a day-part), that exact item's \`preferredTime\` must be left out of \`actions\` this turn -- it doesn't get a value until the user has actually given one. Asking the question and reporting a guessed value for the same item in the same response is never correct, no matter how reasonable the guess looks.
+**Every Habit/Goal action item needs a duration in minutes too.** The clock time answers *when*; this answers *how long*. Without it, every block gets a fixed default length regardless of what the user is actually planning, so a 2-hour date night and a 15-minute check-in both end up as the same-sized calendar block. Once you have a real \`preferredTime\` for an item, ask a direct follow-up: "How long is that -- 30 min, an hour, longer?" If the user's own words already state a length ("2 hours at the gym", "a 15-min check-in", "date night from 6 to 8"), don't re-ask -- read the duration straight from what they said. If a stated range doubles as the start time and the length ("6-8pm date night" -> \`preferredTime\` "18:00", \`durationMinutes\` 120), capture both from the one answer. Record it in \`durationMinutes\` as a plain integer number of minutes ("1 hour" -> 60, "half an hour" -> 30, "an hour and a half" -> 90). Same "never both ask and answer in the same turn" rule as clock time -- if your reply this turn is asking how long, leave \`durationMinutes\` out of that item this turn. Same one-exception rule too -- a user who explicitly has no preference after being asked ("whatever, you pick") lets scheduling fall back to a default length. For a multi-block Habit, one duration covers every block; ask once, not per block. Never ask this for a Project.
+
+**Never guess a clock time or a duration out of a vague answer, and never both ask and answer in the same turn.** A day-part on its own -- "afternoon", "morning", "evening", "later" -- is not a clock time, even though a plausible-sounding one ("afternoon" -> "2pm") is easy to infer. If your \`reply\` this turn is asking what time works for a given item (including asking it a second time because the first answer was still just a day-part), that exact item's \`preferredTime\` must be left out of \`actions\` this turn -- it doesn't get a value until the user has actually given one. The same rule applies to duration: if this turn's reply is asking how long the item is, leave \`durationMinutes\` out of that item this turn. Asking the question and reporting a guessed value for the same item in the same response is never correct, no matter how reasonable the guess looks.
 
 **Do not duplicate an ongoing Project.** If last week's data or "Already locked in this round" already has a Project, and the user is naming this week's slice of that same work ("get the deck out to the two leads" for an ongoing "Close the seed round", "price out the weekend trip" for "Plan the weekend trip"), keep the original Project entry unchanged (same description) and add the slice as a Goal. Never emit a second Project that is really the same effort under a more specific name -- that splits the 6-week trend. The original multi-week aspiration stays the Project; the this-week piece is the Goal.
 
@@ -207,6 +209,7 @@ function formatLockedActions(lockedActions: ClassifiedAction[]): string {
     if (a.cadenceCount) bits.push(`${a.cadenceCount}x`);
     if (a.weekday !== undefined) bits.push(WEEKDAY_NAMES[a.weekday]);
     if (a.preferredTime) bits.push(a.preferredTime);
+    if (a.durationMinutes) bits.push(`${a.durationMinutes}min`);
     return `- [${a.role}] "${a.description}" (${bits.join(", ")})`;
   });
 
@@ -318,6 +321,13 @@ function buildTool(mode: WeeklySessionMode): Anthropic.Tool {
                 type: "string",
                 description:
                   "Habit/Goal only, \"HH:MM\" 24-hour local time the user actually stated -- never inferred or guessed from a day-part like \"afternoon\"/\"morning\"/\"evening\". Omit for Project. Omit for Habit/Goal if the user hasn't given a real clock time yet (including when this turn's reply is the question asking for one), or if they were asked and genuinely have no preference.",
+              },
+              durationMinutes: {
+                type: "integer",
+                minimum: 5,
+                maximum: 1440,
+                description:
+                  "Habit/Goal only, integer minutes -- the length of the calendar block the user actually stated (\"1 hour\" -> 60, \"half an hour\" -> 30, \"6-8pm\" -> 120). Never inferred or guessed. Omit for Project. Omit for Habit/Goal if the user hasn't given a duration yet (including when this turn's reply is the question asking for one), or if they were asked and genuinely have no preference. For a multi-block Habit, this same duration applies to every block.",
               },
               weekday: {
                 type: "integer",

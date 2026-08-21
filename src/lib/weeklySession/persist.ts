@@ -203,6 +203,11 @@ export type PendingProposedAction = {
   // cadenceCount) real blocks was ever meant to be more than a single row.
   cadenceCount?: number;
   preferredTime?: string;
+  // Round-tripped end-to-end (engine -> /propose -> client -> /confirm) so
+  // the confirmed Google Calendar event's length matches what the user
+  // actually asked for, instead of the batch default -- same reasoning as
+  // cadenceCount/preferredTime immediately above.
+  durationMinutes?: number;
 };
 
 export type WeeklySessionTranscriptRow = {

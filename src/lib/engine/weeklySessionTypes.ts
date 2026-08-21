@@ -33,6 +33,20 @@ export type ClassifiedAction = {
   // preference after being asked. Project: always omitted, same as
   // cadenceCount -- no calendar block to time.
   preferredTime?: string;
+  // Habit/Goal only, integer minutes -- the length of the calendar block
+  // the user asked for ("1 hour" -> 60, "30 min" -> 30). Captured by the
+  // Stage 3 drill-down, always after preferredTime is settled, so every
+  // Habit/Goal has both a start time and a duration by the time it's marked
+  // done. For a multi-block Habit ("run every morning"), one duration
+  // applies to every block. Omitted only for Project (no calendar block) or
+  // when the user explicitly has no preference after being asked -- then
+  // scheduling falls back to a default block length, same shape as
+  // preferredTime. Bug fix: every calendar block used to be a fixed 45
+  // minutes regardless of what the user actually planned to do, so a
+  // 2-hour date night landed as a 45-minute block and a 15-minute check-in
+  // took the same slot. Capturing it here removes the hardcode at the
+  // source rather than guessing later from the description.
+  durationMinutes?: number;
   // Habit/Goal only, 0=Sunday..6=Saturday -- the SINGLE specific day the
   // user named for this item, including a relative reference ("today",
   // "tonight") resolved against the actual date the message was sent.

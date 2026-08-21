@@ -80,10 +80,12 @@ function mergeLocked(locked: ClassifiedAction, incoming: ClassifiedAction): Clas
   };
   if (incoming.cadenceCount !== undefined) next.cadenceCount = incoming.cadenceCount;
   if (incoming.preferredTime !== undefined) next.preferredTime = incoming.preferredTime;
+  if (incoming.durationMinutes !== undefined) next.durationMinutes = incoming.durationMinutes;
   if (incoming.weekday !== undefined) next.weekday = incoming.weekday;
   if (next.type === "project") {
     delete next.cadenceCount;
     delete next.preferredTime;
+    delete next.durationMinutes;
     delete next.weekday;
   }
   return next;
@@ -166,6 +168,7 @@ export function stabilizeActions({
     if (item.type === "project") {
       delete item.cadenceCount;
       delete item.preferredTime;
+      delete item.durationMinutes;
       delete item.weekday;
     }
 

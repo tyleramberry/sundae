@@ -170,6 +170,7 @@ export async function POST(request: Request) {
         // that function's comment).
         cadenceCount: action.cadenceCount,
         preferredTime: action.preferredTime,
+        durationMinutes: action.durationMinutes,
       });
     }
 

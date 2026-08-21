@@ -10,6 +10,8 @@ export function isClassifiedAction(value: unknown): value is ClassifiedAction {
     (v.type === "habit" || v.type === "goal" || v.type === "project") &&
     (v.cadenceCount === undefined || typeof v.cadenceCount === "number") &&
     (v.preferredTime === undefined || typeof v.preferredTime === "string") &&
+    (v.durationMinutes === undefined ||
+      (typeof v.durationMinutes === "number" && v.durationMinutes > 0)) &&
     (v.weekday === undefined || (typeof v.weekday === "number" && v.weekday >= 0 && v.weekday <= 6))
   );
 }
@@ -32,6 +34,8 @@ export function isIncomingAction(value: unknown): value is PendingProposedAction
       );
     }) &&
     (v.cadenceCount === undefined || typeof v.cadenceCount === "number") &&
-    (v.preferredTime === undefined || typeof v.preferredTime === "string")
+    (v.preferredTime === undefined || typeof v.preferredTime === "string") &&
+    (v.durationMinutes === undefined ||
+      (typeof v.durationMinutes === "number" && v.durationMinutes > 0))
   );
 }

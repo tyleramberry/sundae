@@ -80,6 +80,7 @@ export async function POST(request: Request) {
       type: action.type,
       cadenceCount: action.cadenceCount,
       preferredTime: action.preferredTime,
+      durationMinutes: action.durationMinutes,
       blocks: action.blocks.map((b) => ({
         start: b.start.toISOString(),
         end: b.end.toISOString(),

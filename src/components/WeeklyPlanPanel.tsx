@@ -68,6 +68,17 @@ function timeLabel(action: ClassifiedAction): string | null {
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
+// "60" -> "1 hr", "90" -> "1.5 hr", "30" -> "30 min". Displayed so the
+// user can see Sundae actually captured the length they asked for instead
+// of silently falling back to the batch default.
+function durationLabel(action: ClassifiedAction): string | null {
+  if (!action.durationMinutes || action.durationMinutes <= 0) return null;
+  const m = action.durationMinutes;
+  if (m < 60) return `${m} min`;
+  const hrs = m / 60;
+  return `${Number.isInteger(hrs) ? hrs : hrs.toFixed(1)} hr`;
+}
+
 export default function WeeklyPlanPanel({
   roles,
   actionsSoFar,
@@ -184,6 +195,7 @@ export default function WeeklyPlanPanel({
                   const dayIdx = action.weekday ?? weekdayFromText(action.description);
                   const cadence = cadenceLabel(action);
                   const time = timeLabel(action);
+                  const duration = durationLabel(action);
                   return (
                     <li
                       key={`${role}-${i}`}
@@ -202,7 +214,7 @@ export default function WeeklyPlanPanel({
                           {action.type}
                         </span>
                       </div>
-                      {(cadence || dayIdx !== null || time) && (
+                      {(cadence || dayIdx !== null || time || duration) && (
                         <div className="flex flex-wrap gap-1.5">
                           {cadence && (
                             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
@@ -217,6 +229,11 @@ export default function WeeklyPlanPanel({
                           {time && (
                             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                               {time}
+                            </span>
+                          )}
+                          {duration && (
+                            <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                              {duration}
                             </span>
                           )}
                         </div>
