@@ -68,6 +68,13 @@ export type ProposedAction = {
   // ProposeBlocksOptions.blockMinutes / DEFAULT_BLOCK_MINUTES) when the
   // engine never captured one for this item.
   durationMinutes?: number;
+  // Habit-only recurrence intent captured by the engine. Pass-through here
+  // -- blocks.ts does not use it for placement (cadenceCount + weekday
+  // inference already place this week's occurrences as they always did);
+  // the calendar layer reads it at confirm-write time to attach an RRULE
+  // to the master event, so future weeks recur without a second write
+  // path. See ClassifiedAction.recurrence for shape.
+  recurrence?: ClassifiedAction["recurrence"];
 };
 
 // A Google Calendar API event is either timed (start.dateTime/end.dateTime)
@@ -326,6 +333,7 @@ export function proposeActionBlocks(
       cadenceCount: action.cadenceCount,
       preferredTime: action.preferredTime,
       durationMinutes: action.durationMinutes,
+      recurrence: action.recurrence,
     };
 
     if (action.type === "project") {

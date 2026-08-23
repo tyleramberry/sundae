@@ -138,24 +138,62 @@ export async function POST(request: Request) {
       }
 
       const eventIds: string[] = [];
-      for (const block of action.blocks) {
-        const start = new Date(block.start);
-        const end = new Date(block.end);
+
+      // Recurring habits (spec: PRD_RECURRING_EVENTS) write ONE master
+      // event with an RRULE, not N one-off events -- otherwise Sundae
+      // would race Google Calendar to render this week's occurrences,
+      // and next week nothing would auto-repeat. We seed the master at
+      // the FIRST placed block; Google generates the rest via the
+      // RRULE. `weekly_items` still gets one row per intended block for
+      // KPI accounting; only the calendar side collapses to a single
+      // event id, replicated across the row so createWeeklyItems'
+      // existing loop keeps working unchanged.
+      const isRecurring = Boolean(action.recurrence);
+      if (isRecurring && action.blocks.length > 0) {
+        const seed = action.blocks[0];
+        const start = new Date(seed.start);
+        const end = new Date(seed.end);
         try {
           const event = await createCalendarEvent(supabase, user.id, {
             summary: action.description,
             description: `Sundae ${action.type} — ${action.role}`,
             start,
             end,
+            recurrence: action.recurrence,
           });
-          eventIds.push(event.id);
+          // Same eventId per this-week instance -- Google's derived
+          // per-occurrence event ids all trace back to this master via
+          // the recurringEventId field on read, so a single stored id
+          // is enough to identify the series for KPI reconciliation.
+          for (let i = 0; i < action.blocks.length; i++) eventIds.push(event.id);
           wroteAnyEvent = true;
         } catch (error) {
           if (error instanceof GoogleCalendarError) {
             calendarWarning = error.message;
-            continue;
+          } else {
+            throw error;
           }
-          throw error;
+        }
+      } else {
+        for (const block of action.blocks) {
+          const start = new Date(block.start);
+          const end = new Date(block.end);
+          try {
+            const event = await createCalendarEvent(supabase, user.id, {
+              summary: action.description,
+              description: `Sundae ${action.type} — ${action.role}`,
+              start,
+              end,
+            });
+            eventIds.push(event.id);
+            wroteAnyEvent = true;
+          } catch (error) {
+            if (error instanceof GoogleCalendarError) {
+              calendarWarning = error.message;
+              continue;
+            }
+            throw error;
+          }
         }
       }
 
@@ -171,6 +209,7 @@ export async function POST(request: Request) {
         cadenceCount: action.cadenceCount,
         preferredTime: action.preferredTime,
         durationMinutes: action.durationMinutes,
+        recurrence: action.recurrence,
       });
     }
 

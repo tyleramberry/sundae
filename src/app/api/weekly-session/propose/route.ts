@@ -81,6 +81,7 @@ export async function POST(request: Request) {
       cadenceCount: action.cadenceCount,
       preferredTime: action.preferredTime,
       durationMinutes: action.durationMinutes,
+      recurrence: action.recurrence,
       blocks: action.blocks.map((b) => ({
         start: b.start.toISOString(),
         end: b.end.toISOString(),

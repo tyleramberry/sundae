@@ -155,11 +155,45 @@ export async function listCurrentWeekEvents(
   return listWeekEvents(supabase, userId, startOfWeek(new Date()));
 }
 
+// Recurrence intent, structured, not the raw RRULE string. See
+// ClassifiedAction.recurrence for the engine-side shape -- this is a
+// re-declaration rather than an import so `calendar.ts` stays independent
+// of `weeklySessionTypes.ts` (nothing else in the Google layer needs the
+// engine types, and coupling them would drag engine imports into every
+// call site of the calendar module).
+export type CalendarRecurrence = {
+  pattern: "daily" | "weekly" | "weekdays";
+  days?: Array<"MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU">;
+};
+
+// Builds the RRULE string Google expects in its `recurrence` field. Kept
+// as a pure function so the confirm route can validate/log what will land
+// on the calendar without triggering a network call. Weekly with no days
+// (or an empty array) is treated as unrecognized -- rather than emit an
+// RRULE Google will reject, we return null so the caller falls back to a
+// one-time event, which the engine's own validator should already have
+// prevented anyway.
+export function buildRRule(recurrence: CalendarRecurrence): string | null {
+  switch (recurrence.pattern) {
+    case "daily":
+      return "RRULE:FREQ=DAILY";
+    case "weekdays":
+      return "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR";
+    case "weekly":
+      if (!recurrence.days || recurrence.days.length === 0) return null;
+      return `RRULE:FREQ=WEEKLY;BYDAY=${recurrence.days.join(",")}`;
+  }
+}
+
 export type CreateCalendarEventInput = {
   summary: string;
   description?: string;
   start: Date;
   end: Date;
+  // Optional recurrence intent -- when set, one master event is written
+  // and Google generates the future occurrences. When absent, a plain
+  // one-off event is written, exactly as before this field existed.
+  recurrence?: CalendarRecurrence;
 };
 
 export type GoogleCalendarWriteResult = {
@@ -176,6 +210,16 @@ export async function createCalendarEvent(
 ): Promise<GoogleCalendarWriteResult> {
   const accessToken = await getValidAccessToken(supabase, userId);
 
+  // Google's `recurrence` field is an array of RFC-5545 property lines
+  // ("RRULE:...", "EXDATE:..." etc). MVP only ever needs a single RRULE
+  // -- omit the field entirely when there's no recurrence so a one-off
+  // event's payload stays byte-identical to what this route sent before
+  // this field existed. buildRRule returning null (unrecognized pattern)
+  // is treated as "no recurrence"; the engine's own validator should
+  // never let that reach this layer, but keep the fallback so a corrupt
+  // record can't take down the write.
+  const rruleLine = input.recurrence ? buildRRule(input.recurrence) : null;
+
   let response: Response;
   try {
     response = await fetch(`${CALENDAR_API}/calendars/primary/events`, {
@@ -189,6 +233,7 @@ export async function createCalendarEvent(
         description: input.description,
         start: { dateTime: input.start.toISOString() },
         end: { dateTime: input.end.toISOString() },
+        ...(rruleLine ? { recurrence: [rruleLine] } : {}),
       }),
     });
   } catch (err) {

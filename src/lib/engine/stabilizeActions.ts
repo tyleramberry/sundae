@@ -81,12 +81,20 @@ function mergeLocked(locked: ClassifiedAction, incoming: ClassifiedAction): Clas
   if (incoming.cadenceCount !== undefined) next.cadenceCount = incoming.cadenceCount;
   if (incoming.preferredTime !== undefined) next.preferredTime = incoming.preferredTime;
   if (incoming.durationMinutes !== undefined) next.durationMinutes = incoming.durationMinutes;
+  if (incoming.recurrence !== undefined) next.recurrence = incoming.recurrence;
   if (incoming.weekday !== undefined) next.weekday = incoming.weekday;
   if (next.type === "project") {
     delete next.cadenceCount;
     delete next.preferredTime;
     delete next.durationMinutes;
+    delete next.recurrence;
     delete next.weekday;
+  }
+  // Recurrence is Habit-only per PRD -- if the incoming turn reclassifies
+  // to a Goal, drop whatever recurrence had settled on the locked item.
+  // Project already cleared above.
+  if (next.type === "goal") {
+    delete next.recurrence;
   }
   return next;
 }
@@ -169,7 +177,11 @@ export function stabilizeActions({
       delete item.cadenceCount;
       delete item.preferredTime;
       delete item.durationMinutes;
+      delete item.recurrence;
       delete item.weekday;
+    }
+    if (item.type === "goal") {
+      delete item.recurrence;
     }
 
     if (item.type === "project") {

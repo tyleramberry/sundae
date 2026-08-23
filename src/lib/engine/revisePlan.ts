@@ -31,6 +31,7 @@ Each action item has:
 - cadenceCount: for a habit, how many times that week (7 = every day, 3 = three times a week, etc). Omit for goal and project.
 - preferredTime: for a habit or goal, "HH:MM" 24-hour local time -- the specific clock time that item is anchored to. Omit for project (no calendar block) and for any habit/goal that genuinely has no time preference.
 - durationMinutes: for a habit or goal, integer minutes -- how long the calendar block is ("1 hour" -> 60, "30 min" -> 30). Omit for project and for any habit/goal with no captured duration.
+- recurrence: for a HABIT that repeats beyond this week -- \`{ pattern: "daily" | "weekly" | "weekdays", days?: [...] }\`. \`days\` is required when pattern is "weekly" and holds two-letter Google Calendar weekday codes ("MO", "TU", "WE", "TH", "FR", "SA", "SU") in ascending week order. Omit for goal, project, and one-week-only habits. Anything outside those three patterns is unsupported; either narrow the answer or leave recurrence out.
 
 Rules:
 - Classify exactly the way the planning session does -- you decide type, never ask the user to pick it:
@@ -40,6 +41,7 @@ Rules:
 - If the user ties an item to a specific day of the week -- "date night on Tuesday", "temple shift on Saturday", "Sunday meal prep" -- INCLUDE that weekday name in the item's description text. Scheduling reads the day out of the description, so the weekday must be in the words, e.g. description "Plan date night on Tuesday".
 - If the user's request names or changes a clock time ("move the run to 6am", "make date night 7:30 instead") -- update that item's preferredTime to match ("06:00", "19:30"). Leave every other item's preferredTime exactly as it was.
 - If the user's request names or changes a duration ("make date night 2 hours", "shorten the run to 30 min", "date night is 6-8pm" -> 120 min) -- update that item's durationMinutes to match. Leave every other item's durationMinutes exactly as it was.
+- If the user's request adds, removes, or changes a Habit's recurrence ("make the gym repeat every MWF", "just this week actually", "make it every day instead") -- update that item's \`recurrence\` accordingly. Setting recurrence is Habit-only; if the user asks to make a Goal or Project recur, either reclassify the item to a Habit (with a real cadence) or explain plainly that only Habits can repeat and leave \`recurrence\` off. Leave every other item's recurrence exactly as it was.
 - Adding, removing, renaming, reclassifying, changing a cadence, changing a time, or moving an item to a different day are all fair game. Apply exactly what was asked -- don't invent extra changes.
 - If the request is unclear or you can't tell which item it refers to, make your best single interpretation and say what you did in the reply, so the user can correct you if you guessed wrong.
 
@@ -78,6 +80,28 @@ const TOOL: Anthropic.Tool = {
               maximum: 1440,
               description:
                 "Habit/Goal only, integer minutes -- the length of the calendar block. Omit for Project and for any item with no captured duration.",
+            },
+            recurrence: {
+              type: "object",
+              description:
+                "Habit-only. Set only when the user actually wants this to keep going beyond this week; omit for one-week-only habits and for any Goal or Project.",
+              properties: {
+                pattern: {
+                  type: "string",
+                  enum: ["daily", "weekly", "weekdays"],
+                },
+                days: {
+                  type: "array",
+                  items: {
+                    type: "string",
+                    enum: ["MO", "TU", "WE", "TH", "FR", "SA", "SU"],
+                  },
+                  description:
+                    "Required when pattern is \"weekly\". Two-letter Google Calendar weekday codes in ascending week order.",
+                },
+              },
+              required: ["pattern"],
+              additionalProperties: false,
             },
           },
           required: ["role", "description", "type"],

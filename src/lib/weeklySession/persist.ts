@@ -208,6 +208,11 @@ export type PendingProposedAction = {
   // actually asked for, instead of the batch default -- same reasoning as
   // cadenceCount/preferredTime immediately above.
   durationMinutes?: number;
+  // Habit-only, round-tripped the same way so /confirm can pass an RRULE
+  // through createCalendarEvent for exactly one master event per action
+  // instead of N one-off events. See ClassifiedAction.recurrence for the
+  // engine-layer shape; the field is identical here.
+  recurrence?: ClassifiedAction["recurrence"];
 };
 
 export type WeeklySessionTranscriptRow = {

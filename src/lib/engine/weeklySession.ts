@@ -54,6 +54,8 @@ const SHARED_ITEM_RULES = `**When you name a specific day, capture it in \`weekd
 
 **Never guess a clock time or a duration out of a vague answer, and never both ask and answer in the same turn.** A day-part on its own -- "afternoon", "morning", "evening", "later" -- is not a clock time, even though a plausible-sounding one ("afternoon" -> "2pm") is easy to infer. If your \`reply\` this turn is asking what time works for a given item (including asking it a second time because the first answer was still just a day-part), that exact item's \`preferredTime\` must be left out of \`actions\` this turn -- it doesn't get a value until the user has actually given one. The same rule applies to duration: if this turn's reply is asking how long the item is, leave \`durationMinutes\` out of that item this turn. Asking the question and reporting a guessed value for the same item in the same response is never correct, no matter how reasonable the guess looks.
 
+**Every Habit action item gets one more follow-up: does this repeat beyond this week?** After \`preferredTime\` and \`durationMinutes\` are captured for a Habit, ask a direct question: "Should this repeat beyond this week?" If the user says no (or "just this week"), leave \`recurrence\` out and the item stays a one-week Habit. If yes, follow up with "Which days -- every day, weekdays, or specific days?" and capture the answer in \`recurrence\`. Read cleanly-stated recurrence off the user's own words when it's already there ("gym every Monday, Wednesday, Friday -- for good") -- don't re-ask what they already told you. Only ask Habits (never Goal, never Project). Same "never ask and answer in the same turn" rule applies: if this turn's reply is asking about recurrence, leave \`recurrence\` out of that item this turn. \`recurrence\` shape: \`{ pattern: "daily" | "weekly" | "weekdays", days?: [...] }\`; \`days\` is required when pattern is "weekly" and holds two-letter Google Calendar weekday codes ("MO", "TU", "WE", "TH", "FR", "SA", "SU") in ascending week order. Examples: "every day" -> \`{ pattern: "daily" }\`; "weekdays only" -> \`{ pattern: "weekdays" }\`; "every Monday, Wednesday, Friday" -> \`{ pattern: "weekly", days: ["MO", "WE", "FR"] }\`. If the user asks for a pattern outside those three (monthly, first Tuesday of each month, etc), tell them plainly that only daily / weekdays / specific-days-of-the-week are supported this round, and either narrow to that shape or leave \`recurrence\` out.
+
 **Do not duplicate an ongoing Project.** If last week's data or "Already locked in this round" already has a Project, and the user is naming this week's slice of that same work ("get the deck out to the two leads" for an ongoing "Close the seed round", "price out the weekend trip" for "Plan the weekend trip"), keep the original Project entry unchanged (same description) and add the slice as a Goal. Never emit a second Project that is really the same effort under a more specific name -- that splits the 6-week trend. The original multi-week aspiration stays the Project; the this-week piece is the Goal.
 
 **Never assume how many blocks/times without asking.** If the user's phrasing already states a cadence or count outright ("every day", "3x a week", "twice"), that answer already covers it -- classify straight from it per the cadence-parsing rule below, no need to ask again. But if an action item doesn't say, one way or the other, whether it's a single occurrence or something repeated -- "make a block on Thursday afternoon" doesn't say if that's a one-time thing or every Thursday -- ask before classifying: "Is that a one-time thing this week, or do you want it more than once -- and if so, how many times?" Don't default a bare, cadence-less action to a single Goal-type block just because that's the fallback; ask first, and only settle on one block once the user's answer actually confirms it's one-time.
@@ -210,6 +212,14 @@ function formatLockedActions(lockedActions: ClassifiedAction[]): string {
     if (a.weekday !== undefined) bits.push(WEEKDAY_NAMES[a.weekday]);
     if (a.preferredTime) bits.push(a.preferredTime);
     if (a.durationMinutes) bits.push(`${a.durationMinutes}min`);
+    if (a.recurrence) {
+      const r = a.recurrence;
+      if (r.pattern === "daily") bits.push("repeats daily");
+      else if (r.pattern === "weekdays") bits.push("repeats weekdays");
+      else if (r.pattern === "weekly" && r.days?.length) {
+        bits.push(`repeats ${r.days.join("/")}`);
+      }
+    }
     return `- [${a.role}] "${a.description}" (${bits.join(", ")})`;
   });
 
@@ -335,6 +345,30 @@ function buildTool(mode: WeeklySessionMode): Anthropic.Tool {
                 maximum: 6,
                 description:
                   "Habit/Goal only, 0=Sunday..6=Saturday. Set when the user named ONE specific day, including a relative word (\"today\", \"tonight\", \"tomorrow\") resolved against the real current date given above. Omit for a multi-day cadence (\"every day\", \"Monday through Friday\" -- that's `cadenceCount`, not a single weekday) or when the user simply didn't name a day. Omit for Project.",
+              },
+              recurrence: {
+                type: "object",
+                description:
+                  "Habit only, and only when the user actually asked for this item to keep going beyond this week -- see the SHARED_ITEM_RULES \"repeat beyond this week?\" follow-up. Omit for Goal, Project, one-week-only Habits, and when this turn's reply is the question asking about recurrence.",
+                properties: {
+                  pattern: {
+                    type: "string",
+                    enum: ["daily", "weekly", "weekdays"],
+                    description:
+                      "\"daily\" = every day. \"weekdays\" = Mon-Fri. \"weekly\" = specific days of the week (see `days` below). Anything the user asks for outside these three is not supported this round; either narrow the answer or omit `recurrence`.",
+                  },
+                  days: {
+                    type: "array",
+                    items: {
+                      type: "string",
+                      enum: ["MO", "TU", "WE", "TH", "FR", "SA", "SU"],
+                    },
+                    description:
+                      "Required when pattern is \"weekly\" -- two-letter Google Calendar weekday codes in ascending week order (MO, TU, WE, TH, FR, SA, SU). Omit for \"daily\" and \"weekdays\", which don't need it.",
+                  },
+                },
+                required: ["pattern"],
+                additionalProperties: false,
               },
             },
             required: ["role", "description", "type"],

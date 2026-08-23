@@ -79,6 +79,31 @@ function durationLabel(action: ClassifiedAction): string | null {
   return `${Number.isInteger(hrs) ? hrs : hrs.toFixed(1)} hr`;
 }
 
+// "repeats daily" / "repeats weekdays" / "repeats Mon/Wed/Fri". Surfaces
+// the recurrence intent captured by Stage 3 so the user sees, before
+// confirm, that Sundae will write this as a recurring calendar event
+// rather than a single week's block. Habit-only per PRD; falls back to
+// null (chip hidden) for Goal/Project or one-week-only habits.
+const RECURRENCE_DAY_LABEL: Record<string, string> = {
+  MO: "Mon",
+  TU: "Tue",
+  WE: "Wed",
+  TH: "Thu",
+  FR: "Fri",
+  SA: "Sat",
+  SU: "Sun",
+};
+function recurrenceLabel(action: ClassifiedAction): string | null {
+  const r = action.recurrence;
+  if (!r) return null;
+  if (r.pattern === "daily") return "repeats daily";
+  if (r.pattern === "weekdays") return "repeats weekdays";
+  if (r.pattern === "weekly" && r.days && r.days.length > 0) {
+    return `repeats ${r.days.map((d) => RECURRENCE_DAY_LABEL[d] ?? d).join("/")}`;
+  }
+  return null;
+}
+
 export default function WeeklyPlanPanel({
   roles,
   actionsSoFar,
@@ -196,6 +221,7 @@ export default function WeeklyPlanPanel({
                   const cadence = cadenceLabel(action);
                   const time = timeLabel(action);
                   const duration = durationLabel(action);
+                  const recurrence = recurrenceLabel(action);
                   return (
                     <li
                       key={`${role}-${i}`}
@@ -214,7 +240,7 @@ export default function WeeklyPlanPanel({
                           {action.type}
                         </span>
                       </div>
-                      {(cadence || dayIdx !== null || time || duration) && (
+                      {(cadence || dayIdx !== null || time || duration || recurrence) && (
                         <div className="flex flex-wrap gap-1.5">
                           {cadence && (
                             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
@@ -234,6 +260,11 @@ export default function WeeklyPlanPanel({
                           {duration && (
                             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                               {duration}
+                            </span>
+                          )}
+                          {recurrence && (
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                              {recurrence}
                             </span>
                           )}
                         </div>

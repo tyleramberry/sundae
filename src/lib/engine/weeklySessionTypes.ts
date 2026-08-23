@@ -47,6 +47,20 @@ export type ClassifiedAction = {
   // took the same slot. Capturing it here removes the hardcode at the
   // source rather than guessing later from the description.
   durationMinutes?: number;
+  // Habit-only, and only when the user actually asked for this item to
+  // repeat beyond this week -- captured by a Stage 3 follow-up after
+  // preferredTime + durationMinutes are settled ("Should this repeat
+  // beyond this week? Which days?"). The engine collects intent as
+  // structured fields; the RRULE string itself is built in the calendar
+  // layer (src/lib/google/calendar.ts) at confirm-write time, not here --
+  // keeping engine purity intact (Invariant 3). Omitted when the user
+  // said no, wasn't asked (Goal/Project), or genuinely had no
+  // preference. `days` is required when pattern === "weekly" and is the
+  // ordered set of two-letter Google Calendar weekday codes.
+  recurrence?: {
+    pattern: "daily" | "weekly" | "weekdays";
+    days?: Array<"MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU">;
+  };
   // Habit/Goal only, 0=Sunday..6=Saturday -- the SINGLE specific day the
   // user named for this item, including a relative reference ("today",
   // "tonight") resolved against the actual date the message was sent.
