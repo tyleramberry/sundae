@@ -90,7 +90,7 @@ export default function AppSidebar({ email }: { email: string | null }) {
     // weekly-session chat grows, instead of scrolling away with the page.
     <aside
       className={[
-        "flex shrink-0 flex-row items-center justify-between gap-2 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950 md:h-full md:flex-col md:items-stretch md:justify-start md:gap-1 md:border-b-0 md:border-r md:py-6 md:transition-[width] md:duration-150",
+        "flex shrink-0 flex-row items-center justify-between gap-2 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950 md:h-full md:flex-col md:items-stretch md:justify-start md:gap-1 md:border-b-0 md:border-r md:py-8 md:transition-[width] md:duration-150",
         collapsed ? "md:w-[68px] md:px-2" : "md:w-60 md:px-4",
       ].join(" ")}
     >

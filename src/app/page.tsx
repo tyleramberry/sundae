@@ -66,8 +66,11 @@ export default function Home() {
             aria-hidden
             className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
           >
-            <div className="aurora-a absolute -left-32 -top-40 h-[32rem] w-[32rem] rounded-full bg-emerald-300/30 blur-3xl dark:bg-emerald-500/10" />
-            <div className="aurora-b absolute -right-24 top-10 h-[28rem] w-[28rem] rounded-full bg-violet-300/30 blur-3xl dark:bg-violet-500/10" />
+            {/* Calm-identity retheme (spec #3): removed the aurora/violet
+                gradient wash. PRD calls for no background gradients or
+                decorative SVGs not tied to data. Kept the empty divs out
+                entirely rather than transparent-ing them so the DOM
+                actually shrinks with the visual. */}
           </div>
 
           <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-12 px-6 pb-10 pt-10 sm:px-10 sm:pt-16 lg:flex-row lg:items-center lg:gap-16 lg:pb-16">
@@ -86,7 +89,9 @@ export default function Home() {
               <Reveal delay={70}>
                 <h1 className="text-4xl font-semibold leading-tight tracking-tight text-black dark:text-zinc-50 sm:text-5xl">
                   Set the vision.{" "}
-                  <span className="bg-gradient-to-r from-emerald-600 to-violet-600 bg-clip-text text-transparent dark:from-emerald-400 dark:to-violet-400">
+                  {/* Calm-identity retheme: gradient text swapped for a
+                      solid accent-hover for readable, on-palette emphasis. */}
+                  <span className="text-emerald-700 dark:text-emerald-400">
                     Sundae handles the busywork.
                   </span>
                 </h1>
@@ -241,12 +246,9 @@ export default function Home() {
         {/* ---------------------------------------------------------------
             Closing CTA */}
         <section className="relative overflow-hidden border-t border-zinc-200 bg-white px-6 py-16 text-center dark:border-zinc-900 dark:bg-zinc-950 sm:px-10 sm:py-28">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
-          >
-            <div className="aurora-a absolute left-1/2 top-1/2 h-[36rem] w-[36rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-200/25 blur-3xl dark:bg-emerald-500/8" />
-          </div>
+          {/* Calm-identity retheme (spec #3): removed the aurora backdrop
+              behind the closing CTA. Same reasoning as the hero aurora
+              above -- no background gradients not tied to data. */}
           <Reveal scale>
             <div className="mx-auto flex max-w-xl flex-col items-center gap-6">
               <h2 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50 sm:text-4xl">

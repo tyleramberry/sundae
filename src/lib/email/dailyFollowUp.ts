@@ -80,55 +80,62 @@ export function buildDailyFollowUpEmail(
     ...(trialLine ? ["", trialLine] : []),
   ].join("\n");
 
+  // Calm-identity retheme (spec #3). Email inline styles can't inherit
+  // from globals.css, so the palette is hand-swapped here to the exact
+  // tokens the app uses: canvas #FAF7F2 (backgrounds), ink #1C1917
+  // (body), ink-secondary #78716C (meta/labels), border #DDD6CC
+  // (dividers), accent #7A9E7E (CTA button). Line-heights bumped to
+  // 1.65 (body) and 1.4 (single strong line) to match the app-side
+  // typography rules.
   const itemsHtml =
     brief.todayItems.length > 0
       ? `<ul style="margin:0;padding:0;list-style:none;">
       ${brief.todayItems
         .map(
-          (i) => `<li style="padding:9px 0;border-top:1px solid #eee;font-size:14.5px;color:#18181b;">
-        <span style="font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;color:#71717a;">${escapeHtml(i.role)}</span><br/>
+          (i) => `<li style="padding:9px 0;border-top:1px solid #DDD6CC;font-size:14.5px;color:#1C1917;line-height:1.65;">
+        <span style="font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;color:#78716C;">${escapeHtml(i.role)}</span><br/>
         ${escapeHtml(i.title)}
       </li>`,
         )
         .join("")}
     </ul>`
-      : `<p style="font-size:14px;color:#71717a;margin:0;">Nothing on the calendar today.</p>`;
+      : `<p style="font-size:14px;color:#78716C;margin:0;line-height:1.65;">Nothing on the calendar today.</p>`;
 
   const projectsHtml =
     brief.ongoingProjects.length > 0
       ? `<ul style="margin:0;padding:0;list-style:none;">
       ${brief.ongoingProjects
         .map(
-          (p) => `<li style="padding:9px 0;border-top:1px solid #eee;font-size:14.5px;color:#18181b;">
-        <span style="font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;color:#71717a;">${escapeHtml(p.role)}</span><br/>
+          (p) => `<li style="padding:9px 0;border-top:1px solid #DDD6CC;font-size:14.5px;color:#1C1917;line-height:1.65;">
+        <span style="font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;color:#78716C;">${escapeHtml(p.role)}</span><br/>
         ${escapeHtml(p.title)} — <strong>${p.percent}%</strong>
       </li>`,
         )
         .join("")}
     </ul>`
-      : `<p style="font-size:14px;color:#71717a;margin:0;">None in progress this week.</p>`;
+      : `<p style="font-size:14px;color:#78716C;margin:0;line-height:1.65;">None in progress this week.</p>`;
 
-  const html = `<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
-  <p style="font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; margin: 0 0 4px;">Sundae</p>
-  <p style="font-size: 13px; color: #a1a1aa; margin: 0 0 20px;">${escapeHtml(brief.weekdayLabel)}</p>
+  const html = `<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; background: #FAF7F2; color: #1C1917; line-height: 1.65;">
+  <p style="font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716C; margin: 0 0 4px;">Sundae</p>
+  <p style="font-size: 13px; color: #C4BAB1; margin: 0 0 20px;">${escapeHtml(brief.weekdayLabel)}</p>
 
-  <p style="font-size: 16px; color: #18181b; line-height: 1.5; margin: 0 0 4px; font-weight: 600;">
+  <p style="font-size: 16px; color: #1C1917; line-height: 1.4; letter-spacing: 0.01em; margin: 0 0 4px; font-weight: 600;">
     ${escapeHtml(copy.greeting)}
   </p>
-  <p style="font-size: 15px; color: #3f3f46; line-height: 1.5; margin: 0 0 24px;">
+  <p style="font-size: 15px; color: #57534E; line-height: 1.65; margin: 0 0 24px;">
     ${escapeHtml(copy.focusLine)}
   </p>
 
-  <p style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; margin: 0 0 6px;">Scheduled today</p>
+  <p style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716C; margin: 0 0 6px;">Scheduled today</p>
   ${itemsHtml}
 
-  <p style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; margin: 24px 0 6px;">Ongoing project${brief.ongoingProjects.length === 1 ? "" : "s"}</p>
+  <p style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716C; margin: 24px 0 6px;">Ongoing project${brief.ongoingProjects.length === 1 ? "" : "s"}</p>
   ${projectsHtml}
 
-  <a href="${url}" style="display: inline-block; margin-top: 28px; background: #000000; color: #ffffff; text-decoration: none; padding: 10px 22px; border-radius: 999px; font-size: 14px; font-weight: 500;">
+  <a href="${url}" style="display: inline-block; margin-top: 28px; background: #7A9E7E; color: #ffffff; text-decoration: none; padding: 10px 22px; border-radius: 999px; font-size: 14px; font-weight: 500;">
     Log your progress &rarr;
   </a>
-${trialLine ? `\n  <p style="margin: 28px 0 0; padding-top: 16px; border-top: 1px solid #eee; font-size: 12px; color: #a1a1aa;">${escapeHtml(trialLine)}</p>` : ""}
+${trialLine ? `\n  <p style="margin: 28px 0 0; padding-top: 16px; border-top: 1px solid #DDD6CC; font-size: 12px; color: #78716C; line-height: 1.65;">${escapeHtml(trialLine)}</p>` : ""}
 </div>`;
 
   return { subject, html, text };

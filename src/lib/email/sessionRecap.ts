@@ -77,12 +77,17 @@ export function buildSessionRecapEmail(
     .filter((line) => line !== null)
     .join("\n");
 
+  // Calm-identity retheme (spec #3). Same palette + typography rules
+  // hand-swapped here as in dailyFollowUp.ts -- email inline styles
+  // don't inherit from globals.css. Ink #1C1917 for body, ink-secondary
+  // #78716C for meta/labels, border #DDD6CC for dividers, accent
+  // #7A9E7E on the CTA, canvas #FAF7F2 wrapping the container.
   const listHtml = (items: string[]) =>
     items.length > 0
       ? `<ul style="margin:0;padding-left:18px;">${items
-          .map((i) => `<li style="font-size:14.5px;color:#18181b;padding:3px 0;">${escapeHtml(i)}</li>`)
+          .map((i) => `<li style="font-size:14.5px;color:#1C1917;padding:3px 0;line-height:1.65;">${escapeHtml(i)}</li>`)
           .join("")}</ul>`
-      : `<p style="font-size:13.5px;color:#a1a1aa;margin:0;">None noted.</p>`;
+      : `<p style="font-size:13.5px;color:#C4BAB1;margin:0;line-height:1.65;">None noted.</p>`;
 
   const kpiHtml =
     input.roleKpis.length > 0
@@ -90,32 +95,32 @@ export function buildSessionRecapEmail(
       ${input.roleKpis
         .map(
           (k) => `<tr>
-          <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#18181b;">${escapeHtml(k.role)}</td>
-          <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#71717a;text-align:right;">
+          <td style="padding:8px 0;border-top:1px solid #DDD6CC;font-size:14px;color:#1C1917;line-height:1.65;">${escapeHtml(k.role)}</td>
+          <td style="padding:8px 0;border-top:1px solid #DDD6CC;font-size:14px;color:#78716C;text-align:right;line-height:1.65;">
             ${k.numerator}/${k.denominator}${k.percent !== null ? ` &middot; ${k.percent}%` : ""}
           </td>
         </tr>`,
         )
         .join("")}
     </table>`
-      : `<p style="font-size:14px;color:#71717a;margin:0;">Nothing was planned that week.</p>`;
+      : `<p style="font-size:14px;color:#78716C;margin:0;line-height:1.65;">Nothing was planned that week.</p>`;
 
   const recapSectionsHtml = hasRecap
-    ? `<p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;margin:0 0 6px;">Wins</p>
+    ? `<p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#78716C;margin:0 0 6px;">Wins</p>
        ${listHtml(wins)}
-       <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;margin:20px 0 6px;">To improve</p>
+       <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#78716C;margin:20px 0 6px;">To improve</p>
        ${listHtml(improvements)}
-       <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;margin:24px 0 6px;">By role</p>`
-    : `<p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;margin:0 0 6px;">By role</p>`;
+       <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#78716C;margin:24px 0 6px;">By role</p>`
+    : `<p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#78716C;margin:0 0 6px;">By role</p>`;
 
-  const html = `<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
-  <p style="font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; margin: 0 0 4px;">Sundae</p>
-  <p style="font-size: 20px; font-weight: 600; color: #18181b; margin: 0 0 20px;">Week of ${escapeHtml(label)}</p>
+  const html = `<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; background: #FAF7F2; color: #1C1917; line-height: 1.65;">
+  <p style="font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716C; margin: 0 0 4px;">Sundae</p>
+  <p style="font-size: 20px; font-weight: 600; color: #1C1917; line-height: 1.4; letter-spacing: 0.01em; margin: 0 0 20px;">Week of ${escapeHtml(label)}</p>
 
   ${recapSectionsHtml}
   ${kpiHtml}
 
-  <a href="${url}" style="display: inline-block; margin-top: 28px; background: #000000; color: #ffffff; text-decoration: none; padding: 10px 22px; border-radius: 999px; font-size: 14px; font-weight: 500;">
+  <a href="${url}" style="display: inline-block; margin-top: 28px; background: #7A9E7E; color: #ffffff; text-decoration: none; padding: 10px 22px; border-radius: 999px; font-size: 14px; font-weight: 500;">
     See this week&rsquo;s plan &rarr;
   </a>
 </div>`;

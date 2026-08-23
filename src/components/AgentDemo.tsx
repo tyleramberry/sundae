@@ -162,10 +162,10 @@ export default function AgentDemo() {
   return (
     <div className="relative w-full max-w-md">
       {/* Glow behind the card. Purely decorative, hence aria-hidden. */}
-      <div
-        aria-hidden
-        className="absolute -inset-6 -z-10 rounded-[2rem] bg-gradient-to-br from-emerald-200/45 via-transparent to-violet-200/45 blur-2xl dark:from-emerald-500/12 dark:to-violet-500/12"
-      />
+      {/* Calm-identity retheme (spec #3): the decorative gradient glow
+          behind the demo card was a violet/emerald wash -- neither is
+          tied to data, and violet is off-palette. Dropping the div
+          entirely rather than transparent-ing it. */}
 
       <div className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white/90 shadow-xl shadow-zinc-900/5 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/90 dark:shadow-black/40">
         <div className="flex items-center gap-2.5 border-b border-zinc-100 px-4 py-3 dark:border-zinc-900">
@@ -209,13 +209,16 @@ export default function AgentDemo() {
             </Bubble>
           )}
 
+          {/* Calm-identity retheme (spec #3): classification chip
+              switched from violet to on-palette sage. Same layout,
+              same content -- only the color tokens change. */}
           {atLeast(shown, "classify") && (
-            <div className="animate-[pop-in_0.35s_ease-out] self-start rounded-xl border border-violet-200 bg-violet-50/70 px-3 py-2 dark:border-violet-900/70 dark:bg-violet-950/40">
+            <div className="animate-[pop-in_0.35s_ease-out] self-start rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2 dark:border-emerald-900/70 dark:bg-emerald-950/40">
               <div className="flex items-center gap-2">
-                <span className="rounded-md bg-violet-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                <span className="rounded-md bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
                   Habit
                 </span>
-                <span className="text-xs text-violet-900 dark:text-violet-300">
+                <span className="text-xs text-emerald-900 dark:text-emerald-300">
                   recurring · 7 blocks this week
                 </span>
               </div>

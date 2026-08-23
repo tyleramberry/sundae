@@ -605,7 +605,7 @@ function HypeScreen({ result, onContinue }: { result: DemoResult; onContinue: ()
         </p>
       </div>
 
-      <div className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
         <p className="text-sm text-zinc-700 dark:text-zinc-300">
           Do that for everything you&apos;re juggling — say 4 goals a week — and that&apos;s roughly{" "}
           <span className="font-semibold text-black dark:text-white">

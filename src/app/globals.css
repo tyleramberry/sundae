@@ -1,8 +1,25 @@
 @import "tailwindcss";
 
+/* Calm visual identity system (spec #3, 2026-08-23).
+   Muted warm neutrals + a single sage accent, applied app-wide via two
+   layers so we don't have to sweep every utility class in every file:
+
+   1. Semantic tokens (canvas, surface, muted, ink, accent, etc.) are
+      exposed in @theme inline below, so any component that opts in can
+      use `bg-canvas`/`text-ink`/`bg-accent` directly.
+   2. Tailwind's default zinc / neutral / gray / emerald palettes are
+      overridden to the calm palette below, so existing `bg-zinc-50` /
+      `dark:bg-black` / `text-emerald-700` usages retheme automatically
+      without a per-file rewrite. This is unusual (Tailwind palettes are
+      typically kept generic), but it's what "apply consistently across
+      all screens" actually requires when the app already has ~30 files
+      of established zinc/emerald usage.
+
+   Error red is the one color kept exactly as-is per PRD. */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #FAF7F2; /* canvas */
+  --foreground: #1C1917; /* ink */
 }
 
 @theme inline {
@@ -10,25 +27,81 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* --- Calm palette (semantic tokens) --- */
+  --color-canvas: #FAF7F2;
+  --color-surface: #F0EBE3;
+  --color-muted: #D8D0C5;
+  --color-ink: #1C1917;
+  --color-ink-secondary: #78716C;
+  --color-ink-muted: #C4BAB1;
+  --color-accent: #7A9E7E;
+  --color-accent-hover: #5C8060;
+  --color-accent-tint: #EDF3EE;
+  --color-border: #DDD6CC;
+
+  /* Zinc override: existing bg-zinc, text-zinc, border-zinc usages get
+     retinted to warm neutrals. Same shade ladder direction (50 lightest,
+     950 darkest), just remapped end to end. */
+  --color-zinc-50: #FAF7F2;
+  --color-zinc-100: #F0EBE3;
+  --color-zinc-200: #DDD6CC;
+  --color-zinc-300: #D8D0C5;
+  --color-zinc-400: #C4BAB1;
+  --color-zinc-500: #78716C;
+  --color-zinc-600: #57534E;
+  --color-zinc-700: #44403C;
+  --color-zinc-800: #292524;
+  --color-zinc-900: #1C1917;
+  --color-zinc-950: #1C1917;
+
+  /* --- Emerald override: existing emerald usages become the sage accent
+     ladder. Keeps semantic intent (success/positive/CTA) while switching
+     hue to the calm palette. */
+  --color-emerald-50: #EDF3EE;
+  --color-emerald-100: #EDF3EE;
+  --color-emerald-200: #C4D5C7;
+  --color-emerald-300: #A9C1AC;
+  --color-emerald-400: #7A9E7E;
+  --color-emerald-500: #7A9E7E;
+  --color-emerald-600: #5C8060;
+  --color-emerald-700: #5C8060;
+  --color-emerald-800: #47624A;
+  --color-emerald-900: #2F4131;
+  --color-emerald-950: #EDF3EE;
 }
 
+/* Dark-mode override: the calm identity is a single warm-neutral theme,
+   not a dark-mode variant. Keep `dark:` classes rendering something
+   coherent by aliasing to the same warm palette rather than pure black /
+   white, so an OS-level dark preference still opts users into the calm
+   look instead of getting mixed styling. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #FAF7F2;
+    --foreground: #1C1917;
   }
 }
 
 /* Geist is loaded in src/app/layout.tsx and exposed as --font-geist-sans.
-   This used to say `Arial, Helvetica, sans-serif`, which meant any page
-   that didn't remember to add Tailwind's `font-sans` class rendered in
-   Arial while the rest of the app rendered in Geist. Defaulting to the
-   real font here makes `font-sans` a no-op reinforcement instead of a
-   requirement. */
+   Body line-height 1.65 (spec #3) so long-form copy breathes; keeping
+   the same Geist stack. */
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+  line-height: 1.65;
+}
+
+/* Heading defaults (spec #3): calmer vertical rhythm + a hairline of
+   letter-spacing so headings read as intentional labels instead of
+   dense text. Applies to any h1/h2/h3 that doesn't override
+   line-height / letter-spacing on its own via a utility class. */
+h1,
+h2,
+h3 {
+  line-height: 1.4;
+  letter-spacing: 0.01em;
 }
 
 /* Onboarding demo animation (Day 7 redesign) -- the live goal -> action ->

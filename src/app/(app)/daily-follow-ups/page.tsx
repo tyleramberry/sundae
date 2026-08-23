@@ -191,7 +191,7 @@ function DailyFollowUpsInner() {
                       if (el) itemRefs.current.set(item.id, el);
                     }}
                     className={[
-                      "rounded-xl border p-4 transition",
+                      "rounded-xl border p-5 transition",
                       highlighted
                         ? "border-emerald-400 bg-emerald-50/60 ring-2 ring-emerald-300 dark:border-emerald-500 dark:bg-emerald-950/30 dark:ring-emerald-700"
                         : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950",
