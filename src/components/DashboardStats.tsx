@@ -10,6 +10,12 @@ export type DashboardSummary = {
   streakWeeks: number;
   lastWeekPercent: number | null;
   sixWeekAveragePercent: number | null;
+  // Spec #2 hero. `masterScore` is live-computed from this week's items
+  // for a fresh number; `masterScoreHistory` is prior-weeks' persisted
+  // scores (oldest first) that the Sparkline consumer appends the live
+  // masterScore onto as its final point.
+  masterScore: number;
+  masterScoreHistory: { weekStart: string; masterScore: number }[];
 };
 
 function StatCard({

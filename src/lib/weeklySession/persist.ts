@@ -230,7 +230,43 @@ export type WeeklySessionTranscriptRow = {
   last_confirm_fingerprint: string | null;
   pending_proposed: PendingProposedAction[] | null;
   pending_session_actions: ClassifiedAction[] | null;
+  // Spec #2 (Weekly Score Hero). Written on session close by
+  // recordWeeklySessionConfirmed; nullable so pre-migration rows and
+  // rows where the caller didn't supply a score stay honest instead of
+  // reading back as 0. Requires the migration in
+  // docs/migrations/2026-08-23-master-score.sql to have been run.
+  master_score: number | null;
 };
+
+// Sparkline data source (spec #2). Reads the latest N completed weeks'
+// master_score for the given user, newest first, so the dashboard hero
+// can render the 6-week trend right next to the current live score. A
+// row with a null master_score is skipped -- either the migration
+// hadn't been run when it was written, or the caller didn't supply a
+// score for that round. The sparkline is a nice-to-have next to the
+// hero number and never blocks the page: on Supabase error we return
+// an empty array and log rather than throwing.
+export async function getMasterScoreHistory(
+  supabase: SupabaseClient,
+  userId: string,
+  limit = 6,
+): Promise<{ weekStart: string; masterScore: number }[]> {
+  const { data, error } = await supabase
+    .from("weekly_session_transcripts")
+    .select("week_start, master_score")
+    .eq("user_id", userId)
+    .not("master_score", "is", null)
+    .order("week_start", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("getMasterScoreHistory failed:", error);
+    return [];
+  }
+  return (data ?? [])
+    .filter((row): row is { week_start: string; master_score: number } => typeof row.master_score === "number")
+    .map((row) => ({ weekStart: row.week_start, masterScore: row.master_score }));
+}
 
 export class StaleTranscriptError extends Error {
   constructor() {
@@ -518,6 +554,14 @@ type RecordConfirmedInput = {
   weekStart: string;
   confirmationMessage: string;
   fingerprint: string;
+  // Spec #2: precomputed by the caller from computeMasterScore against
+  // this-week weekly_items. Passed in (not computed here) because
+  // persist.ts is the Supabase boundary layer -- keeping KPI reads out
+  // of it preserves the "compute.ts is the single source of KPI truth"
+  // invariant. Null means "not scored this round" (e.g. the caller
+  // couldn't derive it); the column stays null in that case rather than
+  // getting stamped with a fabricated 0.
+  masterScore?: number | null;
 };
 
 // Called once /api/weekly-session/confirm actually writes a plan (the
@@ -532,7 +576,7 @@ type RecordConfirmedInput = {
 // cannot save over this reset.
 export async function recordWeeklySessionConfirmed(
   supabase: SupabaseClient,
-  { userId, weekStart, confirmationMessage, fingerprint }: RecordConfirmedInput,
+  { userId, weekStart, confirmationMessage, fingerprint, masterScore }: RecordConfirmedInput,
 ): Promise<{ isFirstConfirmThisWeek: boolean }> {
   const existing = await getWeeklySessionTranscript(supabase, userId, weekStart);
   const isFirstConfirmThisWeek = !existing?.completed_at;
@@ -542,20 +586,29 @@ export async function recordWeeklySessionConfirmed(
   ];
   const nextSeq = (existing?.round_seq ?? 0) + 1;
 
+  // Only include `master_score` in the upsert when the caller actually
+  // supplied one -- omitting the field on an addendum confirm means we
+  // don't stomp the score the first confirm this week wrote. Requires
+  // the docs/migrations/2026-08-23-master-score.sql column to exist.
+  const upsertPayload: Record<string, unknown> = {
+    user_id: userId,
+    week_start: weekStart,
+    display_turns: displayTurns,
+    active_state: { turns: [] },
+    actions_so_far: [],
+    round_seq: nextSeq,
+    confirming_at: null,
+    last_confirm_fingerprint: fingerprint,
+    pending_proposed: null,
+    pending_session_actions: null,
+    updated_at: new Date().toISOString(),
+  };
+  if (masterScore !== undefined && masterScore !== null) {
+    upsertPayload.master_score = masterScore;
+  }
+
   const { error } = await supabase.from("weekly_session_transcripts").upsert(
-    {
-      user_id: userId,
-      week_start: weekStart,
-      display_turns: displayTurns,
-      active_state: { turns: [] },
-      actions_so_far: [],
-      round_seq: nextSeq,
-      confirming_at: null,
-      last_confirm_fingerprint: fingerprint,
-      pending_proposed: null,
-      pending_session_actions: null,
-      updated_at: new Date().toISOString(),
-    },
+    upsertPayload,
     { onConflict: "user_id,week_start" },
   );
 

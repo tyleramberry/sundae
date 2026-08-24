@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import KpiRing from "@/components/KpiRing";
 import DashboardStats, { type DashboardSummary } from "@/components/DashboardStats";
 import TypeBreakdown, { type TypeBreakdownRow } from "@/components/TypeBreakdown";
+import Sparkline from "@/components/Sparkline";
 import { isItemComplete } from "@/lib/kpi/compute";
 import { formatTrialStatus, getTrialStatus, type TrialStatus } from "@/lib/trial";
 
@@ -261,6 +262,35 @@ export default function DashboardPage() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         {orderError && <p className="text-sm text-red-600">{orderError}</p>}
+
+        {/* Spec #2 hero: single "Am I on track?" master score + 6-week
+            sparkline. Rendered above the fold, before the role rings.
+            The rings + role breakdowns move below but stay unchanged --
+            nothing hidden, just re-ordered per PRD. Suppressed until
+            the summary lands so the layout doesn't reflow twice. */}
+        {summary && (
+          <section className="rounded-xl bg-zinc-100 px-6 py-8 dark:bg-zinc-900">
+            <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-7xl font-semibold tracking-tight text-black dark:text-zinc-50">
+                  {summary.masterScore}
+                </p>
+                <p className="mt-1 text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                  Weekly score
+                </p>
+              </div>
+              <div className="w-full max-w-[240px] sm:w-auto">
+                <Sparkline
+                  values={[
+                    ...summary.masterScoreHistory.map((h) => h.masterScore),
+                    summary.masterScore,
+                  ]}
+                  ariaLabel={`Master score over the last ${summary.masterScoreHistory.length + 1} weeks`}
+                />
+              </div>
+            </div>
+          </section>
+        )}
 
         {roles.length === 0 && (
           <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">

@@ -55,3 +55,19 @@ export function groupItemsByRole<T extends { role: string }>(
   }
   return map;
 }
+
+// Master weekly completion score (spec #2, PRD). Simple equal-weighted
+// average of each role's completion percentage, rounded to an integer
+// 0-100 so the dashboard hero can render it directly. Roles with a null
+// percent (denominator 0 -- nothing planned for that role this week) are
+// EXCLUDED from the average rather than counted as 0 -- the "null vs 0"
+// distinction is load-bearing everywhere else in this file, and treating
+// "nothing planned" as failing would punish users for onboarding roles
+// they didn't plan against this week. Returns 0 when every role is
+// null or the input is empty (avoids NaN from an empty divisor).
+export function computeMasterScore(roleKpis: RoleKpi[]): number {
+  const scored = roleKpis.filter((r) => r.percent !== null);
+  if (scored.length === 0) return 0;
+  const total = scored.reduce((sum, r) => sum + (r.percent as number), 0);
+  return Math.round(total / scored.length);
+}

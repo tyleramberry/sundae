@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { planningWeekStartDate } from "@/lib/weeklySession/week";
-import { getLastWeekContext, toDateOnly } from "@/lib/weeklySession/persist";
-import { computeRoleKpi, type KpiItem } from "@/lib/kpi/compute";
+import {
+  getLastWeekContext,
+  getMasterScoreHistory,
+  toDateOnly,
+} from "@/lib/weeklySession/persist";
+import { getOnboardingAnswers } from "@/lib/onboarding/persist";
+import {
+  computeKpisForRoles,
+  computeMasterScore,
+  computeRoleKpi,
+  groupItemsByRole,
+  type KpiItem,
+} from "@/lib/kpi/compute";
 import type { ActionType } from "@/lib/engine/weeklySessionTypes";
 
 // Account-wide dashboard stats (Day 16 "make it cooler" pass): last week's
@@ -110,5 +121,54 @@ export async function GET() {
     cursor.setDate(cursor.getDate() - 7);
   }
 
-  return NextResponse.json({ lastWeekPercent, sixWeekAveragePercent, streakWeeks });
+  // ---- Spec #2 hero: master weekly score (live for the current week)
+  // + persisted history for prior weeks. Live compute so the hero
+  // number stays fresh as items get marked done during the week, even
+  // though the transcript row's `master_score` snapshot was frozen at
+  // close time. History reads from weekly_session_transcripts per PRD;
+  // rows with a null master_score are skipped by getMasterScoreHistory
+  // (pre-migration or no-score-supplied rounds). computeMasterScore
+  // lives in compute.ts per Quinton's Invariant 2 amendment.
+  const onboardingForScore = await getOnboardingAnswers(supabase, user.id).catch(() => null);
+  const currentWeekRoles = onboardingForScore?.roles ?? [];
+  // sixWeekRows above deliberately omits `role`; fetch it fresh here so
+  // groupItemsByRole gets a real key. Bounded to this week only, so
+  // keeping the KPI compute path in one place is worth the extra query.
+  const currentWeekStartISO = toDateOnly(nowWeekStart);
+  const { data: currentWeekRowsWithRole } = await supabase
+    .from("weekly_items")
+    .select("role, type, done, percent")
+    .eq("user_id", user.id)
+    .eq("week_start", currentWeekStartISO)
+    .is("removed_at", null);
+  const currentKpiItems: (KpiItem & { role: string })[] = (currentWeekRowsWithRole ?? []).map(
+    (row) => ({
+      role: row.role as string,
+      type: row.type as ActionType,
+      done: row.done as boolean,
+      percent: row.percent as number | null,
+    }),
+  );
+  const currentRoleKpis = currentWeekRoles.length > 0
+    ? computeKpisForRoles(currentWeekRoles, groupItemsByRole(currentKpiItems))
+    : [];
+  const masterScore = computeMasterScore(currentRoleKpis);
+
+  const scoreHistoryRaw = await getMasterScoreHistory(supabase, user.id, 6);
+  // Oldest-first, and drop the current-week row if present -- the hero
+  // already shows the fresh live value for this week, no need to
+  // double-count it in the sparkline series. Sparkline consumer will
+  // append the live masterScore as its final point.
+  const masterScoreHistory = scoreHistoryRaw
+    .filter((r) => r.weekStart !== currentWeekStartISO)
+    .reverse()
+    .map((r) => ({ weekStart: r.weekStart, masterScore: r.masterScore }));
+
+  return NextResponse.json({
+    lastWeekPercent,
+    sixWeekAveragePercent,
+    streakWeeks,
+    masterScore,
+    masterScoreHistory,
+  });
 }

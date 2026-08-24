@@ -15,7 +15,12 @@ import {
 import { planningWeekStart } from "@/lib/weeklySession/week";
 import { isIncomingAction } from "@/lib/weeklySession/parseActions";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
-import { computeKpisForRoles, groupItemsByRole, type KpiItem } from "@/lib/kpi/compute";
+import {
+  computeKpisForRoles,
+  computeMasterScore,
+  groupItemsByRole,
+  type KpiItem,
+} from "@/lib/kpi/compute";
 import { getSessionRecap } from "@/lib/agents/sessionRecapAgent";
 import { EmailError, sendSessionRecapEmail } from "@/lib/email/sessionRecap";
 import type { ProposedAction } from "@/lib/planning/blocks";
@@ -265,11 +270,41 @@ export async function POST(request: Request) {
       }
       return `${created} item${created === 1 ? "" : "s"} written to your calendar.`;
     })();
+    // Spec #2: compute this session's master score off the just-created
+    // weekly_items so the transcript row lands with a real snapshot
+    // instead of a NULL that a later sparkline read would have to skip.
+    // At close time (right after write) `done`/`percent` are still at
+    // their initial values -- computeMasterScore returns 0 for a fresh
+    // week where nothing's marked done yet, which is the honest number
+    // for that instant. computeMasterScore lives in compute.ts (single
+    // source of KPI truth) per Quinton's Invariant 2 amendment; this
+    // route is a pure caller.
+    const closeTimeRoleKpis = await (async () => {
+      const onboarding = await getOnboardingAnswers(supabase, user.id).catch(() => null);
+      const roles = onboarding?.roles ?? [];
+      if (roles.length === 0) return [];
+      const { data: currentItems } = await supabase
+        .from("weekly_items")
+        .select("role, type, done, percent")
+        .eq("user_id", user.id)
+        .eq("week_start", weekStart)
+        .is("removed_at", null);
+      const kpiItems: (KpiItem & { role: string })[] = (currentItems ?? []).map((row) => ({
+        role: row.role as string,
+        type: row.type as KpiItem["type"],
+        done: row.done as boolean,
+        percent: row.percent as number | null,
+      }));
+      return computeKpisForRoles(roles, groupItemsByRole(kpiItems));
+    })();
+    const masterScore = computeMasterScore(closeTimeRoleKpis);
+
     const { isFirstConfirmThisWeek } = await recordWeeklySessionConfirmed(supabase, {
       userId: user.id,
       weekStart,
       confirmationMessage,
       fingerprint,
+      masterScore,
     });
 
     // The plan is written -- everything after this point is a nice-to-have
