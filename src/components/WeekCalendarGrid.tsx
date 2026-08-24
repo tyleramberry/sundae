@@ -1,17 +1,22 @@
 // Week calendar grid for the weekly-session split view -- Sun-Sat columns,
 // hourly rows over blocks.ts's default working-hours window (8am-8pm), with
-// two visual layers rendered on top:
+// three visual layers rendered on top:
 //   - REAL events (neutral, muted) -- what's already on the user's Google
 //     Calendar.
-//   - PROPOSED blocks (accent, dashed border) -- what Sundae is suggesting
-//     for the plan being reviewed. Deliberately visually distinct so it
-//     reads as "not on your calendar yet" even at a glance, matching the
-//     confirm-screen copy's "nothing's on your calendar yet."
+//   - DRAFT blocks (sky-tinted, dashed border, "DRAFT" label) -- items the
+//     engine has already classified during the chat but that /propose has
+//     not slotted yet. Approximate: they use whatever the classifier
+//     already captured (weekday + preferredTime + duration). Exact times
+//     come from /propose at session end. Rendered underneath proposed so
+//     once a real proposal exists it visually replaces the draft.
+//   - PROPOSED blocks (accent, solid) -- what Sundae is suggesting for the
+//     plan being reviewed. Deliberately visually distinct so it reads as
+//     "not on your calendar yet" even at a glance, matching the confirm-
+//     screen copy's "nothing's on your calendar yet."
 //
-// Rendered on the right side of /weekly-session once the conversation
-// completes and /propose has slotted blocks against real free time. The
-// blocks' start/end come from /api/weekly-session/propose, which does all
-// the collision-avoidance math already -- this component is pure display.
+// Rendered on the right side of /weekly-session throughout the flow. The
+// PROPOSED blocks' start/end come from /api/weekly-session/propose, which
+// does all the collision-avoidance math -- this component is pure display.
 
 const HOURS_START = 6;
 const HOURS_END = 22;
@@ -43,7 +48,7 @@ type PositionedItem = {
   dayIndex: number; // 0=Sun..6=Sat
   topPercent: number;
   heightPercent: number;
-  kind: "real" | "proposed";
+  kind: "real" | "proposed" | "draft";
   conflictsWith?: string;
 };
 
@@ -84,6 +89,18 @@ function proposedToPositioned(block: ProposedBlock, weekStart: Date): Positioned
   return positioned && block.conflictsWith ? { ...positioned, conflictsWith: block.conflictsWith } : positioned;
 }
 
+function draftToPositioned(block: ProposedBlock, weekStart: Date): PositionedItem | null {
+  return positionOnGrid({
+    key: `draft-${block.start}-${block.role}-${block.description}`,
+    label: block.description,
+    role: block.role,
+    start: new Date(block.start),
+    end: new Date(block.end),
+    weekStart,
+    kind: "draft",
+  });
+}
+
 function positionOnGrid({
   key,
   label,
@@ -99,7 +116,7 @@ function positionOnGrid({
   start: Date;
   end: Date;
   weekStart: Date;
-  kind: "real" | "proposed";
+  kind: "real" | "proposed" | "draft";
 }): PositionedItem | null {
   // Which day column, in local time.
   const dayIndex = Math.floor((start.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
@@ -131,11 +148,15 @@ function positionOnGrid({
 export default function WeekCalendarGrid({
   events,
   proposed,
+  draft,
   weekStart,
   weekLabel,
 }: {
   events: CalendarEvent[];
   proposed: ProposedBlock[];
+  // Live-classified draft blocks (see file header). Optional -- omitted
+  // outside the "chatting" stage where the plan is still being built.
+  draft?: ProposedBlock[];
   weekStart: Date;
   weekLabel?: string;
 }) {
@@ -147,6 +168,9 @@ export default function WeekCalendarGrid({
     .filter((p): p is PositionedItem => p !== null);
   const proposedItems = proposed
     .map((b) => proposedToPositioned(b, weekStart))
+    .filter((p): p is PositionedItem => p !== null);
+  const draftItems = (draft ?? [])
+    .map((b) => draftToPositioned(b, weekStart))
     .filter((p): p is PositionedItem => p !== null);
 
   const today = new Date();
@@ -173,6 +197,12 @@ export default function WeekCalendarGrid({
             <span className="inline-block h-2.5 w-2.5 rounded-sm bg-zinc-400 dark:bg-zinc-500" />
             Already on Google Calendar
           </span>
+          {draftItems.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm border-2 border-dashed border-sky-500 bg-sky-100 dark:border-sky-400 dark:bg-sky-200" />
+              Draft — being built as you plan
+            </span>
+          )}
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-2.5 w-2.5 rounded-sm border-2 border-emerald-600 bg-emerald-400 dark:border-emerald-400 dark:bg-emerald-600" />
             Sundae proposal (not written yet)
@@ -185,7 +215,7 @@ export default function WeekCalendarGrid({
       </div>
 
       <div className="flex-1 overflow-auto">
-        <div className="grid min-w-[560px] grid-cols-[40px_repeat(7,1fr)] text-[11px]">
+        <div className="grid min-w-[560px] grid-cols-[56px_repeat(7,1fr)] text-[11px]">
           {/* Day header row */}
           <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950" />
           {dayHeaders.map((h, i) => (
@@ -206,9 +236,13 @@ export default function WeekCalendarGrid({
               layered on top of each day column separately below. */}
           {hours.map((h) => (
             <div key={`h-${h}`} className="contents">
-              <div className="border-t border-zinc-100 pr-1 text-right text-[9px] text-zinc-400 dark:border-zinc-900 dark:text-zinc-600">
-                {h > 12 ? h - 12 : h}
-                {h >= 12 ? "p" : "a"}
+              {/* Hour labels: "6 AM"/"12 PM" instead of the old cramped
+                  "6a"/"12p". Column widened to 56px so "12 PM" doesn't
+                  clip; font bumped a step so labels are legible without
+                  zooming in. Noon = "12 PM"; midnight never appears in
+                  this window (HOURS_START = 6, HOURS_END = 22). */}
+              <div className="border-t border-zinc-100 pr-2 text-right text-[10px] font-medium tabular-nums text-zinc-500 dark:border-zinc-900 dark:text-zinc-500">
+                {h === 12 ? 12 : h % 12} {h < 12 ? "AM" : "PM"}
               </div>
               {DAY_LABELS.map((_, dayIdx) => (
                 <div
@@ -224,6 +258,7 @@ export default function WeekCalendarGrid({
               height percentages resolve against the whole day window. */}
           {DAY_LABELS.map((_, dayIdx) => {
             const dayReal = realItems.filter((i) => i.dayIndex === dayIdx);
+            const dayDraft = draftItems.filter((i) => i.dayIndex === dayIdx);
             const dayProposed = proposedItems.filter((i) => i.dayIndex === dayIdx);
             return (
               <div
@@ -249,11 +284,36 @@ export default function WeekCalendarGrid({
                     </span>
                   </div>
                 ))}
+                {/* Draft layer: sits above real events but under proposed,
+                    so once /propose runs and hard proposals arrive they
+                    visually override the earlier draft blocks. Dashed
+                    border + sky tint reads as "planning, not confirmed"
+                    without competing with the sage proposed style. */}
+                {dayDraft.map((item) => (
+                  <div
+                    key={item.key}
+                    className="pointer-events-auto absolute inset-x-0.5 z-[1] overflow-hidden rounded-sm border-2 border-dashed border-sky-500 bg-sky-100 px-1 text-[9px] leading-tight text-sky-900 dark:border-sky-400 dark:bg-sky-200 dark:text-sky-900"
+                    style={{ top: `${item.topPercent}%`, height: `${item.heightPercent}%` }}
+                    title={`Draft (not yet slotted): ${item.role ? `${item.role} · ` : ""}${item.label}`}
+                  >
+                    <span className="line-clamp-2 font-semibold">
+                      <span className="text-[8px] uppercase tracking-wide opacity-80">
+                        Draft ·{" "}
+                      </span>
+                      {item.label}
+                    </span>
+                    {item.role && (
+                      <span className="block truncate text-[8px] uppercase tracking-wide opacity-70">
+                        {item.role}
+                      </span>
+                    )}
+                  </div>
+                ))}
                 {dayProposed.map((item) => (
                   <div
                     key={item.key}
                     className={[
-                      "pointer-events-auto absolute inset-x-0.5 z-[1] overflow-hidden rounded-sm border-2 px-1 text-[9px] leading-tight",
+                      "pointer-events-auto absolute inset-x-0.5 z-[2] overflow-hidden rounded-sm border-2 px-1 text-[9px] leading-tight",
                       item.conflictsWith
                         ? "border-amber-600 bg-amber-300 text-amber-950 dark:border-amber-400 dark:bg-amber-600 dark:text-amber-50"
                         : "border-emerald-600 bg-emerald-400 text-emerald-950 dark:border-emerald-300 dark:bg-emerald-600 dark:text-emerald-50",

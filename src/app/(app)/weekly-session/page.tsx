@@ -97,6 +97,80 @@ function browserTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
+// Spec #2 (2026-08-24): derive approximate calendar blocks from the
+// engine's already-classified `actionsSoFar` so the calendar can fill in
+// live during the chat -- watching the week take shape instead of only
+// seeing a wall of blocks at session end. These are hints, not
+// commitments: the real proposal comes from /api/weekly-session/propose,
+// which does collision-aware slotting, and its output visually replaces
+// these draft blocks the moment /propose runs.
+//
+// Honesty rules (never invent data):
+//   - Project actions have no calendar time -- skipped.
+//   - Item needs BOTH weekday (0-6) AND preferredTime ("HH:MM") to render.
+//     Missing either = shown only in the Plan panel, never guessed onto
+//     the grid.
+//   - If the engine captured a recurrence pattern, expand it:
+//       * "daily" -> one block on every day of the week
+//       * "weekdays" -> Mon-Fri
+//       * "weekly" with days -> one block per named day
+//     Otherwise a single block on the single `weekday` the classifier
+//     already resolved (even for a cadenceCount > 1 habit with no named
+//     days -- extra occurrences would be fabricated).
+const RECURRENCE_DAY_INDEX: Record<string, number> = {
+  SU: 0,
+  MO: 1,
+  TU: 2,
+  WE: 3,
+  TH: 4,
+  FR: 5,
+  SA: 6,
+};
+
+function buildDraftBlocks(
+  actions: ClassifiedAction[],
+  weekStart: Date | null,
+): CalendarProposedBlock[] {
+  if (!weekStart) return [];
+  const blocks: CalendarProposedBlock[] = [];
+  for (const action of actions) {
+    if (action.type === "project") continue;
+    if (typeof action.weekday !== "number" || !action.preferredTime) continue;
+    const m = /^([0-1]?\d|2[0-3]):([0-5]\d)$/.exec(action.preferredTime.trim());
+    if (!m) continue;
+    const hh = Number(m[1]);
+    const mm = Number(m[2]);
+    const duration = action.durationMinutes ?? 60;
+
+    const dayIndices: number[] = (() => {
+      const r = action.recurrence;
+      if (!r) return [action.weekday];
+      if (r.pattern === "daily") return [0, 1, 2, 3, 4, 5, 6];
+      if (r.pattern === "weekdays") return [1, 2, 3, 4, 5];
+      if (r.pattern === "weekly" && r.days && r.days.length > 0) {
+        return r.days
+          .map((d) => RECURRENCE_DAY_INDEX[d])
+          .filter((idx): idx is number => typeof idx === "number");
+      }
+      return [action.weekday];
+    })();
+
+    for (const dayIdx of dayIndices) {
+      const start = new Date(weekStart);
+      start.setDate(start.getDate() + dayIdx);
+      start.setHours(hh, mm, 0, 0);
+      const end = new Date(start.getTime() + duration * 60_000);
+      blocks.push({
+        role: action.role,
+        description: action.description,
+        start: start.toISOString(),
+        end: end.toISOString(),
+      });
+    }
+  }
+  return blocks;
+}
+
 export default function WeeklySessionPage() {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>("checking");
@@ -126,12 +200,6 @@ export default function WeeklySessionPage() {
   // the whole conversation.
   const [sessionActions, setSessionActions] = useState<ClassifiedAction[]>([]);
   const [proposed, setProposed] = useState<ProposedAction[] | null>(null);
-
-  // Bug-fix recovery action (see /api/weekly-session/retry-calendar): lets
-  // a user whose confirmed items got saved to the plan without a real
-  // Google Calendar time (the all-day-event bug) retry the write from the
-  // app itself.
-  const [retryingCalendar, setRetryingCalendar] = useState(false);
 
   // Day 16: true once this week's plan has been confirmed at least once --
   // flips the chat from "the one and only weekly session" into "still open
@@ -617,38 +685,6 @@ export default function WeeklySessionPage() {
     }
   }
 
-  // Bug-fix recovery action: see /api/weekly-session/retry-calendar's file
-  // header for the underlying bug(s). Surfaced as buttons in
-  // WeeklyPlanPanel once the week is confirmed, so a user whose items got
-  // saved without a real calendar time -- or with a real-but-wrong one,
-  // from this same recovery flow's own earlier, buggier version -- doesn't
-  // need a one-off fix. Reports the outcome as a chat bubble, same pattern
-  // as confirm()'s own confirmation line. `redo` deletes and rewrites
-  // every event this week, not just missing ones -- WeeklyPlanPanel
-  // confirms with the user before ever passing `redo: true` here.
-  async function retryCalendar(redo = false) {
-    setRetryingCalendar(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/weekly-session/retry-calendar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ timeZone: browserTimeZone(), redo }),
-      });
-      const body = await res.json();
-      if (!res.ok) {
-        setError(body.error ?? "Couldn't retry the calendar write.");
-        return;
-      }
-      setTurns((t) => [...t, { from: "engine", text: body.message as string }]);
-      if (body.placed > 0) void loadCalendarEvents(weekStart);
-    } catch {
-      setError("Lost the connection retrying the calendar write — try again.");
-    } finally {
-      setRetryingCalendar(false);
-    }
-  }
-
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || sending) return;
@@ -787,9 +823,15 @@ export default function WeeklySessionPage() {
     // growing the whole page -- `main` upstream (see (app)/layout.tsx) is
     // already clamped to the viewport, but a flex child's default
     // `min-height: auto` still lets it expand past that unless overridden.
+    // Spec #2 (2026-08-24) layout: fixed-left chat column, flex-right
+    // plan/calendar. Both children used to cap at md:max-w-xl / md:max-w-2xl,
+    // which left dead space on the right of wide screens. Now the chat sits
+    // at 420px wide and the plan/calendar takes every remaining pixel --
+    // matches how Notion/Linear/Cal.com handle a chat+workspace split, and
+    // gives the calendar grid actual room to breathe.
     <div className="flex min-h-0 flex-1 flex-col bg-zinc-50 font-sans dark:bg-black md:flex-row">
       {/* LEFT: conversation. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:max-w-xl md:border-r md:border-zinc-200 md:dark:border-zinc-800">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:w-[420px] md:shrink-0 md:flex-none md:border-r md:border-zinc-200 md:dark:border-zinc-800">
         <div className="flex items-start justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <div>
             <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
@@ -820,34 +862,10 @@ export default function WeeklySessionPage() {
                 for, just ask.
               </p>
             )}
-            {/* Feature: see your real calendar while still chatting, not
-                just after /propose runs -- toggles the right panel between
-                the plan-so-far audit trail and the live calendar grid
-                (already loaded on mount; see loadCalendarEvents). */}
-            {stage === "chatting" && (
-              <div className="mt-2 inline-flex rounded-full border border-zinc-300 p-0.5 text-xs dark:border-zinc-700">
-                <button
-                  onClick={() => setChatPanelView("plan")}
-                  className={`rounded-full px-3 py-1 ${
-                    chatPanelView === "plan"
-                      ? "bg-black text-white dark:bg-white dark:text-black"
-                      : "text-zinc-600 dark:text-zinc-400"
-                  }`}
-                >
-                  Plan
-                </button>
-                <button
-                  onClick={() => setChatPanelView("calendar")}
-                  className={`rounded-full px-3 py-1 ${
-                    chatPanelView === "calendar"
-                      ? "bg-black text-white dark:bg-white dark:text-black"
-                      : "text-zinc-600 dark:text-zinc-400"
-                  }`}
-                >
-                  Calendar
-                </button>
-              </div>
-            )}
+            {/* Spec #2 (2026-08-24): the Plan/Calendar toggle used to live
+                here in the left header, but it belongs above the right
+                panel it controls -- moved down (search "PLAN / CALENDAR
+                TOGGLE" below). */}
           </div>
           <div className="flex items-center gap-2">
             <Link
@@ -975,23 +993,66 @@ export default function WeeklySessionPage() {
 
       {/* RIGHT: live audit-trail panel (during chatting) or WeekCalendarGrid
           (once /propose runs). Full-width on mobile only when toggled open;
-          always visible on md+. */}
+          always visible on md+. Spec #2 (2026-08-24): the max-width cap is
+          gone -- this column now takes every pixel not claimed by the
+          fixed-width chat column on the left. */}
       <div
         className={`${
           mobilePanelOpen ? "flex" : "hidden"
-        } min-h-0 flex-1 flex-col overflow-hidden bg-zinc-50 md:flex md:max-w-2xl md:bg-white md:dark:bg-zinc-950`}
+        } min-h-0 flex-1 flex-col overflow-hidden bg-zinc-50 md:flex md:bg-white md:dark:bg-zinc-950`}
       >
+        {/* PLAN / CALENDAR TOGGLE (spec #2 relocation): lives at the top of
+            the right panel so it sits directly above what it controls,
+            instead of buried below the chat header on the left. Chatting-
+            stage only; during proposing/confirming/writing the panel is
+            always the calendar with the proposal overlay -- no toggle
+            needed. */}
+        {stage === "chatting" && (
+          <div className="flex items-center justify-end border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-white">
+            <div className="inline-flex rounded-full border border-zinc-300 p-0.5 text-xs dark:border-zinc-300">
+              <button
+                onClick={() => setChatPanelView("plan")}
+                className={`rounded-full px-3 py-1 transition ${
+                  chatPanelView === "plan"
+                    ? "bg-zinc-900 text-white dark:bg-zinc-900 dark:text-white"
+                    : "text-zinc-600 dark:text-zinc-600"
+                }`}
+              >
+                Plan
+              </button>
+              <button
+                onClick={() => setChatPanelView("calendar")}
+                className={`rounded-full px-3 py-1 transition ${
+                  chatPanelView === "calendar"
+                    ? "bg-zinc-900 text-white dark:bg-zinc-900 dark:text-white"
+                    : "text-zinc-600 dark:text-zinc-600"
+                }`}
+              >
+                Calendar
+              </button>
+            </div>
+          </div>
+        )}
         {showLiveCalendarPanel ? (
-          // Chatting-stage calendar toggle: nothing's been proposed yet,
-          // so this is just the real calendar -- see loadCalendarEvents,
-          // already fetched on mount so this is instant, not a fresh
-          // round-trip on every toggle click.
-          <WeekCalendarGrid
-            events={calendarEvents}
-            proposed={[]}
-            weekStart={weekStart ?? new Date()}
-            weekLabel={weekLabel}
-          />
+          // Chatting-stage calendar toggle. Real events were fetched on
+          // mount (see loadCalendarEvents) so this is instant. The `draft`
+          // array is computed from `actionsSoFar` -- items the engine has
+          // already classified with a weekday + preferredTime show up as
+          // dashed sky-tinted blocks live, so the user watches the week
+          // fill in as they talk. Exact times come from /propose at
+          // session end and replace the drafts.
+          <div className="min-h-0 flex-1">
+            <WeekCalendarGrid
+              events={calendarEvents}
+              proposed={[]}
+              draft={buildDraftBlocks(
+                mergePlan(committedActions, actionsSoFar),
+                weekStart,
+              )}
+              weekStart={weekStart ?? new Date()}
+              weekLabel={weekLabel}
+            />
+          </div>
         ) : showProposedCalendarPanel ? (
           // `min-h-0` on the grid wrapper + `overflow-y-auto` on the list
           // below it split this column into two independently-scrollable
@@ -1064,9 +1125,6 @@ export default function WeeklySessionPage() {
             roles={withPersonalRole(roles)}
             actionsSoFar={mergePlan(committedActions, actionsSoFar)}
             weekConfirmed={weekConfirmed}
-            onRetryCalendar={() => retryCalendar(false)}
-            onRedoCalendar={() => retryCalendar(true)}
-            retryingCalendar={retryingCalendar}
           />
         )}
       </div>
