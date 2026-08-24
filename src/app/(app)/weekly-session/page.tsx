@@ -12,7 +12,7 @@ import WeekCalendarGrid, {
   type CalendarEvent,
   type ProposedBlock as CalendarProposedBlock,
 } from "@/components/WeekCalendarGrid";
-import { ChatBubble, TypingDots } from "@/components/weekly-session/ChatBits";
+import { ChatBubble, TypingDots, turnMeta } from "@/components/weekly-session/ChatBits";
 import { RolesSetupScreen } from "@/components/weekly-session/RolesSetupScreen";
 import { parseDateOnly } from "@/lib/weeklySession/week";
 
@@ -795,20 +795,20 @@ export default function WeeklySessionPage() {
             <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
               Sundae
             </span>
+            {/* Spec #1 (2026-08-24): header stays constant across chatting /
+                proposing / confirming / writing. The old "Confirm this week's
+                plan" swap plus the "Nothing's on your calendar yet — review it,
+                or tell Sundae what to change below" sub-line broke the
+                planning-partner feel by turning the header into a form label
+                mid-conversation. Sundae now asks the "want to change anything,
+                or should I lock this in?" question inline as a chat bubble at
+                the moment /propose returns (see PromptToLockIn below). */}
             <h1 className="mt-1 text-2xl font-semibold text-black dark:text-zinc-50">
-              {stage === "confirming" || stage === "writing"
-                ? "Confirm this week's plan"
-                : "Weekly planning session"}
+              Weekly planning session
             </h1>
             {weekLabel && (
               <p className="mt-1 text-sm font-medium text-emerald-700 dark:text-emerald-400">
                 {weekLabel}
-              </p>
-            )}
-            {(stage === "confirming" || stage === "writing") && (
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Nothing&apos;s on your calendar yet — review it, or tell Sundae
-                what to change below, before it writes anything.
               </p>
             )}
             {/* Day 16: this week's plan is live but the chat stays open --
@@ -871,49 +871,70 @@ export default function WeeklySessionPage() {
 
         {/* Mobile: when the panel is open, hide the chat behind it. */}
         <div className={`flex min-h-0 flex-1 flex-col ${mobilePanelOpen ? "hidden md:flex" : "flex"}`}>
-          <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-6 py-4">
+          <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-6 py-4">
             {error && <p className="text-sm text-red-600">{error}</p>}
 
-            {turns.map((turn, i) => (
-              <ChatBubble key={i} turn={turn} />
-            ))}
-            {(sending || stage === "proposing") && <TypingDots />}
+            {(() => {
+              // Spec #1: build a single visual transcript that flows from the
+              // planning conversation into the confirm-stage revision
+              // conversation without a form-style divider. The synthetic
+              // "want to change anything, or should I lock this in?" bubble
+              // is inserted at the boundary so the stage transition reads as
+              // Sundae's next turn, not a UI switch. All three sources feed
+              // through the same turnMeta() so grouping / avatar suppression
+              // stay coherent across the boundary.
+              const showLockPrompt =
+                (stage === "confirming" || stage === "writing") && !!proposed;
+              const combined: Turn[] = [
+                ...turns,
+                ...(showLockPrompt
+                  ? [
+                      {
+                        from: "engine" as const,
+                        text: describeConflicts().length > 0
+                          ? "Take a look — I've flagged a few blocks that overlap what's already on your calendar. Want to change anything, or should I lock it in?"
+                          : "Take a look — want to change anything, or should I lock it in?",
+                      },
+                    ]
+                  : []),
+                ...(stage === "confirming" || stage === "writing" ? reviseTurns : []),
+              ];
+              const meta = turnMeta(combined);
+              return combined.map((turn, i) => (
+                <ChatBubble
+                  key={i}
+                  turn={turn}
+                  showAvatar={meta[i].showAvatar}
+                  showName={meta[i].showName}
+                />
+              ));
+            })()}
+            {(sending || revising || stage === "proposing") && <TypingDots />}
             <div ref={chatEndRef} />
-
-            {/* Confirm-screen revision transcript sits inline below the main
-                chat, same conversational spirit -- the divider makes clear
-                these turns are about the plan, not the session itself. */}
-            {(stage === "confirming" || stage === "writing") && (
-              <>
-                <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                    Want to change anything?
-                  </p>
-                </div>
-                {reviseTurns.map((turn, i) => (
-                  <ChatBubble key={i} turn={turn} />
-                ))}
-                {revising && <TypingDots />}
-              </>
-            )}
           </div>
 
           <div className="border-t border-zinc-200 px-6 py-4 dark:border-zinc-800">
             {stage === "confirming" || stage === "writing" ? (
+              // Confirm stage compose: same chat input the rest of the
+              // session uses (revisions are just chat turns), plus a
+              // primary "Lock it in" pill positioned as a natural next
+              // action, not a form submit. No divider, no separate
+              // "Confirm & write to calendar" language -- Sundae asked the
+              // question inline above; this is the reply.
               <div className="flex flex-col gap-3">
                 <form onSubmit={handleReviseSubmit} className="flex gap-3">
                   <input
                     ref={reviseInputRef}
                     value={reviseInput}
                     onChange={(e) => setReviseInput(e.target.value)}
-                    placeholder="e.g. move the temple shift to Saturday"
+                    placeholder="Tell Sundae what to change…"
                     disabled={revising || stage === "writing"}
-                    className="flex-1 rounded-full border border-zinc-300 px-4 py-2 text-sm text-black disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    className="flex-1 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm text-black disabled:opacity-50 dark:border-zinc-300 dark:bg-white dark:text-black"
                   />
                   <button
                     type="submit"
                     disabled={revising || stage === "writing" || !reviseInput.trim()}
-                    className="rounded-full border border-zinc-300 px-4 py-2 text-sm text-black disabled:opacity-50 dark:border-zinc-700 dark:text-white"
+                    className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-300 dark:text-zinc-700"
                   >
                     Send
                   </button>
@@ -921,9 +942,9 @@ export default function WeeklySessionPage() {
                 <button
                   onClick={confirm}
                   disabled={stage === "writing" || revising}
-                  className="self-start rounded-full bg-black px-4 py-2 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-black"
+                  className="self-start rounded-full bg-emerald-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:text-white"
                 >
-                  {stage === "writing" ? "Writing to calendar…" : "Confirm & write to calendar"}
+                  {stage === "writing" ? "Locking it in…" : "Lock it in"}
                 </button>
               </div>
             ) : (
@@ -934,15 +955,15 @@ export default function WeeklySessionPage() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder={
-                    weekConfirmed ? "What else is on your mind this week?" : "Type your answer…"
+                    weekConfirmed ? "What else is on your mind this week?" : "Talk to Sundae…"
                   }
                   disabled={sending || stage !== "chatting"}
-                  className="flex-1 rounded-full border border-zinc-300 px-4 py-2 text-sm text-black disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  className="flex-1 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm text-black disabled:opacity-50 dark:border-zinc-300 dark:bg-white dark:text-black"
                 />
                 <button
                   type="submit"
-                  disabled={sending || stage !== "chatting"}
-                  className="rounded-full bg-black px-4 py-2 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-black"
+                  disabled={sending || stage !== "chatting" || !input.trim()}
+                  className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:text-white"
                 >
                   Send
                 </button>

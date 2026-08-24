@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type FormEvent, type RefObject } from "react";
-import { ChatBubble, TypingDots } from "@/components/weekly-session/ChatBits";
+import { ChatBubble, TypingDots, turnMeta } from "@/components/weekly-session/ChatBits";
 
 type Turn = { from: "engine" | "user"; text: string };
 
@@ -41,10 +41,18 @@ export function RolesSetupScreen({
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-          {turns.map((turn, i) => (
-            <ChatBubble key={i} turn={turn} />
-          ))}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+          {(() => {
+            const meta = turnMeta(turns);
+            return turns.map((turn, i) => (
+              <ChatBubble
+                key={i}
+                turn={turn}
+                showAvatar={meta[i].showAvatar}
+                showName={meta[i].showName}
+              />
+            ));
+          })()}
           {sending && <TypingDots />}
           <div ref={endRef} />
         </div>
@@ -55,14 +63,14 @@ export function RolesSetupScreen({
             autoFocus
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
-            placeholder="Type your answer…"
+            placeholder="Talk to Sundae…"
             disabled={sending}
-            className="flex-1 rounded-full border border-zinc-300 px-4 py-2 text-sm text-black disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            className="flex-1 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm text-black disabled:opacity-50 dark:border-zinc-300 dark:bg-white dark:text-black"
           />
           <button
             type="submit"
-            disabled={sending}
-            className="rounded-full bg-black px-4 py-2 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-black"
+            disabled={sending || !input.trim()}
+            className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:text-white"
           >
             Send
           </button>
