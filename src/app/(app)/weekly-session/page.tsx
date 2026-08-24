@@ -262,6 +262,93 @@ export default function WeeklySessionPage() {
   const didInit = useRef(false);
   const confirmInFlight = useRef(false);
 
+  // Draggable chat/calendar divider (desktop only). The old fixed 420px chat
+  // column matched what Notion/Linear do, but Tyler asked for a hover-and-
+  // drag adjust so the split follows whatever he's doing on the day -- more
+  // chat when the session is heavy, more calendar when he's scanning the
+  // week. Bounds are wide enough to be useful (chat still fits a paragraph
+  // at 320px; calendar still fits a full-week grid at the max), stored in
+  // localStorage so his preferred split survives navigations.
+  const SPLIT_MIN_PX = 320;
+  const SPLIT_MAX_PX = 720;
+  const SPLIT_DEFAULT_PX = 420;
+  const SPLIT_STORAGE_KEY = "sundae:weekly-session:splitLeftPx";
+  const [splitLeftPx, setSplitLeftPx] = useState<number>(SPLIT_DEFAULT_PX);
+  const [isDesktopSplit, setIsDesktopSplit] = useState(false);
+  const dragStateRef = useRef<{ startX: number; startWidth: number; latest: number } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Load persisted split width once on mount, then subscribe to the md
+    // breakpoint. Both setState calls run inside media/storage callbacks
+    // rather than in the effect body -- the lint rule flags synchronous
+    // setState during effect setup (it causes an extra render pass), so we
+    // schedule the storage read on a microtask.
+    const applyStoredSplit = () => {
+      try {
+        const stored = window.localStorage.getItem(SPLIT_STORAGE_KEY);
+        if (stored === null) return;
+        const n = Number(stored);
+        if (Number.isFinite(n) && n >= SPLIT_MIN_PX && n <= SPLIT_MAX_PX) {
+          setSplitLeftPx(n);
+        }
+      } catch {
+        // Safari private mode throws on localStorage access -- default
+        // width is a fine fallback.
+      }
+    };
+    queueMicrotask(applyStoredSplit);
+
+    const mq = window.matchMedia("(min-width: 768px)");
+    const sync = () => setIsDesktopSplit(mq.matches);
+    queueMicrotask(sync);
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  function onDividerPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!isDesktopSplit) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
+    dragStateRef.current = {
+      startX: e.clientX,
+      startWidth: splitLeftPx,
+      latest: splitLeftPx,
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const onMove = (ev: PointerEvent) => {
+      const s = dragStateRef.current;
+      if (!s) return;
+      const next = Math.max(
+        SPLIT_MIN_PX,
+        Math.min(SPLIT_MAX_PX, s.startWidth + (ev.clientX - s.startX)),
+      );
+      s.latest = next;
+      setSplitLeftPx(next);
+    };
+    const onUp = () => {
+      const s = dragStateRef.current;
+      dragStateRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (s) {
+        try {
+          window.localStorage.setItem(SPLIT_STORAGE_KEY, String(s.latest));
+        } catch {
+          // localStorage is best-effort persistence -- the state stays in
+          // memory even if we can't write.
+        }
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
+
   useEffect(() => {
     if (didInit.current) return;
     didInit.current = true;
@@ -831,7 +918,14 @@ export default function WeeklySessionPage() {
     // gives the calendar grid actual room to breathe.
     <div className="flex min-h-0 flex-1 flex-col bg-zinc-50 font-sans dark:bg-black md:flex-row">
       {/* LEFT: conversation. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:w-[420px] md:shrink-0 md:flex-none md:border-r md:border-zinc-200 md:dark:border-zinc-800">
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-hidden md:shrink-0 md:flex-none"
+        style={
+          isDesktopSplit
+            ? { width: `${splitLeftPx}px`, flexBasis: `${splitLeftPx}px` }
+            : undefined
+        }
+      >
         <div className="flex items-start justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <div>
             <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
@@ -990,6 +1084,22 @@ export default function WeeklySessionPage() {
           </div>
         </div>
       </div>
+
+      {/* DRAGGABLE DIVIDER (desktop only): 6px hit area with a 1px visual
+          rule, expands to a wider hover state so the drag affordance is
+          discoverable without adding permanent chrome. Pointer events (not
+          mouse) so trackpad+touchscreen users get the same behavior; the
+          handler no-ops on mobile where the split doesn't apply. */}
+      <div
+        onPointerDown={onDividerPointerDown}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize chat and calendar"
+        aria-valuenow={splitLeftPx}
+        aria-valuemin={SPLIT_MIN_PX}
+        aria-valuemax={SPLIT_MAX_PX}
+        className="hidden md:flex md:w-1.5 md:cursor-col-resize md:items-stretch md:justify-center md:bg-zinc-200 md:transition-colors md:hover:bg-emerald-400 md:active:bg-emerald-500 md:dark:bg-zinc-800 md:dark:hover:bg-emerald-500"
+      />
 
       {/* RIGHT: live audit-trail panel (during chatting) or WeekCalendarGrid
           (once /propose runs). Full-width on mobile only when toggled open;

@@ -20,6 +20,7 @@
 
 const HOURS_START = 6;
 const HOURS_END = 22;
+const HOUR_ROW_PX = 40;
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export type CalendarEvent = {
@@ -46,8 +47,14 @@ type PositionedItem = {
   label: string;
   role?: string;
   dayIndex: number; // 0=Sun..6=Sat
-  topPercent: number;
-  heightPercent: number;
+  // Pixel offsets against the day-column overlay. Fixed-pixel positioning
+  // (rather than % of the overlay's height) so the overlay's own height
+  // never has to be a known quantity for children to land in the right
+  // place -- a shorter-than-expected right-panel container used to collapse
+  // events into a narrow band at the top when the % basis went indefinite
+  // in some layouts.
+  topPx: number;
+  heightPx: number;
   kind: "real" | "proposed" | "draft";
   conflictsWith?: string;
 };
@@ -126,7 +133,6 @@ function positionOnGrid({
   const endMinutes = end.getHours() * 60 + end.getMinutes();
   const windowStart = HOURS_START * 60;
   const windowEnd = HOURS_END * 60;
-  const totalMinutes = windowEnd - windowStart;
 
   // Clip to the visible window rather than dropping; a 7am-9am event should
   // still render, just clipped to the top of the grid.
@@ -134,13 +140,19 @@ function positionOnGrid({
   const visibleEnd = Math.min(endMinutes, windowEnd);
   if (visibleEnd <= visibleStart) return null;
 
+  // Convert to pixels against the fixed HOUR_ROW_PX row height -- 1 hour
+  // = HOUR_ROW_PX px, so `(minutes / 60) * HOUR_ROW_PX` lands exactly on
+  // the row the label column shows.
+  const topPx = ((visibleStart - windowStart) / 60) * HOUR_ROW_PX;
+  const heightPx = ((visibleEnd - visibleStart) / 60) * HOUR_ROW_PX;
+
   return {
     key,
     label,
     role,
     dayIndex,
-    topPercent: ((visibleStart - windowStart) / totalMinutes) * 100,
-    heightPercent: ((visibleEnd - visibleStart) / totalMinutes) * 100,
+    topPx,
+    heightPx,
     kind,
   };
 }
@@ -215,7 +227,19 @@ export default function WeekCalendarGrid({
       </div>
 
       <div className="flex-1 overflow-auto">
-        <div className="grid min-w-[560px] grid-cols-[56px_repeat(7,1fr)] text-[11px]">
+        {/* Explicit grid-template-rows: header row auto-sizes to its
+            content; every hour row is exactly HOUR_ROW_PX. Fixed pixel
+            rows are what the overlays measure against below -- percent-
+            based positioning depended on the grid item's own height being
+            "definite" for percent children, and in some flex-shrunk parent
+            layouts that basis went indefinite and collapsed every event
+            into a narrow band at the top. */}
+        <div
+          className="grid min-w-[560px] grid-cols-[56px_repeat(7,1fr)] text-[11px]"
+          style={{
+            gridTemplateRows: `auto repeat(${hours.length}, ${HOUR_ROW_PX}px)`,
+          }}
+        >
           {/* Day header row */}
           <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950" />
           {dayHeaders.map((h, i) => (
@@ -240,22 +264,28 @@ export default function WeekCalendarGrid({
                   "6a"/"12p". Column widened to 56px so "12 PM" doesn't
                   clip; font bumped a step so labels are legible without
                   zooming in. Noon = "12 PM"; midnight never appears in
-                  this window (HOURS_START = 6, HOURS_END = 22). */}
-              <div className="border-t border-zinc-100 pr-2 text-right text-[10px] font-medium tabular-nums text-zinc-500 dark:border-zinc-900 dark:text-zinc-500">
+                  this window (HOURS_START = 6, HOURS_END = 22).
+                  `flex items-start justify-end` pins the label to the top-
+                  right of its row so it aligns with the row's own border-t
+                  -- an event at 9 AM lines up visually with the "9 AM"
+                  label. */}
+              <div className="flex items-start justify-end border-t border-zinc-100 pr-2 pt-0.5 text-[10px] font-medium tabular-nums text-zinc-500 dark:border-zinc-900 dark:text-zinc-500">
                 {h === 12 ? 12 : h % 12} {h < 12 ? "AM" : "PM"}
               </div>
               {DAY_LABELS.map((_, dayIdx) => (
                 <div
                   key={`c-${h}-${dayIdx}`}
-                  className="h-8 border-t border-l border-zinc-100 dark:border-zinc-900"
+                  className="border-t border-l border-zinc-100 dark:border-zinc-900"
                 />
               ))}
             </div>
           ))}
 
           {/* Layered items: one wrapper per day column, positioned absolute
-              inside it. The wrapper spans the full grid rows so the top/
-              height percentages resolve against the whole day window. */}
+              inside it. The wrapper spans all hour rows; children position
+              themselves by fixed pixel offsets (HOUR_ROW_PX * fraction-of-
+              hour), which is why the explicit gridTemplateRows above uses
+              fixed pixel row heights. */}
           {DAY_LABELS.map((_, dayIdx) => {
             const dayReal = realItems.filter((i) => i.dayIndex === dayIdx);
             const dayDraft = draftItems.filter((i) => i.dayIndex === dayIdx);
@@ -267,13 +297,14 @@ export default function WeekCalendarGrid({
                 style={{
                   gridColumn: dayIdx + 2,
                   gridRow: `2 / span ${hours.length}`,
+                  height: `${HOUR_ROW_PX * hours.length}px`,
                 }}
               >
                 {dayReal.map((item) => (
                   <div
                     key={item.key}
                     className="pointer-events-auto absolute inset-x-0.5 overflow-hidden rounded-sm border border-zinc-400 bg-zinc-300 px-1 text-[9px] leading-tight text-zinc-800 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
-                    style={{ top: `${item.topPercent}%`, height: `${item.heightPercent}%` }}
+                    style={{ top: `${item.topPx}px`, height: `${item.heightPx}px` }}
                     title={`Already on calendar: ${item.label}`}
                   >
                     <span className="line-clamp-2">
@@ -293,7 +324,7 @@ export default function WeekCalendarGrid({
                   <div
                     key={item.key}
                     className="pointer-events-auto absolute inset-x-0.5 z-[1] overflow-hidden rounded-sm border-2 border-dashed border-sky-500 bg-sky-100 px-1 text-[9px] leading-tight text-sky-900 dark:border-sky-400 dark:bg-sky-200 dark:text-sky-900"
-                    style={{ top: `${item.topPercent}%`, height: `${item.heightPercent}%` }}
+                    style={{ top: `${item.topPx}px`, height: `${item.heightPx}px` }}
                     title={`Draft (not yet slotted): ${item.role ? `${item.role} · ` : ""}${item.label}`}
                   >
                     <span className="line-clamp-2 font-semibold">
@@ -318,7 +349,7 @@ export default function WeekCalendarGrid({
                         ? "border-amber-600 bg-amber-300 text-amber-950 dark:border-amber-400 dark:bg-amber-600 dark:text-amber-50"
                         : "border-emerald-600 bg-emerald-400 text-emerald-950 dark:border-emerald-300 dark:bg-emerald-600 dark:text-emerald-50",
                     ].join(" ")}
-                    style={{ top: `${item.topPercent}%`, height: `${item.heightPercent}%` }}
+                    style={{ top: `${item.topPx}px`, height: `${item.heightPx}px` }}
                     title={
                       item.conflictsWith
                         ? `Overlaps: ${item.conflictsWith} — ${item.role ? `${item.role} · ` : ""}${item.label}`
