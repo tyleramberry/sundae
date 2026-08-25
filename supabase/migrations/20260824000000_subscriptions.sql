@@ -1,9 +1,10 @@
 -- Stripe subscription state per Sundae user. One row per user: Checkout
 -- upserts on user_id, webhooks upsert on user_id / stripe_subscription_id.
 -- Authenticated clients may SELECT their own row (layout gate, dashboard,
--- checkout-success polling). They may INSERT `incomplete` and UPDATE to
--- `incomplete` (start Checkout) or `incomplete_expired` (cancel / failed
--- session create). The webhook (service_role) writes trialing/active/canceled.
+-- checkout-success polling). They may INSERT `incomplete` and UPDATE only
+-- rows that are already `incomplete` or `incomplete_expired` (start
+-- Checkout, cancel, or failed session create). They cannot touch
+-- trialing/active/canceled — those writes are service_role/webhook only.
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -35,8 +36,9 @@ create policy "Users can view their own subscription"
 -- Tables created outside Supabase's default-privilege setup don't inherit
 -- grants for the API roles (same gap hit by google_tokens on Day 5 and
 -- weekly_items on Day 10). Authenticated write grants exist only so
--- Checkout can persist a pending incomplete row; RLS still forbids
--- setting trialing/active from the user session.
+-- Checkout can persist a pending incomplete row; authenticated UPDATE
+-- USING/CHECK is limited to incomplete/incomplete_expired so users cannot
+-- mutate trialing/active/canceled (webhook/service_role only).
 grant select, insert, update on public.subscriptions to authenticated;
 grant all on public.subscriptions to service_role;
 
@@ -46,7 +48,7 @@ create policy "Users can insert their own incomplete checkout row"
 
 create policy "Users can update their pending checkout row"
   on public.subscriptions for update
-  using (auth.uid() = user_id)
+  using (auth.uid() = user_id and status in ('incomplete', 'incomplete_expired'))
   with check (
     auth.uid() = user_id
     and status in ('incomplete', 'incomplete_expired')
