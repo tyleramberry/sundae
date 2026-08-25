@@ -70,9 +70,16 @@ export default function GoogleSignInButton({
   }
 
   // When redirected from the landing page with ?auto=google, start OAuth
-  // immediately so the user doesn't have to click twice.
+  // immediately so the user doesn't have to click twice. The call is
+  // deferred to a microtask so the setLoading it triggers doesn't run
+  // synchronously within the effect body itself (react-hooks/set-state-in-effect;
+  // see https://react.dev/learn/you-might-not-need-an-effect) — this doesn't
+  // change when sign-in kicks off in practice, just moves it a tick later.
   useEffect(() => {
-    if (autoStart) signInWithGoogle();
+    if (!autoStart) return;
+    queueMicrotask(() => {
+      signInWithGoogle();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
