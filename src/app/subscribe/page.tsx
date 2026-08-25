@@ -47,7 +47,10 @@ export default async function SubscribePage({
   }
 
   if (isSubscriptionEntitled(sub as SubscriptionRow | null)) {
-    redirect("/dashboard");
+    // Keep checkout=success on the dashboard so Meta StartTrial can fire
+    // when the webhook already entitled the user before this page rendered
+    // (the confirming UI never mounts in that case).
+    redirect(checkoutSuccess ? "/dashboard?checkout=success" : "/dashboard");
   }
 
   const pendingCheckout = checkoutSuccess && sub?.status === "incomplete";
