@@ -3,10 +3,33 @@ import { describe, it } from "node:test";
 import {
   getSubscriptionStatus,
   getTrialStatus,
+  isBillingConfigured,
+  isBillingEnforced,
   isSubscriptionEntitled,
   isTrialEndInDay6Window,
   trialReminderWindowBounds,
 } from "./trial";
+
+describe("isBillingConfigured / isBillingEnforced", () => {
+  it("requires both Stripe env vars before gating signup", () => {
+    assert.equal(isBillingConfigured({}), false);
+    assert.equal(isBillingConfigured({ STRIPE_SECRET_KEY: "sk_test_x" }), false);
+    assert.equal(isBillingConfigured({ STRIPE_PRICE_ID: "price_x" }), false);
+    assert.equal(
+      isBillingConfigured({ STRIPE_SECRET_KEY: "sk_test_x", STRIPE_PRICE_ID: "price_x" }),
+      true,
+    );
+  });
+
+  it("does not enforce billing when Checkout cannot run", () => {
+    assert.equal(isBillingEnforced({}), false);
+    assert.equal(isBillingEnforced({ STRIPE_SECRET_KEY: "sk_test_x" }), false);
+    assert.equal(
+      isBillingEnforced({ STRIPE_SECRET_KEY: "sk_test_x", STRIPE_PRICE_ID: "price_x" }),
+      true,
+    );
+  });
+});
 
 describe("getTrialStatus (created_at fallback)", () => {
   it("treats a missing created_at as day 1 of an active trial", () => {

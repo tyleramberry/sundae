@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe/client";
 import { getAppUrl } from "@/lib/appUrl";
+import { isBillingConfigured } from "@/lib/trial";
 
 export async function POST() {
-  if (!process.env.STRIPE_SECRET_KEY) {
+  if (!isBillingConfigured()) {
+    console.error("[stripe/portal] missing STRIPE_SECRET_KEY or STRIPE_PRICE_ID");
     return NextResponse.json(
-      { error: "Billing is not configured (STRIPE_SECRET_KEY)." },
-      { status: 500 },
+      { error: "Billing isn't available right now. Please try again later." },
+      { status: 503 },
     );
   }
 

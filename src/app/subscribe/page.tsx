@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
+import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
 import SubscribeCheckout from "./SubscribeCheckout";
 
 // Lives outside the (app) route group on purpose: the signed-in shell
@@ -19,6 +19,12 @@ export default async function SubscribePage({
 
   if (!user) {
     redirect("/login?next=/subscribe");
+  }
+
+  // Onboarding always hands off here. If Stripe isn't configured, don't
+  // trap a new signup on a checkout button that can only 500.
+  if (!isBillingEnforced()) {
+    redirect("/dashboard");
   }
 
   const params = await searchParams;

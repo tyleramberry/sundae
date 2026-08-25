@@ -8,14 +8,15 @@ import {
   pickStripeCustomerForUser,
   shouldBlockNewCheckout,
 } from "@/lib/stripe/checkout";
+import { isBillingConfigured } from "@/lib/trial";
 
 export async function POST() {
-  const secret = process.env.STRIPE_SECRET_KEY;
   const priceId = process.env.STRIPE_PRICE_ID;
-  if (!secret || !priceId) {
+  if (!isBillingConfigured() || !priceId) {
+    console.error("[stripe/checkout] missing STRIPE_SECRET_KEY or STRIPE_PRICE_ID");
     return NextResponse.json(
-      { error: "Billing is not configured (STRIPE_SECRET_KEY / STRIPE_PRICE_ID)." },
-      { status: 500 },
+      { error: "Billing isn't available right now. Please try again later." },
+      { status: 503 },
     );
   }
 

@@ -32,12 +32,21 @@ const LIVE_STATUSES = new Set(["trialing", "active"]);
 const GRACE_STATUSES = new Set(["canceled", "past_due"]);
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-export function isBillingEnforced(): boolean {
-  // Local/dev without Stripe keys stays ungated so the rest of the app is
-  // usable. Production always enforces, even if keys were forgotten — better
-  // a subscribe wall than free access.
-  if (process.env.NODE_ENV === "production") return true;
-  return Boolean(process.env.STRIPE_SECRET_KEY);
+export type BillingEnv = {
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_PRICE_ID?: string;
+};
+
+export function isBillingConfigured(env: BillingEnv = process.env): boolean {
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_ID);
+}
+
+export function isBillingEnforced(env: BillingEnv = process.env): boolean {
+  // Checkout needs both STRIPE_SECRET_KEY and STRIPE_PRICE_ID. Gating
+  // without them (including production with forgotten keys) bricks signup
+  // behind a subscribe page that always 500s. Only enforce when Checkout
+  // can actually run; the 7-day account-age trial still applies.
+  return isBillingConfigured(env);
 }
 
 function parseDate(value: string | Date | null | undefined): Date | null {
