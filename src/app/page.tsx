@@ -3,6 +3,7 @@ import AgentDemo from "@/components/AgentDemo";
 import RoleMarquee from "@/components/RoleMarquee";
 import WeekAssembly from "@/components/WeekAssembly";
 import Reveal from "@/components/Reveal";
+import { MONTHLY_PRICE } from "@/lib/billing/price";
 
 // Marketing landing page -- the ad destination. Explains the product and
 // hands off straight into Google OAuth (top nav + hero + closing CTA all
@@ -22,10 +23,6 @@ import Reveal from "@/components/Reveal";
 // components, but this page itself stays a server component -- nothing
 // here needs to be a client boundary, so the interactive pieces are
 // islands, not the whole page.
-
-// $12/month after the 7-day card-backed Stripe trial. One constant so the
-// hero microcopy, closing CTA, and FAQ stay in lockstep.
-const MONTHLY_PRICE = "$12";
 
 export default function Home() {
   return (

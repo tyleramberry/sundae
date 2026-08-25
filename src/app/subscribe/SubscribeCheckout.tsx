@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trackMetaStartTrialOnce } from "@/lib/meta/pixel";
+import { MONTHLY_PRICE } from "@/lib/billing/price";
 
 const POLL_MS = 2500;
 const TIMEOUT_MS = 90_000;
@@ -64,8 +65,8 @@ export default function SubscribeCheckout({
         </h1>
         <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
           {resubscribe
-            ? "Your trial or billing period has ended. Resubscribe to keep planning weeks on your calendar — same $12/month, cancel anytime from Settings."
-            : "Card on file, no charge for 7 days. The first charge is $12/month unless you cancel from Settings before then."}
+            ? `Your trial or billing period has ended. Resubscribe to keep planning weeks on your calendar — same ${MONTHLY_PRICE}/month, cancel anytime from Settings.`
+            : `Card on file, no charge for 7 days. The first charge is ${MONTHLY_PRICE}/month unless you cancel from Settings before then.`}
         </p>
         {checkoutCanceled && (
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
