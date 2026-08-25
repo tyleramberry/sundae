@@ -75,3 +75,16 @@ export function shouldBlockNewCheckout(existing: {
 export function stripeSubscriptionIsLive(status: string | null | undefined): boolean {
   return status === "trialing" || status === "active";
 }
+
+export function checkoutSessionLooksFulfilled(session: {
+  status?: string | null;
+  payment_status?: string | null;
+  subscription?: string | { id: string } | null;
+}): boolean {
+  const subId =
+    typeof session.subscription === "string"
+      ? session.subscription
+      : session.subscription?.id;
+  if (!subId) return false;
+  return session.payment_status === "paid" || session.status === "complete";
+}

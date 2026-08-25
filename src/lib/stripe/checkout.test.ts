@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   canPersistPendingCheckoutRow,
   checkoutSessionBelongsToUser,
+  checkoutSessionLooksFulfilled,
   hasOpenStripeSubscription,
   isRecentIncompleteCheckout,
   pickStripeCustomerForUser,
@@ -107,6 +108,23 @@ describe("checkoutSessionBelongsToUser", () => {
     );
     assert.equal(
       checkoutSessionBelongsToUser({ customer: "cus_other", metadata: {} }, "u1", "cus_x"),
+      false,
+    );
+  });
+});
+
+describe("checkoutSessionLooksFulfilled", () => {
+  it("requires a subscription id plus paid or complete", () => {
+    assert.equal(
+      checkoutSessionLooksFulfilled({ status: "complete", payment_status: "paid", subscription: "sub_1" }),
+      true,
+    );
+    assert.equal(
+      checkoutSessionLooksFulfilled({ status: "open", payment_status: "unpaid", subscription: "sub_1" }),
+      false,
+    );
+    assert.equal(
+      checkoutSessionLooksFulfilled({ status: "complete", payment_status: "paid", subscription: null }),
       false,
     );
   });

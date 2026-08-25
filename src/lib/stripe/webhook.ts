@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SubscriptionRow } from "@/lib/trial";
 
 // Minimal subscription shape covering both classic (period end on the
@@ -114,4 +115,64 @@ export function constructVerifiedStripeEvent(
       err instanceof Error ? err.message : "Invalid Stripe webhook signature.",
     );
   }
+}
+
+export async function upsertSubscriptionRow(
+  admin: SupabaseClient,
+  row: MappedSubscriptionFields,
+): Promise<boolean> {
+  const payload = {
+    ...row,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await admin.from("subscriptions").upsert(payload, { onConflict: "user_id" });
+  if (!error) return true;
+
+  if (!row.stripe_subscription_id) throw error;
+
+  const { data: bySub, error: lookupError } = await admin
+    .from("subscriptions")
+    .select("user_id")
+    .eq("stripe_subscription_id", row.stripe_subscription_id)
+    .maybeSingle();
+
+  if (lookupError) throw lookupError;
+
+  const owner = resolveWebhookSubscriptionOwner(
+    row.user_id,
+    bySub ? { user_id: bySub.user_id as string } : null,
+  );
+
+  if (owner === "other_user") {
+    console.error(
+      "[stripe/webhook] refusing to rewrite user_id on an existing subscription row",
+      {
+        stripe_subscription_id: row.stripe_subscription_id,
+        incoming: row.user_id,
+        existing: bySub?.user_id,
+      },
+    );
+    return false;
+  }
+
+  if (owner === "same_user") {
+    const { error: updateError } = await admin
+      .from("subscriptions")
+      .update({
+        stripe_customer_id: payload.stripe_customer_id,
+        stripe_subscription_id: payload.stripe_subscription_id,
+        status: payload.status,
+        trial_end: payload.trial_end,
+        current_period_end: payload.current_period_end,
+        cancel_at_period_end: payload.cancel_at_period_end,
+        updated_at: payload.updated_at,
+      })
+      .eq("stripe_subscription_id", row.stripe_subscription_id)
+      .eq("user_id", row.user_id);
+    if (updateError) throw updateError;
+    return true;
+  }
+
+  throw error;
 }

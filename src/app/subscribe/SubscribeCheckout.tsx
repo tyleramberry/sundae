@@ -122,6 +122,10 @@ function CheckoutConfirming({ sessionId }: { sessionId: string | null }) {
           router.replace("/dashboard");
           return;
         }
+        if (res.ok && body.pending === true) {
+          window.setTimeout(() => void tick(), POLL_MS);
+          return;
+        }
         if (res.ok && body.status !== "incomplete") {
           router.replace("/subscribe");
           return;
