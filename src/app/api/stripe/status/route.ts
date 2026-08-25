@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Couldn't load billing status." }, { status: 500 });
   }
 
-  let row = sub as SubscriptionRow | null;
+  const row = sub as SubscriptionRow | null;
   if (isSubscriptionEntitled(row)) {
     return NextResponse.json({ entitled: true, status: row?.status ?? null, pending: false });
   }
