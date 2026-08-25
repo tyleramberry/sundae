@@ -1,9 +1,9 @@
 -- Stripe subscription state per Sundae user. One row per user: Checkout
 -- upserts on user_id, webhooks upsert on user_id / stripe_subscription_id.
 -- Authenticated clients may SELECT their own row (layout gate, dashboard,
--- checkout-success polling). They may INSERT/UPDATE only with status
--- `incomplete` (pending Checkout). The webhook (service_role) writes
--- trialing/active/canceled.
+-- checkout-success polling). They may INSERT `incomplete` and UPDATE to
+-- `incomplete` (start Checkout) or `incomplete_expired` (cancel / failed
+-- session create). The webhook (service_role) writes trialing/active/canceled.
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -44,7 +44,10 @@ create policy "Users can insert their own incomplete checkout row"
   on public.subscriptions for insert
   with check (auth.uid() = user_id and status = 'incomplete');
 
-create policy "Users can update their row to incomplete for a new checkout"
+create policy "Users can update their pending checkout row"
   on public.subscriptions for update
   using (auth.uid() = user_id)
-  with check (auth.uid() = user_id and status = 'incomplete');
+  with check (
+    auth.uid() = user_id
+    and status in ('incomplete', 'incomplete_expired')
+  );

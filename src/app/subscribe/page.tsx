@@ -22,6 +22,7 @@ export default async function SubscribePage({
   }
 
   const params = await searchParams;
+  const checkoutCanceled = params.checkout === "canceled";
   const checkoutSuccess = params.checkout === "success";
 
   const { data: sub } = await supabase
@@ -32,15 +33,30 @@ export default async function SubscribePage({
     .eq("user_id", user.id)
     .maybeSingle();
 
+  // cancel_url lands here even if the client never clicks — clear the
+  // in-flight incomplete lock so they can start Checkout again immediately.
+  if (checkoutCanceled && sub?.status === "incomplete") {
+    await supabase
+      .from("subscriptions")
+      .update({
+        status: "incomplete_expired",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", user.id)
+      .eq("status", "incomplete");
+  }
+
   if (isSubscriptionEntitled(sub as SubscriptionRow | null)) {
     redirect("/dashboard");
   }
 
+  const pendingCheckout = checkoutSuccess && sub?.status === "incomplete";
+
   return (
     <SubscribeCheckout
       resubscribe={params.reason === "resubscribe"}
-      checkoutCanceled={params.checkout === "canceled"}
-      checkoutSuccess={checkoutSuccess}
+      checkoutCanceled={checkoutCanceled}
+      checkoutSuccess={pendingCheckout}
     />
   );
 }

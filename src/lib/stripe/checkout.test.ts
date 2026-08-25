@@ -43,30 +43,37 @@ describe("hasOpenStripeSubscription", () => {
 });
 
 describe("shouldBlockNewCheckout", () => {
-  it("blocks trialing/active and a recent incomplete row", () => {
+  it("blocks trialing/active", () => {
     assert.equal(shouldBlockNewCheckout({ status: "trialing" }), true);
     assert.equal(shouldBlockNewCheckout({ status: "active" }), true);
+  });
+
+  it("blocks incomplete only for a ~2 minute in-flight lock, not 24h", () => {
     const now = new Date("2026-08-25T12:00:00.000Z");
     assert.equal(
+      isRecentIncompleteCheckout("incomplete", "2026-08-25T11:59:00.000Z", now),
+      true,
+    );
+    assert.equal(
       shouldBlockNewCheckout(
-        { status: "incomplete", updated_at: "2026-08-25T11:00:00.000Z" },
+        { status: "incomplete", updated_at: "2026-08-25T11:59:00.000Z" },
         now,
       ),
       true,
     );
-  });
-
-  it("allows a stale incomplete row and canceled/past_due locally", () => {
-    const now = new Date("2026-08-25T12:00:00.000Z");
+    assert.equal(
+      isRecentIncompleteCheckout("incomplete", "2026-08-25T11:57:59.000Z", now),
+      false,
+    );
     assert.equal(
       shouldBlockNewCheckout(
-        { status: "incomplete", updated_at: "2026-08-23T11:00:00.000Z" },
+        { status: "incomplete", updated_at: "2026-08-24T12:00:00.000Z" },
         now,
       ),
       false,
     );
+    assert.equal(shouldBlockNewCheckout({ status: "incomplete_expired" }, now), false);
     assert.equal(shouldBlockNewCheckout({ status: "canceled" }, now), false);
-    assert.equal(isRecentIncompleteCheckout("incomplete", "2026-08-23T11:00:00.000Z", now), false);
   });
 });
 

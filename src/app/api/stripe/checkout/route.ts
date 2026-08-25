@@ -39,16 +39,29 @@ export async function POST() {
   }
 
   if (shouldBlockNewCheckout(existing)) {
+    const inFlight = existing?.status === "incomplete";
+    if (inFlight) {
+      return NextResponse.json(
+        {
+          error: "Checkout is already in progress. Wait a moment and try again.",
+          code: "in_flight",
+        },
+        { status: 409 },
+      );
+    }
     const stripe = getStripe();
     const portalUrl = await portalUrlForCustomer(
       stripe,
       typeof existing?.stripe_customer_id === "string" ? existing.stripe_customer_id : null,
     );
-    const message =
-      existing?.status === "incomplete"
-        ? "Checkout is already in progress. Finish that session or wait a moment before trying again."
-        : "You already have an active trial or subscription.";
-    return NextResponse.json({ error: message, ...(portalUrl ? { portalUrl } : {}) }, { status: 409 });
+    return NextResponse.json(
+      {
+        error: "You already have an active trial or subscription.",
+        code: "already_subscribed",
+        ...(portalUrl ? { portalUrl } : {}),
+      },
+      { status: 409 },
+    );
   }
 
   const stripe = getStripe();
@@ -79,6 +92,7 @@ export async function POST() {
     return NextResponse.json(
       {
         error: "There's already a subscription on this account. Manage billing to update or cancel it.",
+        code: "already_subscribed",
         ...(portalUrl ? { portalUrl } : {}),
       },
       { status: 409 },
@@ -103,26 +117,51 @@ export async function POST() {
     return NextResponse.json({ error: "Couldn't start checkout." }, { status: 500 });
   }
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    customer: customerId,
-    line_items: [{ price: priceId, quantity: 1 }],
-    subscription_data: {
-      trial_period_days: 7,
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      customer: customerId,
+      line_items: [{ price: priceId, quantity: 1 }],
+      subscription_data: {
+        trial_period_days: 7,
+        metadata: { supabase_user_id: user.id },
+      },
+      success_url: `${appUrl}/subscribe?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/subscribe?checkout=canceled`,
+      client_reference_id: user.id,
       metadata: { supabase_user_id: user.id },
-    },
-    success_url: `${appUrl}/subscribe?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${appUrl}/subscribe?checkout=canceled`,
-    client_reference_id: user.id,
-    metadata: { supabase_user_id: user.id },
-    payment_method_collection: "always",
-  });
+      payment_method_collection: "always",
+    });
+  } catch (err) {
+    console.error("[stripe/checkout] sessions.create failed:", err);
+    await releaseIncompleteLock(supabase, user.id);
+    return NextResponse.json({ error: "Couldn't start checkout." }, { status: 500 });
+  }
 
   if (!session.url) {
+    await releaseIncompleteLock(supabase, user.id);
     return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 500 });
   }
 
   return NextResponse.json({ url: session.url });
+}
+
+async function releaseIncompleteLock(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("subscriptions")
+    .update({
+      status: "incomplete_expired",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("status", "incomplete");
+  if (error) {
+    console.error("[stripe/checkout] failed to release incomplete lock:", error);
+  }
 }
 
 async function portalUrlForCustomer(

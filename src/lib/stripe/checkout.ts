@@ -1,6 +1,8 @@
 const CLOSED_STRIPE_STATUSES = new Set(["canceled", "incomplete_expired"]);
 const OPEN_CHECKOUT_STATUSES = new Set(["incomplete"]);
-const STALE_INCOMPLETE_MS = 24 * 60 * 60 * 1000;
+// Double-click guard only — cancel_url and a failed sessions.create must
+// not strand the user for hours. Two minutes covers a slow redirect to Stripe.
+export const IN_FLIGHT_CHECKOUT_LOCK_MS = 2 * 60 * 1000;
 
 export type StripeCustomerLike = {
   id: string;
@@ -32,7 +34,7 @@ export function isRecentIncompleteCheckout(
   if (!status || !OPEN_CHECKOUT_STATUSES.has(status) || !updatedAt) return false;
   const updated = updatedAt instanceof Date ? updatedAt : new Date(updatedAt);
   if (isNaN(updated.getTime())) return false;
-  return now.getTime() - updated.getTime() <= STALE_INCOMPLETE_MS;
+  return now.getTime() - updated.getTime() <= IN_FLIGHT_CHECKOUT_LOCK_MS;
 }
 
 export function shouldBlockNewCheckout(existing: {

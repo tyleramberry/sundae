@@ -31,8 +31,10 @@ export default function SubscribeCheckout({
       const res = await fetch("/api/stripe/checkout", { method: "POST" });
       const body = await res.json().catch(() => ({}));
       if (res.status === 409) {
-        setError(body.error ?? "There's already a subscription on this account.");
-        if (typeof body.portalUrl === "string") setPortalUrl(body.portalUrl);
+        setError(body.error ?? "Couldn't start checkout.");
+        if (body.code === "already_subscribed" && typeof body.portalUrl === "string") {
+          setPortalUrl(body.portalUrl);
+        }
         setLoading(false);
         return;
       }
@@ -68,15 +70,7 @@ export default function SubscribeCheckout({
           </p>
         )}
         {error && <p className="text-sm text-red-600">{error}</p>}
-        {portalUrl ? (
-          <button
-            type="button"
-            onClick={() => window.location.assign(portalUrl)}
-            className="inline-flex items-center justify-center rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-          >
-            Manage subscription
-          </button>
-        ) : (
+        <div className="flex flex-col items-center gap-3">
           <button
             type="button"
             onClick={() => void startCheckout()}
@@ -85,7 +79,16 @@ export default function SubscribeCheckout({
           >
             {loading ? "Redirecting…" : resubscribe ? "Resubscribe" : "Continue to checkout"}
           </button>
-        )}
+          {portalUrl && (
+            <button
+              type="button"
+              onClick={() => window.location.assign(portalUrl)}
+              className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-800 transition hover:border-zinc-400 dark:border-zinc-700 dark:bg-black dark:text-zinc-200"
+            >
+              Manage subscription
+            </button>
+          )}
+        </div>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           Cancel anytime from Settings — no hoops.
         </p>
@@ -96,7 +99,6 @@ export default function SubscribeCheckout({
 
 function CheckoutConfirming() {
   const router = useRouter();
-  const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,7 +107,7 @@ function CheckoutConfirming() {
     async function tick() {
       if (cancelled) return;
       if (Date.now() - started >= TIMEOUT_MS) {
-        setTimedOut(true);
+        router.replace("/subscribe");
         return;
       }
       try {
@@ -113,6 +115,10 @@ function CheckoutConfirming() {
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.entitled === true) {
           router.replace("/dashboard");
+          return;
+        }
+        if (res.ok && body.status !== "incomplete") {
+          router.replace("/subscribe");
           return;
         }
       } catch {
@@ -136,25 +142,9 @@ function CheckoutConfirming() {
         <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
           Confirming your trial
         </h1>
-        {timedOut ? (
-          <>
-            <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
-              Billing is taking a little longer than usual. Refresh this page in a moment. If it
-              still hasn&apos;t gone through, contact us — you won&apos;t be charged twice.
-            </p>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="inline-flex items-center justify-center rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-            >
-              Refresh
-            </button>
-          </>
-        ) : (
-          <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
-            Card received. We&apos;re confirming your 7-day trial — this usually takes a few seconds.
-          </p>
-        )}
+        <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
+          Card received. We&apos;re confirming your 7-day trial — this usually takes a few seconds.
+        </p>
       </main>
     </div>
   );
