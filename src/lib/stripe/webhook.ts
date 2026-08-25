@@ -56,6 +56,15 @@ export type MappedSubscriptionFields = Pick<
   | "cancel_at_period_end"
 >;
 
+export function resolveWebhookSubscriptionOwner(
+  incomingUserId: string,
+  rowBySubscriptionId: { user_id: string } | null,
+): "missing" | "same_user" | "other_user" {
+  if (!rowBySubscriptionId) return "missing";
+  if (rowBySubscriptionId.user_id === incomingUserId) return "same_user";
+  return "other_user";
+}
+
 export function mapStripeSubscriptionToRow(
   sub: StripeSubscriptionLike,
   userId: string,

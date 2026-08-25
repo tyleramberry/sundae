@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe/client";
 import { getAppUrl } from "@/lib/appUrl";
+import {
+  hasOpenStripeSubscription,
+  pickStripeCustomerForUser,
+  shouldBlockNewCheckout,
+} from "@/lib/stripe/checkout";
 
 export async function POST() {
   const secret = process.env.STRIPE_SECRET_KEY;
@@ -24,7 +29,7 @@ export async function POST() {
 
   const { data: existing, error: existingError } = await supabase
     .from("subscriptions")
-    .select("status, stripe_customer_id")
+    .select("status, stripe_customer_id, updated_at")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -33,15 +38,22 @@ export async function POST() {
     return NextResponse.json({ error: "Couldn't load billing status." }, { status: 500 });
   }
 
-  if (existing && (existing.status === "trialing" || existing.status === "active")) {
-    return NextResponse.json(
-      { error: "You already have an active trial or subscription." },
-      { status: 409 },
+  if (shouldBlockNewCheckout(existing)) {
+    const stripe = getStripe();
+    const portalUrl = await portalUrlForCustomer(
+      stripe,
+      typeof existing?.stripe_customer_id === "string" ? existing.stripe_customer_id : null,
     );
+    const message =
+      existing?.status === "incomplete"
+        ? "Checkout is already in progress. Finish that session or wait a moment before trying again."
+        : "You already have an active trial or subscription.";
+    return NextResponse.json({ error: message, ...(portalUrl ? { portalUrl } : {}) }, { status: 409 });
   }
 
   const stripe = getStripe();
   const appUrl = getAppUrl().replace(/\/$/, "");
+
   let customerId =
     typeof existing?.stripe_customer_id === "string" && existing.stripe_customer_id
       ? existing.stripe_customer_id
@@ -51,37 +63,83 @@ export async function POST() {
     customerId = await findOrCreateStripeCustomer(stripe, user.id, user.email ?? null);
   }
 
-  const sessionParams: Parameters<typeof stripe.checkout.sessions.create>[0] = {
+  // Never hand Stripe Checkout a customer_email-only session: we persist
+  // stripe_customer_id on the incomplete row before returning the URL.
+  if (!customerId) {
+    return NextResponse.json({ error: "Couldn't create a billing customer." }, { status: 500 });
+  }
+
+  const listed = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 100,
+  });
+  if (hasOpenStripeSubscription(listed.data.map((s) => s.status))) {
+    const portalUrl = await portalUrlForCustomer(stripe, customerId);
+    return NextResponse.json(
+      {
+        error: "There's already a subscription on this account. Manage billing to update or cancel it.",
+        ...(portalUrl ? { portalUrl } : {}),
+      },
+      { status: 409 },
+    );
+  }
+
+  const pending = {
+    user_id: user.id,
+    stripe_customer_id: customerId,
+    stripe_subscription_id: null,
+    status: "incomplete",
+    cancel_at_period_end: false,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error: persistError } = await supabase
+    .from("subscriptions")
+    .upsert(pending, { onConflict: "user_id" });
+
+  if (persistError) {
+    console.error("[stripe/checkout] failed to persist incomplete row:", persistError);
+    return NextResponse.json({ error: "Couldn't start checkout." }, { status: 500 });
+  }
+
+  const session = await stripe.checkout.sessions.create({
     mode: "subscription",
+    customer: customerId,
     line_items: [{ price: priceId, quantity: 1 }],
     subscription_data: {
       trial_period_days: 7,
       metadata: { supabase_user_id: user.id },
     },
-    success_url: `${appUrl}/dashboard?checkout=success`,
+    success_url: `${appUrl}/subscribe?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${appUrl}/subscribe?checkout=canceled`,
     client_reference_id: user.id,
     metadata: { supabase_user_id: user.id },
-    // Card at signup — required so the trial is card-backed and day-7
-    // charges without a second checkout.
     payment_method_collection: "always",
-  };
-
-  // Stripe rejects customer + customer_email together. Prefer the existing
-  // Customer id; otherwise let Checkout collect the email.
-  if (customerId) {
-    sessionParams.customer = customerId;
-  } else if (user.email) {
-    sessionParams.customer_email = user.email;
-  }
-
-  const session = await stripe.checkout.sessions.create(sessionParams);
+  });
 
   if (!session.url) {
     return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 500 });
   }
 
   return NextResponse.json({ url: session.url });
+}
+
+async function portalUrlForCustomer(
+  stripe: ReturnType<typeof getStripe>,
+  customerId: string | null,
+): Promise<string | null> {
+  if (!customerId) return null;
+  try {
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${getAppUrl().replace(/\/$/, "")}/subscribe`,
+    });
+    return session.url ?? null;
+  } catch (err) {
+    console.error("[stripe/checkout] failed to create portal session:", err);
+    return null;
+  }
 }
 
 async function findOrCreateStripeCustomer(
@@ -91,22 +149,12 @@ async function findOrCreateStripeCustomer(
 ): Promise<string | null> {
   if (email) {
     const listed = await stripe.customers.list({ email, limit: 10 });
-    const match =
-      listed.data.find((c) => c.metadata?.supabase_user_id === userId) ?? listed.data[0];
-    if (match) {
-      if (match.metadata?.supabase_user_id !== userId) {
-        await stripe.customers.update(match.id, {
-          metadata: { ...match.metadata, supabase_user_id: userId },
-        });
-      }
-      return match.id;
-    }
+    const matchId = pickStripeCustomerForUser(listed.data, userId);
+    if (matchId) return matchId;
   }
 
-  if (!email) return null;
-
   const created = await stripe.customers.create({
-    email,
+    ...(email ? { email } : {}),
     metadata: { supabase_user_id: userId },
   });
   return created.id;

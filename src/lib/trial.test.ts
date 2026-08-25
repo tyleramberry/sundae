@@ -80,6 +80,10 @@ describe("isSubscriptionEntitled", () => {
       isSubscriptionEntitled({ status: "active", current_period_end: null }),
       true,
     );
+    assert.equal(
+      isSubscriptionEntitled({ status: "incomplete", current_period_end: null }),
+      false,
+    );
   });
 
   it("allows canceled/past_due only while current_period_end is in the future", () => {

@@ -5,6 +5,7 @@ import {
   currentPeriodEndIso,
   isHandledStripeEvent,
   mapStripeSubscriptionToRow,
+  resolveWebhookSubscriptionOwner,
   StripeWebhookSignatureError,
 } from "./webhook";
 
@@ -120,6 +121,19 @@ describe("constructVerifiedStripeEvent", () => {
           "whsec_test",
         ),
       (err: unknown) => err instanceof StripeWebhookSignatureError,
+    );
+  });
+});
+
+describe("resolveWebhookSubscriptionOwner", () => {
+  it("does not treat another user's subscription id as ours", () => {
+    assert.equal(
+      resolveWebhookSubscriptionOwner("incoming", { user_id: "owner" }),
+      "other_user",
+    );
+    assert.equal(
+      resolveWebhookSubscriptionOwner("owner", { user_id: "owner" }),
+      "same_user",
     );
   });
 });
