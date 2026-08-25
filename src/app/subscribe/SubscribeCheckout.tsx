@@ -64,8 +64,8 @@ export default function SubscribeCheckout({
         </h1>
         <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
           {resubscribe
-            ? "Your trial or billing period has ended. Resubscribe to keep planning weeks on your calendar — same $12/month, cancel anytime from Settings."
-            : "Card on file, no charge for 7 days. The first charge is $12/month unless you cancel from Settings before then."}
+            ? "Your trial or billing period has ended. Resubscribe to keep planning weeks on your calendar — same $7.99/month, cancel anytime from Settings."
+            : "Card on file, no charge for 7 days. The first charge is $7.99/month unless you cancel from Settings before then."}
         </p>
         {checkoutCanceled && (
           <p className="text-sm text-zinc-600 dark:text-zinc-400">

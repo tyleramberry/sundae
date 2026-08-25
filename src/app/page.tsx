@@ -23,9 +23,9 @@ import Reveal from "@/components/Reveal";
 // here needs to be a client boundary, so the interactive pieces are
 // islands, not the whole page.
 
-// $12/month after the 7-day card-backed Stripe trial. One constant so the
+// $7.99/month after the 7-day card-backed Stripe trial. One constant so the
 // hero microcopy, closing CTA, and FAQ stay in lockstep.
-const MONTHLY_PRICE = "$12";
+const MONTHLY_PRICE = "$7.99";
 
 export default function Home() {
   return (

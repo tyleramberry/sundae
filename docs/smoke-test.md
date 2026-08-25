@@ -31,7 +31,7 @@ These steps need the live app, Google OAuth, a real calendar, and Stripe — the
 ### Core product
 
 - [ ] Landing page loads, scroll works, all sections render, CTA buttons fire Google OAuth.
-- [ ] FAQ still names the **$12/month** price after the 7-day trial (`MONTHLY_PRICE` in `src/app/page.tsx`).
+- [ ] FAQ still names the **$7.99/month** price after the 7-day trial (`MONTHLY_PRICE` in `src/app/page.tsx`).
 - [ ] Google sign-in → onboarding → **subscribe (Stripe Checkout)** → dashboard for a new user.
 - [ ] Returning entitled users skip checkout and land on the dashboard.
 - [ ] Start a weekly session with all 3 stages (Accountability, Goal Setting, Planning).
