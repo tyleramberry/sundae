@@ -37,11 +37,21 @@ export type BillingEnv = {
   STRIPE_PRICE_ID?: string;
 };
 
-export function isBillingConfigured(env: BillingEnv = process.env): boolean {
-  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_ID);
+function billingEnv(env?: BillingEnv): BillingEnv {
+  return (
+    env ?? {
+      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+      STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
+    }
+  );
 }
 
-export function isBillingEnforced(env: BillingEnv = process.env): boolean {
+export function isBillingConfigured(env?: BillingEnv): boolean {
+  const { STRIPE_SECRET_KEY, STRIPE_PRICE_ID } = billingEnv(env);
+  return Boolean(STRIPE_SECRET_KEY && STRIPE_PRICE_ID);
+}
+
+export function isBillingEnforced(env?: BillingEnv): boolean {
   // Checkout needs both STRIPE_SECRET_KEY and STRIPE_PRICE_ID. Gating
   // without them (including production with forgotten keys) bricks signup
   // behind a subscribe page that always 500s. Only enforce when Checkout
