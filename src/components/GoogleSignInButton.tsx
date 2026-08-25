@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getAppUrl } from "@/lib/appUrl";
 
@@ -10,35 +10,51 @@ const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 // the /login page so there's one definition of the scope + offline-token
 // dance. `next` is forwarded to /auth/callback so a deep link
 // (e.g. /login?next=/daily-follow-ups) lands where it meant to after login.
+//
+// Cross-domain safety: the PKCE code verifier that Supabase stores in a
+// cookie must be on the same domain where /auth/callback runs
+// (app.sundaeplanner.com). When this button renders on the marketing domain
+// (sundaeplanner.com), it redirects to app.sundaeplanner.com/login instead
+// of starting OAuth directly, so the entire flow — verifier cookie, Google
+// redirect, code exchange — stays on one domain.
 export default function GoogleSignInButton({
   next,
   label = "Sign in with Google",
   className,
+  autoStart = false,
 }: {
   next?: string;
   label?: string;
   className?: string;
+  /** Auto-start OAuth on mount (used when redirected from landing page). */
+  autoStart?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
 
   async function signInWithGoogle() {
     setLoading(true);
+    const appUrl = getAppUrl();
+    const appHost = new URL(appUrl).host;
+
+    // If we're on a different domain (e.g. the marketing landing page on
+    // sundaeplanner.com), redirect to the app domain's login page so the
+    // PKCE verifier cookie is set on the same domain as /auth/callback.
+    // Without this, the code exchange fails because the cookie is on
+    // sundaeplanner.com but the callback runs on app.sundaeplanner.com.
+    if (
+      typeof window !== "undefined" &&
+      window.location.host !== appHost &&
+      !window.location.host.startsWith("localhost")
+    ) {
+      const loginUrl = new URL("/login", appUrl);
+      loginUrl.searchParams.set("auto", "google");
+      if (next) loginUrl.searchParams.set("next", next);
+      window.location.href = loginUrl.toString();
+      return;
+    }
+
     const supabase = createClient();
-    // Bug fix: this used to be `window.location.origin`, which follows
-    // whatever host actually served the page -- including one of Vercel's
-    // per-deployment *.vercel.app URLs (a stale bookmark/tab/link; every
-    // deploy gets a fresh one, see `vercel ls`). proxy.ts already 308s any
-    // *.vercel.app request to the canonical domain, but only on the *next*
-    // request -- so a user who started sign-in from vercel.app got a real
-    // Google auth, a session cookie scoped to vercel.app, then got bounced
-    // to sundaeplanner.com on the very next navigation with no session
-    // cookie able to follow across that domain change. That's the
-    // "signs in, kicks me out, works on retry" loop: the retry happens
-    // after the bounce, once window.location.origin is already canonical.
-    // Anchoring to the canonical URL here means the whole OAuth round trip
-    // -- and the cookie it sets -- always lands on the one domain that
-    // actually serves the signed-in app, on the first attempt.
-    const redirectTo = new URL("/auth/callback", getAppUrl());
+    const redirectTo = new URL("/auth/callback", appUrl);
     if (next) redirectTo.searchParams.set("next", next);
     await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -52,6 +68,13 @@ export default function GoogleSignInButton({
       },
     });
   }
+
+  // When redirected from the landing page with ?auto=google, start OAuth
+  // immediately so the user doesn't have to click twice.
+  useEffect(() => {
+    if (autoStart) signInWithGoogle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <button

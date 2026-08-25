@@ -2,15 +2,15 @@ import { Suspense } from "react";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 // Standalone sign-in page. Reached from a deep link (a signed-out user
-// hitting an app route redirects here with ?next=), or as a direct URL. The
-// landing page CTA launches OAuth on its own, so this is the secondary
-// entry point. `next` is forwarded through to /auth/callback.
+// hitting an app route redirects here with ?next=), from the landing page's
+// CTA (?auto=google — auto-starts OAuth so the user doesn't click twice),
+// or as a direct URL. `next` is forwarded through to /auth/callback.
 async function LoginInner({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; error?: string }>;
+  searchParams: Promise<{ next?: string; error?: string; auto?: string }>;
 }) {
-  const { next, error } = await searchParams;
+  const { next, error, auto } = await searchParams;
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -30,7 +30,7 @@ async function LoginInner({
             Something went wrong signing in. Please try again.
           </p>
         )}
-        <GoogleSignInButton next={next} />
+        <GoogleSignInButton next={next} autoStart={auto === "google"} />
       </main>
     </div>
   );
@@ -39,7 +39,7 @@ async function LoginInner({
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; error?: string }>;
+  searchParams: Promise<{ next?: string; error?: string; auto?: string }>;
 }) {
   return (
     <Suspense>
