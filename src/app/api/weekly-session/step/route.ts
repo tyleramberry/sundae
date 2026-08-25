@@ -27,6 +27,8 @@ import {
   CALENDAR_UNAVAILABLE_SUMMARY,
   formatCalendarSummary,
 } from "@/lib/weeklySession/calendarSummary";
+import { captureServerEvent } from "@/lib/analytics/server";
+import { isFirstWeeklySessionUserMessage } from "@/lib/analytics/session";
 
 // Thin HTTP wrapper around the weekly-session engine, same shape as
 // /api/engine/step for onboarding, with one structural change (Day 16):
@@ -91,6 +93,7 @@ export async function POST(request: Request) {
     const weekLabel = formatPlanningWeekRange(weekStartDate, timeZone);
     const transcript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
     const expectedRoundSeq = transcript?.round_seq ?? 0;
+    const firstUserMessage = isFirstWeeklySessionUserMessage(transcript?.display_turns);
 
     // Day 16: once this week's first full session has been confirmed, every
     // later message in the same chat is a lightweight mid-week addition, not
@@ -181,6 +184,18 @@ export async function POST(request: Request) {
       await recordSessionStart(supabase, user.id).catch((err) => {
         console.error("Failed to record weekly session start:", err);
       });
+    }
+
+    if (firstUserMessage && trimmedMessage) {
+      try {
+        await captureServerEvent({
+          distinctId: user.id,
+          event: "weekly_session_started",
+          properties: { weekStart, mode },
+        });
+      } catch (err) {
+        console.error("[weekly-session/step] analytics failed:", err);
+      }
     }
 
     return NextResponse.json({

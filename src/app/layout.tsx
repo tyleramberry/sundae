@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { getAppUrl } from "@/lib/appUrl";
+import PostHogProvider from "@/components/PostHogProvider";
+import MetaPixel from "@/components/MetaPixel";
+import MetaEvents from "@/components/MetaEvents";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -65,7 +68,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           it, and the footer's Privacy/Terms links -- which Google's OAuth
           verification for the sensitive calendar scope requires to be
           reachable from the homepage -- never rendered on any laptop. */}
-      <body className="flex min-h-full flex-col">{children}</body>
+      <body className="flex min-h-full flex-col">
+        <MetaPixel />
+        <PostHogProvider>
+          <MetaEvents />
+          {children}
+        </PostHogProvider>
+      </body>
     </html>
   );
 }

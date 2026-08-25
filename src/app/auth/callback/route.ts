@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { saveGoogleTokens } from "@/lib/google/tokens";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
 import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
+import { captureServerEvent } from "@/lib/analytics/server";
+import { appendSearchParam, isNewSignup } from "@/lib/analytics/signup";
 
 // Only allow relative in-app paths as a post-login destination, so a
 // crafted ?next=https://evil.example can't turn the callback into an open
@@ -33,6 +35,22 @@ export async function GET(request: NextRequest) {
   }
 
   const { provider_token, provider_refresh_token, user } = data.session;
+
+  // unknown on lookup failure so a returning login never looks like a
+  // first-time signup just because google_tokens was unreachable.
+  let tokenLookup: "missing" | "present" | "unknown" = "unknown";
+  try {
+    const { data: existingTokens } = await supabase
+      .from("google_tokens")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    tokenLookup = existingTokens ? "present" : "missing";
+  } catch (err) {
+    console.error("[auth/callback] failed to read google_tokens:", err);
+  }
+
+  const newSignup = isNewSignup(user.created_at) || tokenLookup === "missing";
 
   if (provider_token) {
     // Google access tokens are valid for 1 hour.
@@ -75,6 +93,18 @@ export async function GET(request: NextRequest) {
   }
 
   destination = await applyBillingRedirect(supabase, user.id, destination);
+
+  if (newSignup) {
+    destination = appendSearchParam(destination, "meta", "lead");
+    try {
+      await captureServerEvent({
+        distinctId: user.id,
+        event: "signup_completed",
+      });
+    } catch (err) {
+      console.error("[auth/callback] signup_completed analytics failed:", err);
+    }
+  }
 
   return NextResponse.redirect(`${origin}${destination}`);
 }

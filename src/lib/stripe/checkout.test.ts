@@ -8,12 +8,13 @@ import {
   isRecentIncompleteCheckout,
   pickStripeCustomerForUser,
   shouldBlockNewCheckout,
+  type StripeCustomerLike,
 } from "./checkout";
 import { resolveWebhookSubscriptionOwner } from "./webhook";
 
 describe("pickStripeCustomerForUser", () => {
   it("reuses only a customer whose metadata matches this user", () => {
-    const customers = [
+    const customers: StripeCustomerLike[] = [
       { id: "cus_other", metadata: { supabase_user_id: "user-b" } },
       { id: "cus_mine", metadata: { supabase_user_id: "user-a" } },
       { id: "cus_bare", metadata: {} },
@@ -22,7 +23,7 @@ describe("pickStripeCustomerForUser", () => {
   });
 
   it("does not fall back to list[0] when no metadata matches", () => {
-    const customers = [
+    const customers: StripeCustomerLike[] = [
       { id: "cus_other", metadata: { supabase_user_id: "someone-else" } },
       { id: "cus_unlabeled", metadata: null },
     ];

@@ -26,6 +26,7 @@ import { EmailError, sendSessionRecapEmail } from "@/lib/email/sessionRecap";
 import type { ProposedAction } from "@/lib/planning/blocks";
 import type { Turn } from "@/lib/engine/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { captureServerEvent } from "@/lib/analytics/server";
 
 // Best-effort session-recap send: the wins/improvements the user gave
 // during this session's Accountability stage (extracted from the real
@@ -316,6 +317,16 @@ export async function POST(request: Request) {
     const recapEmailSent = isFirstConfirmThisWeek
       ? await sendRecapBestEffort(supabase, user.id, user.email, roundTurns)
       : false;
+
+    try {
+      await captureServerEvent({
+        distinctId: user.id,
+        event: "weekly_session_completed",
+        properties: { weekStart, itemsCreated: created },
+      });
+    } catch (err) {
+      console.error("[weekly-session/confirm] analytics failed:", err);
+    }
 
     return NextResponse.json({
       ok: true,

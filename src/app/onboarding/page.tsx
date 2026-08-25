@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { getSubscriptionStatus, getTrialStatus, type SubscriptionRow } from "@/lib/trial";
 
 // New onboarding (Day 7 redesign): survey -> live demo -> hype -> subscribe
 // (Stripe Checkout) before the first weekly session. Replaces the old chat-transcript
@@ -29,7 +28,6 @@ export default function OnboardingPage() {
   const [roles, setRoles] = useState<string[]>([]);
   const [motivations, setMotivations] = useState<string[]>([]);
   const [demoResult, setDemoResult] = useState<DemoResult | null>(null);
-  const [trialEndDate, setTrialEndDate] = useState<string>("");
 
   useEffect(() => {
     void (async () => {
@@ -41,16 +39,6 @@ export default function OnboardingPage() {
       if (!user) {
         router.replace("/login?next=/onboarding");
         return;
-      }
-      setTrialEndDate(getTrialStatus(user.created_at).endDate);
-      const { data: sub } = await supabase
-        .from("subscriptions")
-        .select("status, trial_end, current_period_end, created_at")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (sub) {
-        const fromStripe = getSubscriptionStatus(sub as Pick<SubscriptionRow, "status" | "trial_end" | "current_period_end" | "created_at">);
-        if (fromStripe.endDate) setTrialEndDate(fromStripe.endDate);
       }
       setAuthChecked(true);
     })();
@@ -93,7 +81,7 @@ export default function OnboardingPage() {
         {screen === "heard-from" && (
           <>
             <p className="-mt-4 text-xs text-zinc-500 dark:text-zinc-400">
-              Your card won&apos;t be charged until{trialEndDate ? ` ${trialEndDate}` : " the end of your 7-day free trial"}.
+              Your card won&apos;t be charged until 7 days after you start your trial.
             </p>
             <SingleSelectScreen
               title="How did you hear about Sundae?"

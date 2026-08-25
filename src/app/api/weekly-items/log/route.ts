@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { currentWeekStart } from "@/lib/weeklySession/persist";
+import { captureServerEvent } from "@/lib/analytics/server";
 
 // In-app progress logging (Day 12's "logging is in-app only" requirement,
 // built during the Day 11 UI pass). The daily follow-ups page and the
@@ -105,6 +106,16 @@ export async function POST(request: Request) {
   }
   if (!data) {
     return NextResponse.json({ error: "Item not found for this week." }, { status: 404 });
+  }
+
+  try {
+    await captureServerEvent({
+      distinctId: user.id,
+      event: "daily_log_submitted",
+      properties: { itemId: data.id, type: data.type },
+    });
+  } catch (err) {
+    console.error("[weekly-items/log] analytics failed:", err);
   }
 
   return NextResponse.json({ item: data });

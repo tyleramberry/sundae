@@ -11,6 +11,12 @@ import {
   upsertSubscriptionRow,
   type StripeSubscriptionLike,
 } from "@/lib/stripe/webhook";
+import { captureServerEvent } from "@/lib/analytics/server";
+import {
+  isTrialConvertedToActive,
+  type SubscriptionPreviousAttributes,
+} from "@/lib/analytics/trialConvert";
+import { sendMetaSubscribeEvent } from "@/lib/meta/capi";
 
 // Webhooks need the raw body for signature verification. Node runtime
 // (not Edge) so request.text() is the unmodified payload Stripe signed.
@@ -57,7 +63,15 @@ export async function POST(request: Request) {
     if (event.type === "checkout.session.completed") {
       await handleCheckoutCompleted(stripe, admin, event.data.object as Stripe.Checkout.Session);
     } else if (event.type === "customer.subscription.updated") {
-      await handleSubscriptionUpdated(stripe, admin, event.data.object as Stripe.Subscription);
+      const previous = event.data.previous_attributes as
+        | SubscriptionPreviousAttributes
+        | undefined;
+      await handleSubscriptionUpdated(
+        stripe,
+        admin,
+        event.data.object as Stripe.Subscription,
+        previous,
+      );
     } else if (event.type === "customer.subscription.deleted") {
       await handleSubscriptionDeleted(admin, event.data.object as Stripe.Subscription);
     }
@@ -108,13 +122,25 @@ async function handleCheckoutCompleted(
     return;
   }
 
-  await upsertSubscriptionRow(admin, mapped);
+  const upserted = await upsertSubscriptionRow(admin, mapped);
+  if (upserted && (mapped.status === "trialing" || mapped.status === "active")) {
+    try {
+      await captureServerEvent({
+        distinctId: userId,
+        event: "trial_started",
+        properties: { status: mapped.status },
+      });
+    } catch (err) {
+      console.error("[stripe/webhook] trial_started analytics failed:", err);
+    }
+  }
 }
 
 async function handleSubscriptionUpdated(
   stripe: Stripe,
   admin: AdminClient,
   subscription: Stripe.Subscription,
+  previousAttributes: SubscriptionPreviousAttributes | undefined,
 ): Promise<void> {
   const customerId = stripeExpandableId(subscription.customer as string | { id: string } | null);
   const userId = await resolveUserId(stripe, admin, {
@@ -136,7 +162,30 @@ async function handleSubscriptionUpdated(
     return;
   }
 
-  await upsertSubscriptionRow(admin, mapped);
+  const upserted = await upsertSubscriptionRow(admin, mapped);
+  if (!upserted) return;
+
+  if (isTrialConvertedToActive(mapped.status, previousAttributes)) {
+    try {
+      await captureServerEvent({
+        distinctId: userId,
+        event: "trial_converted",
+        properties: { status: mapped.status },
+      });
+    } catch (err) {
+      console.error("[stripe/webhook] trial_converted analytics failed:", err);
+    }
+
+    try {
+      const { data: userResult } = await admin.auth.admin.getUserById(userId);
+      await sendMetaSubscribeEvent({
+        email: userResult?.user?.email ?? null,
+        eventId: subscription.id,
+      });
+    } catch (err) {
+      console.error("[stripe/webhook] Meta CAPI Subscribe failed:", err);
+    }
+  }
 }
 
 async function handleSubscriptionDeleted(
@@ -166,6 +215,15 @@ async function handleSubscriptionDeleted(
     .eq("stripe_subscription_id", subscription.id);
 
   if (error) throw error;
+
+  try {
+    await captureServerEvent({
+      distinctId: existing.user_id as string,
+      event: "subscription_canceled",
+    });
+  } catch (err) {
+    console.error("[stripe/webhook] subscription_canceled analytics failed:", err);
+  }
 }
 
 async function resolveUserId(

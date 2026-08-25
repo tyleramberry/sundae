@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getOnboardingAnswers, saveOnboardingAnswers } from "@/lib/onboarding/persist";
 import type { RoleAnswer } from "@/lib/engine/types";
+import { captureServerEvent } from "@/lib/analytics/server";
 
 // GET: has this user already completed onboarding? Lets the page skip
 // straight to a summary instead of re-running the conversation.
@@ -74,5 +75,13 @@ export async function POST(request: Request) {
   const cleanAnswers = answers.filter((a) => roleSet.has(a.role));
 
   await saveOnboardingAnswers(supabase, { userId: user.id, roles, answers: cleanAnswers });
+  try {
+    await captureServerEvent({
+      distinctId: user.id,
+      event: "onboarding_completed",
+    });
+  } catch (err) {
+    console.error("[onboarding/complete] analytics failed:", err);
+  }
   return NextResponse.json({ ok: true });
 }

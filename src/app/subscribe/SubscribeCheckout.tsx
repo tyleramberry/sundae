@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { trackMetaStartTrialOnce } from "@/lib/meta/pixel";
 
 const POLL_MS = 2500;
 const TIMEOUT_MS = 90_000;
@@ -119,6 +120,7 @@ function CheckoutConfirming({ sessionId }: { sessionId: string | null }) {
         const res = await fetch(url);
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.entitled === true) {
+          trackMetaStartTrialOnce();
           router.replace("/dashboard");
           return;
         }
