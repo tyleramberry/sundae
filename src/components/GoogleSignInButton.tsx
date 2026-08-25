@@ -29,10 +29,9 @@ export default function GoogleSignInButton({
   /** Auto-start OAuth on mount (used when redirected from landing page). */
   autoStart?: boolean;
 }) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(autoStart);
 
-  async function signInWithGoogle() {
-    setLoading(true);
+  async function beginGoogleOAuth() {
     const appUrl = getAppUrl();
     const appHost = new URL(appUrl).host;
 
@@ -69,10 +68,17 @@ export default function GoogleSignInButton({
     });
   }
 
+  async function signInWithGoogle() {
+    setLoading(true);
+    await beginGoogleOAuth();
+  }
+
   // When redirected from the landing page with ?auto=google, start OAuth
-  // immediately so the user doesn't have to click twice.
+  // immediately so the user doesn't have to click twice. Loading starts
+  // true in that case so this effect never needs to call setState.
   useEffect(() => {
-    if (autoStart) signInWithGoogle();
+    if (!autoStart) return;
+    void beginGoogleOAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
