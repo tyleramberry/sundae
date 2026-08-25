@@ -16,7 +16,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getTodayBrief, type TodayBrief } from "@/lib/dailyBrief/gather";
 import { getNudgeCopy, type NudgeCopy } from "@/lib/agents/dailyNudgeAgent";
-import { formatTrialFooter, getTrialStatus } from "@/lib/trial";
+import { formatTrialFooter, getSubscriptionStatus, getTrialStatus, type SubscriptionRow } from "@/lib/trial";
 
 const RESEND_API = "https://api.resend.com/emails";
 
@@ -45,6 +45,7 @@ export function buildDailyFollowUpEmail(
   copy: NudgeCopy,
   appUrl?: string,
   createdAt?: string | null,
+  subscription?: Pick<SubscriptionRow, "status" | "trial_end" | "current_period_end" | "created_at"> | null,
 ): DailyFollowUpEmail {
   const base = resolveAppUrl(appUrl);
   // Deep-link straight to the in-app logging surface, not the app root, so
@@ -56,8 +57,16 @@ export function buildDailyFollowUpEmail(
   // Trust-signal footer (spec #5): only rendered when we actually know the
   // user's account age -- callers that don't pass createdAt (e.g. the debug
   // preview) skip it rather than showing a fabricated day count.
-  const trial = createdAt ? getTrialStatus(createdAt) : null;
-  const trialLine = trial?.isActive ? formatTrialFooter(trial) : null;
+  const trial = subscription
+    ? getSubscriptionStatus(subscription)
+    : createdAt
+      ? getTrialStatus(createdAt)
+      : null;
+  const trialLine = trial?.isTrialing
+    ? formatTrialFooter(trial)
+    : trial && !trial.isActive
+      ? formatTrialFooter(trial)
+      : null;
 
   const itemLines = brief.todayItems.map((i) => `- [${i.role}] ${i.title}`).join("\n");
   const projectLines = brief.ongoingProjects
@@ -148,6 +157,7 @@ export type SendDailyFollowUpInput = {
   appUrl?: string;
   referenceDate?: Date;
   createdAt?: string | null;
+  subscription?: Pick<SubscriptionRow, "status" | "trial_end" | "current_period_end" | "created_at"> | null;
 };
 
 export async function sendDailyFollowUpEmail(
@@ -160,7 +170,13 @@ export async function sendDailyFollowUpEmail(
   // real bug in the brief or the agent behind an earlier, unrelated error.
   const brief = await getTodayBrief(input.supabase, input.userId, input.referenceDate);
   const copy = await getNudgeCopy(brief);
-  const { subject, html, text } = buildDailyFollowUpEmail(brief, copy, input.appUrl, input.createdAt);
+  const { subject, html, text } = buildDailyFollowUpEmail(
+    brief,
+    copy,
+    input.appUrl,
+    input.createdAt,
+    input.subscription,
+  );
 
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {

@@ -7,7 +7,8 @@ import Reveal from "@/components/Reveal";
 // Marketing landing page -- the ad destination. Explains the product and
 // hands off straight into Google OAuth (top nav + hero + closing CTA all
 // launch the same sign-in). After login, /auth/callback routes new users
-// into onboarding and returning users into the app.
+// into onboarding, then subscribe; returning users without a subscription
+// land on /subscribe, entitled users on the dashboard.
 //
 // Structure note: this page scrolls. It used to be a single centered
 // viewport-height column, which was invisible on the page's own terms --
@@ -22,12 +23,9 @@ import Reveal from "@/components/Reveal";
 // here needs to be a client boundary, so the interactive pieces are
 // islands, not the whole page.
 
-// Not yet set -- Stripe Checkout isn't wired up until later in the build
-// (docs/30-Day-Calendar.md), and no price has been decided. Leaving this
-// null keeps the page honest: it states the trial terms it can actually
-// stand behind and stays silent on the number. Set it and the price shows
-// up in the hero microcopy, the pricing line, and the FAQ at once.
-const MONTHLY_PRICE: string | null = null;
+// $12/month after the 7-day card-backed Stripe trial. One constant so the
+// hero microcopy, closing CTA, and FAQ stay in lockstep.
+const MONTHLY_PRICE = "$12";
 
 export default function Home() {
   return (
@@ -109,7 +107,7 @@ export default function Home() {
                 <div className="flex flex-col items-center gap-3 lg:items-start">
                   <GoogleSignInButton label="Get started free" />
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    7-day free trial. Cancel anytime from Settings — no hoops.
+                    7-day free trial, then {MONTHLY_PRICE}/month. Cancel anytime from Settings — no hoops.
                   </span>
                   {/* Pre-empts Google's consent screen, which is the very
                       next thing this button shows and is the scariest-

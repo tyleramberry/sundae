@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { saveGoogleTokens } from "@/lib/google/tokens";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
+import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
 
 // Only allow relative in-app paths as a post-login destination, so a
 // crafted ?next=https://evil.example can't turn the callback into an open
@@ -55,9 +56,9 @@ export async function GET(request: NextRequest) {
   }
 
   // An explicit deep-link destination wins. Otherwise, route new users into
-  // onboarding (survey -> demo -> hype -> Stage 0) and returning users --
+  // onboarding (survey -> demo -> hype -> subscribe) and returning users --
   // anyone who's already completed Stage 0, so `onboarding_answers` exists --
-  // straight into the app, defaulting to the dashboard.
+  // into subscribe or the app depending on billing.
   let destination = next;
   if (!destination) {
     try {
@@ -73,5 +74,48 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  destination = await applyBillingRedirect(supabase, user.id, destination);
+
   return NextResponse.redirect(`${origin}${destination}`);
+}
+
+function isAppDestination(path: string): boolean {
+  return (
+    path === "/dashboard" ||
+    path.startsWith("/dashboard/") ||
+    path === "/weekly-session" ||
+    path.startsWith("/weekly-session/") ||
+    path === "/daily-follow-ups" ||
+    path.startsWith("/daily-follow-ups/")
+  );
+}
+
+async function applyBillingRedirect(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  destination: string,
+): Promise<string> {
+  if (!isBillingEnforced()) return destination;
+  if (destination === "/onboarding" || destination.startsWith("/onboarding?")) return destination;
+  if (destination === "/subscribe" || destination.startsWith("/subscribe?")) return destination;
+  if (!isAppDestination(destination)) return destination;
+
+  try {
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select(
+        "id, user_id, stripe_customer_id, stripe_subscription_id, status, trial_end, current_period_end, cancel_at_period_end, created_at, updated_at",
+      )
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (!isSubscriptionEntitled(sub as SubscriptionRow | null)) {
+      return "/subscribe";
+    }
+  } catch (err) {
+    console.error("[auth/callback] failed to read subscription:", err);
+    return "/subscribe";
+  }
+
+  return destination;
 }

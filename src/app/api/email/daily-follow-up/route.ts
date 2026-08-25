@@ -18,11 +18,18 @@ export async function POST() {
   }
 
   try {
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("status, trial_end, current_period_end, created_at")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
     const result = await sendDailyFollowUpEmail({
       to: user.email,
       userId: user.id,
       supabase,
       createdAt: user.created_at,
+      subscription: sub,
     });
     return NextResponse.json({ ok: true, id: result.id });
   } catch (error) {

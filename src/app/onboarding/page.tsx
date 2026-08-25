@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { getTrialStatus } from "@/lib/trial";
+import { getSubscriptionStatus, getTrialStatus, type SubscriptionRow } from "@/lib/trial";
 
-// New onboarding (Day 7 redesign): survey -> live demo -> hype -> straight
-// into the user's first weekly session. Replaces the old chat-transcript
+// New onboarding (Day 7 redesign): survey -> live demo -> hype -> subscribe
+// (Stripe Checkout) before the first weekly session. Replaces the old chat-transcript
 // flow that used to capture roles/goals here and end on "Your onboard."
 //
 // What changed and why, briefly (full rationale in docs/onboarding-flow.md):
@@ -43,6 +43,15 @@ export default function OnboardingPage() {
         return;
       }
       setTrialEndDate(getTrialStatus(user.created_at).endDate);
+      const { data: sub } = await supabase
+        .from("subscriptions")
+        .select("status, trial_end, current_period_end, created_at")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (sub) {
+        const fromStripe = getSubscriptionStatus(sub as Pick<SubscriptionRow, "status" | "trial_end" | "current_period_end" | "created_at">);
+        if (fromStripe.endDate) setTrialEndDate(fromStripe.endDate);
+      }
       setAuthChecked(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,7 +151,7 @@ export default function OnboardingPage() {
         )}
 
         {screen === "hype" && demoResult && (
-          <HypeScreen result={demoResult} onContinue={() => router.push("/weekly-session")} />
+          <HypeScreen result={demoResult} onContinue={() => router.push("/subscribe")} />
         )}
       </div>
     </div>
@@ -616,7 +625,7 @@ function HypeScreen({ result, onContinue }: { result: DemoResult; onContinue: ()
       </div>
 
       <ContinueButton disabled={false} onClick={onContinue}>
-        Plan your real week →
+        Start your 7-day trial →
       </ContinueButton>
     </div>
   );

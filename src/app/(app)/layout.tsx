@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppSidebar from "@/components/AppSidebar";
+import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
 
 // Shared shell for the signed-in app (Day 11 UI/UX polish). A route group,
 // so the URLs stay /weekly-session, /daily-follow-ups, /dashboard -- the
@@ -16,6 +17,28 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   if (!user) {
     redirect("/login");
+  }
+
+  if (isBillingEnforced()) {
+    const { data: sub, error } = await supabase
+      .from("subscriptions")
+      .select(
+        "id, user_id, stripe_customer_id, stripe_subscription_id, status, trial_end, current_period_end, cancel_at_period_end, created_at, updated_at",
+      )
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[app layout] failed to load subscription:", error);
+      redirect("/subscribe");
+    }
+
+    const row = sub as SubscriptionRow | null;
+    if (!row) {
+      redirect("/subscribe");
+    } else if (!isSubscriptionEntitled(row)) {
+      redirect("/subscribe?reason=resubscribe");
+    }
   }
 
   // This shell owns its own viewport pinning: `h-dvh overflow-hidden` here,

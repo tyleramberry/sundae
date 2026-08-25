@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { isAuthorizedCronRequest, unauthorizedCronResponse } from "@/lib/cron/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { EmailError, sendDailyFollowUpEmail } from "@/lib/email/dailyFollowUp";
+import { sendTrialReminderEmail } from "@/lib/email/trialReminder";
+import { trialReminderWindowBounds, type SubscriptionRow } from "@/lib/trial";
 
 // Day 11 cron trigger for the Day 10 email (see vercel.json for the
 // schedule). /api/email/daily-follow-up stays as-is -- a manual trigger for
@@ -47,11 +49,18 @@ export async function GET(request: Request) {
         continue;
       }
 
+      const { data: sub } = await supabase
+        .from("subscriptions")
+        .select("status, trial_end, current_period_end, created_at")
+        .eq("user_id", userId)
+        .maybeSingle();
+
       await sendDailyFollowUpEmail({
         to: userResult.user.email,
         userId,
         supabase,
         createdAt: userResult.user.created_at,
+        subscription: sub as Pick<SubscriptionRow, "status" | "trial_end" | "current_period_end" | "created_at"> | null,
       });
       sent += 1;
     } catch (err) {
@@ -64,5 +73,50 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ total: userIds.length, sent, failures });
+  let trialRemindersSent = 0;
+  const trialReminderFailures: { userId: string; message: string }[] = [];
+
+  const window = trialReminderWindowBounds();
+  const { data: trialing, error: trialError } = await supabase
+    .from("subscriptions")
+    .select("user_id, trial_end, status")
+    .eq("status", "trialing")
+    .gt("trial_end", window.after)
+    .lte("trial_end", window.onOrBefore);
+
+  if (trialError) {
+    console.error("Daily follow-up cron: failed to load day-6 trials:", trialError);
+  } else {
+    for (const row of trialing ?? []) {
+      const userId = row.user_id as string;
+      try {
+        const { data: userResult, error: userError } =
+          await supabase.auth.admin.getUserById(userId);
+
+        if (userError || !userResult.user?.email) {
+          trialReminderFailures.push({
+            userId,
+            message: userError?.message ?? "No email on file for this user.",
+          });
+          continue;
+        }
+
+        await sendTrialReminderEmail({ to: userResult.user.email });
+        trialRemindersSent += 1;
+      } catch (err) {
+        const message =
+          err instanceof EmailError || err instanceof Error ? err.message : String(err);
+        console.error(`Daily follow-up cron: trial reminder failed for ${userId}:`, message);
+        trialReminderFailures.push({ userId, message });
+      }
+    }
+  }
+
+  return NextResponse.json({
+    total: userIds.length,
+    sent,
+    failures,
+    trialRemindersSent,
+    trialReminderFailures,
+  });
 }

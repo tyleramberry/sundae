@@ -7,6 +7,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const skipRedirect =
     pathname.startsWith("/api/cron") ||
+    pathname.startsWith("/api/stripe/webhook") ||
     host.startsWith("localhost") ||
     host.startsWith("127.0.0.1");
 

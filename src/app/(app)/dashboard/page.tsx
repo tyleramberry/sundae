@@ -9,7 +9,7 @@ import DashboardStats, { type DashboardSummary } from "@/components/DashboardSta
 import TypeBreakdown, { type TypeBreakdownRow } from "@/components/TypeBreakdown";
 import Sparkline from "@/components/Sparkline";
 import { isItemComplete } from "@/lib/kpi/compute";
-import { formatTrialStatus, getTrialStatus, type TrialStatus } from "@/lib/trial";
+import { formatTrialStatus, getSubscriptionStatus, getTrialStatus, type SubscriptionRow, type TrialStatus } from "@/lib/trial";
 
 type DashItem = {
   id: string;
@@ -89,6 +89,16 @@ export default function DashboardPage() {
       }
 
       setTrial(getTrialStatus(user.created_at));
+      const { data: sub } = await supabase
+        .from("subscriptions")
+        .select(
+          "id, user_id, stripe_customer_id, stripe_subscription_id, status, trial_end, current_period_end, cancel_at_period_end, created_at, updated_at",
+        )
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (sub) {
+        setTrial(getSubscriptionStatus(sub as SubscriptionRow));
+      }
       setLoad("loading");
       // Fired together -- the account-wide stat row isn't on the critical
       // path for the rings, so a slow /summary shouldn't hold up the rest

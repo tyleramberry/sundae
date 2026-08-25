@@ -1,15 +1,57 @@
-// Trial status computation. Trial is 7 days from Supabase auth user.created_at.
-// One source of truth for the four trust signals (landing copy, onboarding screen,
-// dashboard indicator, daily email footer). No Stripe table yet, so this is
-// the proxy until billing is wired.
+// Trial / subscription status. getTrialStatus is the pre-Stripe fallback
+// (7 days from auth user.created_at). Once a `subscriptions` row exists,
+// callers should prefer getSubscriptionStatus so copy and entitlement
+// follow Stripe, not account age.
 
 export type TrialStatus = {
   day: number; // 1-based, capped at 7
   daysRemaining: number;
   isActive: boolean;
+  // True while the user is in a Stripe (or fallback) trial window. Paid
+  // active subscribers keep isActive but this is false so copy doesn't
+  // still read as a trial.
+  isTrialing: boolean;
   endDate: string; // e.g. "Aug 28" for display
   createdAt: string | null;
 };
+
+export type SubscriptionRow = {
+  id: string;
+  user_id: string;
+  stripe_customer_id: string;
+  stripe_subscription_id: string;
+  status: string;
+  trial_end: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+const LIVE_STATUSES = new Set(["trialing", "active"]);
+const GRACE_STATUSES = new Set(["canceled", "past_due"]);
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+export function isBillingEnforced(): boolean {
+  // Local/dev without Stripe keys stays ungated so the rest of the app is
+  // usable. Production always enforces, even if keys were forgotten — better
+  // a subscribe wall than free access.
+  if (process.env.NODE_ENV === "production") return true;
+  return Boolean(process.env.STRIPE_SECRET_KEY);
+}
+
+function parseDate(value: string | Date | null | undefined): Date | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatEndDate(d: Date): string {
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
 
 export function getTrialStatus(createdAt: string | Date | null | undefined): TrialStatus {
   if (!createdAt) {
@@ -17,6 +59,7 @@ export function getTrialStatus(createdAt: string | Date | null | undefined): Tri
       day: 1,
       daysRemaining: 6,
       isActive: true,
+      isTrialing: true,
       endDate: "",
       createdAt: null,
     };
@@ -28,14 +71,14 @@ export function getTrialStatus(createdAt: string | Date | null | undefined): Tri
       day: 1,
       daysRemaining: 6,
       isActive: true,
+      isTrialing: true,
       endDate: "",
       createdAt: null,
     };
   }
 
   const now = new Date();
-  const msPerDay = 1000 * 60 * 60 * 24;
-  const daysSince = Math.floor((now.getTime() - start.getTime()) / msPerDay) + 1;
+  const daysSince = Math.floor((now.getTime() - start.getTime()) / MS_PER_DAY) + 1;
 
   const day = Math.max(1, Math.min(daysSince, 7));
   const daysRemaining = Math.max(0, 7 - daysSince);
@@ -46,27 +89,97 @@ export function getTrialStatus(createdAt: string | Date | null | undefined): Tri
 
   const end = new Date(start.getTime());
   end.setDate(end.getDate() + 7);
-  const endDate = end.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
 
   return {
     day,
     daysRemaining,
     isActive,
-    endDate,
+    isTrialing: isActive,
+    endDate: formatEndDate(end),
     createdAt: start.toISOString(),
   };
 }
 
+export function getSubscriptionStatus(
+  sub: Pick<SubscriptionRow, "status" | "trial_end" | "current_period_end" | "created_at">,
+  now: Date = new Date(),
+): TrialStatus {
+  const trialEnd = parseDate(sub.trial_end);
+  const periodEnd = parseDate(sub.current_period_end);
+  const inTrialByDate = Boolean(trialEnd && trialEnd.getTime() > now.getTime());
+  const isTrialing = sub.status === "trialing" || (sub.status === "active" && inTrialByDate);
+
+  if (isTrialing && trialEnd) {
+    const msLeft = trialEnd.getTime() - now.getTime();
+    const daysRemaining = Math.max(0, Math.ceil(msLeft / MS_PER_DAY));
+    const day = daysRemaining === 0 ? 7 : Math.max(1, Math.min(7, 8 - daysRemaining));
+    return {
+      day,
+      daysRemaining,
+      isActive: sub.status === "trialing" || msLeft > 0,
+      isTrialing: true,
+      endDate: formatEndDate(trialEnd),
+      createdAt: sub.created_at ?? null,
+    };
+  }
+
+  return {
+    day: 7,
+    daysRemaining: 0,
+    isActive: isSubscriptionEntitled(sub, now),
+    isTrialing: false,
+    endDate: periodEnd ? formatEndDate(periodEnd) : trialEnd ? formatEndDate(trialEnd) : "",
+    createdAt: sub.created_at ?? null,
+  };
+}
+
+export function isSubscriptionEntitled(
+  sub: Pick<SubscriptionRow, "status" | "current_period_end"> | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!sub) return false;
+  if (LIVE_STATUSES.has(sub.status)) return true;
+  if (GRACE_STATUSES.has(sub.status)) {
+    const end = parseDate(sub.current_period_end);
+    return Boolean(end && end.getTime() > now.getTime());
+  }
+  return false;
+}
+
+// Day-6 reminder: trial_end is more than 24h away and at most 48h away, so
+// a once-daily cron fires once for a 7-day trial (the day before charge).
+export function isTrialEndInDay6Window(
+  trialEnd: string | Date | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  const end = parseDate(trialEnd);
+  if (!end) return false;
+  const ms = end.getTime() - now.getTime();
+  return ms > MS_PER_DAY && ms <= 2 * MS_PER_DAY;
+}
+
+export function trialReminderWindowBounds(now: Date = new Date()): {
+  after: string;
+  onOrBefore: string;
+} {
+  return {
+    after: new Date(now.getTime() + MS_PER_DAY).toISOString(),
+    onOrBefore: new Date(now.getTime() + 2 * MS_PER_DAY).toISOString(),
+  };
+}
+
 export function formatTrialStatus(status: TrialStatus): string {
-  if (!status.isActive) return "Trial ended";
-  return `Day ${status.day} of 7 — trial active`;
+  if (status.isTrialing && status.isActive) return `Day ${status.day} of 7 — trial active`;
+  if (status.isActive) return "Subscription active";
+  return "Trial ended";
 }
 
 export function formatTrialFooter(status: TrialStatus): string {
-  if (!status.isActive) return "Your free trial has ended. Manage in Settings.";
-  if (status.daysRemaining === 0) return "Last day of your free trial. Cancel anytime from Settings.";
-  return `${status.daysRemaining} ${status.daysRemaining === 1 ? "day" : "days"} remaining in your free trial. Cancel anytime from Settings — no hoops.`;
+  if (status.isTrialing) {
+    if (!status.isActive) return "Your free trial has ended. Manage in Settings.";
+    if (status.daysRemaining === 0) return "Last day of your free trial. Cancel anytime from Settings.";
+    return `${status.daysRemaining} ${status.daysRemaining === 1 ? "day" : "days"} remaining in your free trial. Cancel anytime from Settings — no hoops.`;
+  }
+  if (status.isActive) return "Cancel anytime from Settings — no hoops.";
+  return "Your free trial has ended. Manage in Settings.";
 }

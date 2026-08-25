@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 // The persistent app shell nav (built for the Day 11 UI/UX polish pass).
@@ -57,9 +58,19 @@ const SIGN_OUT_ICON = (
   </svg>
 );
 
+const BILLING_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+    <rect x="3" y="6" width="18" height="12" rx="2" />
+    <path d="M3 10h18" />
+    <path d="M7 15h3" />
+  </svg>
+);
+
 export default function AppSidebar({ email }: { email: string | null }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [portalError, setPortalError] = useState<string | null>(null);
 
   // The weekly-session split view is the one screen actively competing
   // with the sidebar for horizontal room (chat + live plan/calendar
@@ -74,6 +85,24 @@ export default function AppSidebar({ email }: { email: string | null }) {
     await supabase.auth.signOut();
     router.push("/");
     router.refresh();
+  }
+
+  async function openPortal() {
+    setPortalLoading(true);
+    setPortalError(null);
+    try {
+      const res = await fetch("/api/stripe/portal", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || typeof body.url !== "string") {
+        setPortalError(body.error ?? "Couldn't open billing settings.");
+        setPortalLoading(false);
+        return;
+      }
+      window.location.assign(body.url);
+    } catch {
+      setPortalError("Couldn't open billing settings.");
+      setPortalLoading(false);
+    }
   }
 
   function isActive(href: string) {
@@ -141,6 +170,25 @@ export default function AppSidebar({ email }: { email: string | null }) {
             {email}
           </span>
         )}
+        {portalError && (
+          <span className={collapsed ? "sr-only" : "text-xs text-red-600"}>{portalError}</span>
+        )}
+        <button
+          type="button"
+          onClick={() => void openPortal()}
+          disabled={portalLoading}
+          title="Manage subscription"
+          className={[
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
+            collapsed ? "md:justify-center md:px-2" : "",
+          ].join(" ")}
+        >
+          <span className={collapsed ? "hidden md:inline" : "hidden"}>{BILLING_ICON}</span>
+          <span className={collapsed ? "hidden" : "hidden md:inline"}>
+            {portalLoading ? "Opening…" : "Manage subscription"}
+          </span>
+          <span className="md:hidden">{portalLoading ? "Opening…" : "Manage subscription"}</span>
+        </button>
         <button
           onClick={signOut}
           title={collapsed ? `Sign out${email ? ` (${email})` : ""}` : undefined}
