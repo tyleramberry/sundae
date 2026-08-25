@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getStripe } from "@/lib/stripe/client";
+import {
+  checkoutSessionBelongsToUser,
+  stripeSubscriptionIsLive,
+} from "@/lib/stripe/checkout";
+import { stripeExpandableId } from "@/lib/stripe/webhook";
 import { isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -26,8 +32,31 @@ export async function GET() {
   }
 
   const row = sub as SubscriptionRow | null;
-  return NextResponse.json({
-    entitled: isSubscriptionEntitled(row),
-    status: row?.status ?? null,
-  });
+  let entitled = isSubscriptionEntitled(row);
+  let status = row?.status ?? null;
+
+  const sessionId = new URL(request.url).searchParams.get("session_id");
+  if (!entitled && sessionId && process.env.STRIPE_SECRET_KEY) {
+    try {
+      const stripe = getStripe();
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const customerId = row?.stripe_customer_id ?? null;
+      if (checkoutSessionBelongsToUser(session, user.id, customerId)) {
+        const subscriptionId = stripeExpandableId(
+          session.subscription as string | { id: string } | null,
+        );
+        if (subscriptionId) {
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          if (stripeSubscriptionIsLive(subscription.status)) {
+            entitled = true;
+            status = subscription.status;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[stripe/status] checkout session retrieve failed:", err);
+    }
+  }
+
+  return NextResponse.json({ entitled, status });
 }

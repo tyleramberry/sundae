@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe/client";
 import { getAppUrl } from "@/lib/appUrl";
 import {
+  canPersistPendingCheckoutRow,
   hasOpenStripeSubscription,
   pickStripeCustomerForUser,
   shouldBlockNewCheckout,
@@ -99,22 +100,28 @@ export async function POST() {
     );
   }
 
-  const pending = {
-    user_id: user.id,
-    stripe_customer_id: customerId,
-    stripe_subscription_id: null,
-    status: "incomplete",
-    cancel_at_period_end: false,
-    updated_at: new Date().toISOString(),
-  };
+  // Persist incomplete before sessions.create (first-time, expired checkout,
+  // and resubscribe after canceled/past_due). Open Stripe subs already 409'd
+  // above. trialing/active never reach here.
+  const existingStatus = typeof existing?.status === "string" ? existing.status : null;
+  if (canPersistPendingCheckoutRow(existingStatus)) {
+    const pending = {
+      user_id: user.id,
+      stripe_customer_id: customerId,
+      stripe_subscription_id: null,
+      status: "incomplete",
+      cancel_at_period_end: false,
+      updated_at: new Date().toISOString(),
+    };
 
-  const { error: persistError } = await supabase
-    .from("subscriptions")
-    .upsert(pending, { onConflict: "user_id" });
+    const { error: persistError } = await supabase
+      .from("subscriptions")
+      .upsert(pending, { onConflict: "user_id" });
 
-  if (persistError) {
-    console.error("[stripe/checkout] failed to persist incomplete row:", persistError);
-    return NextResponse.json({ error: "Couldn't start checkout." }, { status: 500 });
+    if (persistError) {
+      console.error("[stripe/checkout] failed to persist incomplete row:", persistError);
+      return NextResponse.json({ error: "Couldn't start checkout." }, { status: 500 });
+    }
   }
 
   let session;

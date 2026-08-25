@@ -10,17 +10,19 @@ export default function SubscribeCheckout({
   resubscribe,
   checkoutCanceled,
   checkoutSuccess,
+  checkoutSessionId,
 }: {
   resubscribe: boolean;
   checkoutCanceled: boolean;
   checkoutSuccess: boolean;
+  checkoutSessionId: string | null;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
 
   if (checkoutSuccess) {
-    return <CheckoutConfirming />;
+    return <CheckoutConfirming sessionId={checkoutSessionId} />;
   }
 
   async function startCheckout() {
@@ -97,7 +99,7 @@ export default function SubscribeCheckout({
   );
 }
 
-function CheckoutConfirming() {
+function CheckoutConfirming({ sessionId }: { sessionId: string | null }) {
   const router = useRouter();
 
   useEffect(() => {
@@ -111,7 +113,10 @@ function CheckoutConfirming() {
         return;
       }
       try {
-        const res = await fetch("/api/stripe/status");
+        const url = sessionId
+          ? `/api/stripe/status?session_id=${encodeURIComponent(sessionId)}`
+          : "/api/stripe/status";
+        const res = await fetch(url);
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.entitled === true) {
           router.replace("/dashboard");
@@ -131,7 +136,7 @@ function CheckoutConfirming() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, sessionId]);
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">

@@ -37,6 +37,32 @@ export function isRecentIncompleteCheckout(
   return now.getTime() - updated.getTime() <= IN_FLIGHT_CHECKOUT_LOCK_MS;
 }
 
+export function canPersistPendingCheckoutRow(status: string | null | undefined): boolean {
+  if (!status) return true;
+  return (
+    status === "incomplete" ||
+    status === "incomplete_expired" ||
+    status === "canceled" ||
+    status === "past_due"
+  );
+}
+
+export function checkoutSessionBelongsToUser(
+  session: {
+    metadata?: Record<string, string> | null;
+    client_reference_id?: string | null;
+    customer?: string | { id: string } | null;
+  },
+  userId: string,
+  stripeCustomerId: string | null,
+): boolean {
+  if (session.metadata?.supabase_user_id === userId) return true;
+  if (session.client_reference_id === userId) return true;
+  const customer =
+    typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
+  return Boolean(stripeCustomerId && customer === stripeCustomerId);
+}
+
 export function shouldBlockNewCheckout(existing: {
   status: string;
   updated_at?: string | null;
@@ -44,4 +70,8 @@ export function shouldBlockNewCheckout(existing: {
   if (!existing) return false;
   if (existing.status === "trialing" || existing.status === "active") return true;
   return isRecentIncompleteCheckout(existing.status, existing.updated_at ?? null, now);
+}
+
+export function stripeSubscriptionIsLive(status: string | null | undefined): boolean {
+  return status === "trialing" || status === "active";
 }

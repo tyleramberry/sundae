@@ -57,6 +57,7 @@ export default async function SubscribePage({
       resubscribe={params.reason === "resubscribe"}
       checkoutCanceled={checkoutCanceled}
       checkoutSuccess={pendingCheckout}
+      checkoutSessionId={params.session_id ?? null}
     />
   );
 }

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  canPersistPendingCheckoutRow,
+  checkoutSessionBelongsToUser,
   hasOpenStripeSubscription,
   isRecentIncompleteCheckout,
   pickStripeCustomerForUser,
@@ -74,6 +76,39 @@ describe("shouldBlockNewCheckout", () => {
     );
     assert.equal(shouldBlockNewCheckout({ status: "incomplete_expired" }, now), false);
     assert.equal(shouldBlockNewCheckout({ status: "canceled" }, now), false);
+  });
+});
+
+describe("canPersistPendingCheckoutRow", () => {
+  it("allows first-time, pending, canceled, and past_due — not live statuses", () => {
+    assert.equal(canPersistPendingCheckoutRow(null), true);
+    assert.equal(canPersistPendingCheckoutRow("incomplete"), true);
+    assert.equal(canPersistPendingCheckoutRow("incomplete_expired"), true);
+    assert.equal(canPersistPendingCheckoutRow("canceled"), true);
+    assert.equal(canPersistPendingCheckoutRow("past_due"), true);
+    assert.equal(canPersistPendingCheckoutRow("trialing"), false);
+    assert.equal(canPersistPendingCheckoutRow("active"), false);
+  });
+});
+
+describe("checkoutSessionBelongsToUser", () => {
+  it("accepts metadata, client_reference_id, or matching customer id", () => {
+    assert.equal(
+      checkoutSessionBelongsToUser({ metadata: { supabase_user_id: "u1" } }, "u1", null),
+      true,
+    );
+    assert.equal(
+      checkoutSessionBelongsToUser({ client_reference_id: "u1" }, "u1", "cus_x"),
+      true,
+    );
+    assert.equal(
+      checkoutSessionBelongsToUser({ customer: "cus_x" }, "u1", "cus_x"),
+      true,
+    );
+    assert.equal(
+      checkoutSessionBelongsToUser({ customer: "cus_other", metadata: {} }, "u1", "cus_x"),
+      false,
+    );
   });
 });
 
