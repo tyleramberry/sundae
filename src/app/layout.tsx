@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { getAppUrl } from "@/lib/appUrl";
+import { getLandingUrl } from "@/lib/appUrl";
 import PostHogProvider from "@/components/PostHogProvider";
 import MetaPixel from "@/components/MetaPixel";
 import MetaEvents from "@/components/MetaEvents";
@@ -26,18 +26,16 @@ const DESCRIPTION =
 // Every link to this app gets shared somewhere social (that's the whole
 // distribution plan), so a bare unfurl is a real cost.
 //
-// getAppUrl() (src/lib/appUrl.ts) is the existing single source of truth
-// for this -- respects NEXT_PUBLIC_APP_URL, falls back to the canonical
-// production domain, and resolves to localhost in dev. Using it here
-// instead of a hardcoded domain keeps metadata correct in every
-// environment this actually runs in, not just production.
+// getLandingUrl() (src/lib/appUrl.ts) returns the marketing domain
+// (sundaeplanner.com) so social unfurls point to the landing page, not
+// the app subdomain.
 export const metadata: Metadata = {
-  metadataBase: new URL(getAppUrl()),
+  metadataBase: new URL(getLandingUrl()),
   title: TITLE,
   description: DESCRIPTION,
   openGraph: {
     type: "website",
-    url: getAppUrl(),
+    url: getLandingUrl(),
     siteName: "Sundae",
     title: TITLE,
     description: DESCRIPTION,

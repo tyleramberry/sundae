@@ -29,7 +29,7 @@ export type DailyFollowUpEmail = {
 };
 
 function resolveAppUrl(appUrl?: string): string {
-  return appUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? (process.env.NODE_ENV === "production" ? "https://sundaeplanner.com" : "http://localhost:3000");
+  return appUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? (process.env.NODE_ENV === "production" ? "https://app.sundaeplanner.com" : "http://localhost:3000");
 }
 
 function escapeHtml(value: string): string {
