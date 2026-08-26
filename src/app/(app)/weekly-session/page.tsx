@@ -990,11 +990,11 @@ export default function WeeklySessionPage() {
               // Spec #1: build a single visual transcript that flows from the
               // planning conversation into the confirm-stage revision
               // conversation without a form-style divider. The synthetic
-              // "want to change anything, or should I lock this in?" bubble
-              // is inserted at the boundary so the stage transition reads as
-              // Sundae's next turn, not a UI switch. All three sources feed
-              // through the same turnMeta() so grouping / avatar suppression
-              // stay coherent across the boundary.
+              // "want to change anything, or should I add this to your calendar?"
+              // bubble is inserted at the boundary so the stage transition
+              // reads as Sundae's next turn, not a UI switch. All three
+              // sources feed through the same turnMeta() so grouping / avatar
+              // suppression stay coherent across the boundary.
               const showLockPrompt =
                 (stage === "confirming" || stage === "writing") && !!proposed;
               const combined: Turn[] = [
@@ -1004,8 +1004,8 @@ export default function WeeklySessionPage() {
                       {
                         from: "engine" as const,
                         text: describeConflicts().length > 0
-                          ? "Take a look — I've flagged a few blocks that overlap what's already on your calendar. Want to change anything, or should I lock it in?"
-                          : "Take a look — want to change anything, or should I lock it in?",
+                          ? "Take a look — I've flagged a few blocks that overlap what's already on your calendar. Want to change anything, or should I add this to your calendar?"
+                          : "Take a look — want to change anything, or should I add this to your calendar?",
                       },
                     ]
                   : []),
@@ -1029,10 +1029,10 @@ export default function WeeklySessionPage() {
             {stage === "confirming" || stage === "writing" ? (
               // Confirm stage compose: same chat input the rest of the
               // session uses (revisions are just chat turns), plus a
-              // primary "Lock it in" pill positioned as a natural next
-              // action, not a form submit. No divider, no separate
-              // "Confirm & write to calendar" language -- Sundae asked the
-              // question inline above; this is the reply.
+              // primary "Add to calendar?" pill positioned as a natural next
+              // action, not a form submit. The label must be explicit that
+              // confirming writes to Google Calendar (OAuth verification).
+              // Sundae asked the question inline above; this is the reply.
               <div className="flex flex-col gap-3">
                 <form onSubmit={handleReviseSubmit} className="flex gap-3">
                   <input
@@ -1056,7 +1056,7 @@ export default function WeeklySessionPage() {
                   disabled={stage === "writing" || revising}
                   className="self-start rounded-full bg-emerald-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:text-white"
                 >
-                  {stage === "writing" ? "Locking it in…" : "Lock it in"}
+                  {stage === "writing" ? "Adding to calendar…" : "Add to calendar?"}
                 </button>
               </div>
             ) : (
