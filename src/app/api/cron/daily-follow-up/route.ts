@@ -101,7 +101,11 @@ export async function GET(request: Request) {
           continue;
         }
 
-        await sendTrialReminderEmail({ to: userResult.user.email });
+        await sendTrialReminderEmail({
+          to: userResult.user.email,
+          userId,
+          trialEnd: row.trial_end as string | null,
+        });
         trialRemindersSent += 1;
       } catch (err) {
         const message =
