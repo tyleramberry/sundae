@@ -38,7 +38,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await processMessage({ message: body.message, state: body.state });
+    const result = await processMessage({
+      message: body.message,
+      state: body.state,
+      userId: user.id,
+    });
     return NextResponse.json(result);
   } catch (error) {
     console.error("Engine step failed:", error);

@@ -16,8 +16,9 @@
 // outward contract (message + state in, reply + state + action out) is
 // unchanged -- only what happens inside `processMessage` is different.
 
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicModel } from "@/lib/anthropic/model";
+import { createTracedMessage, llmSessionId } from "@/lib/anthropic/traced";
 import {
   type ConversationState,
   type EngineInput,
@@ -25,8 +26,6 @@ import {
   type RoleAnswer,
   initialConversationState,
 } from "@/lib/engine/types";
-
-const client = new Anthropic();
 
 const MODEL = getAnthropicModel();
 
@@ -117,22 +116,29 @@ export async function processMessage(input: EngineInput): Promise<EngineOutput> 
     ? [...state.turns, { role: "user" as const, content: message }]
     : state.turns;
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1024,
-    thinking: { type: "disabled" },
-    // Fully static, byte-identical across every onboarding turn for every
-    // user -- a straightforward cache breakpoint, same win as
-    // weeklySession.ts's system prompt (see that file for the version with
-    // per-session dynamic content that has to stay out of the cached block).
-    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-    tools: [TOOL],
-    tool_choice: { type: "tool", name: "onboarding_turn" },
-    messages:
-      turnsWithUserMessage.length > 0
-        ? turnsWithUserMessage.map((t) => ({ role: t.role, content: t.content }))
-        : [{ role: "user", content: "(start the conversation)" }],
-  });
+  const response = await createTracedMessage(
+    {
+      model: MODEL,
+      max_tokens: 1024,
+      thinking: { type: "disabled" },
+      // Fully static, byte-identical across every onboarding turn for every
+      // user -- a straightforward cache breakpoint, same win as
+      // weeklySession.ts's system prompt (see that file for the version with
+      // per-session dynamic content that has to stay out of the cached block).
+      system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+      tools: [TOOL],
+      tool_choice: { type: "tool", name: "onboarding_turn" },
+      messages:
+        turnsWithUserMessage.length > 0
+          ? turnsWithUserMessage.map((t) => ({ role: t.role, content: t.content }))
+          : [{ role: "user", content: "(start the conversation)" }],
+    },
+    {
+      distinctId: input.userId,
+      sessionId: llmSessionId(input.userId, "onboarding"),
+      spanName: "onboarding",
+    },
+  );
 
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",

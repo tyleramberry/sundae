@@ -158,6 +158,7 @@ export async function POST(request: Request) {
       // that loop.
       lockedActions: transcript?.actions_so_far ?? [],
       calendarSummary,
+      userId: user.id,
     });
 
     const trimmedMessage = body.message.trim();

@@ -67,7 +67,7 @@ async function sendRecapBestEffort(
     }));
     const roleKpis = computeKpisForRoles(roles, groupItemsByRole(kpiItems));
 
-    const recap = await getSessionRecap(transcript);
+    const recap = await getSessionRecap(transcript, userId);
 
     await sendSessionRecapEmail({
       to: userEmail,

@@ -39,6 +39,8 @@ export type EngineInput = {
   message: string;
   // Pass null/omit to start a fresh conversation.
   state?: ConversationState | null;
+  // Optional PostHog distinct id for LLM traces. Omit for anonymous debug.
+  userId?: string;
 };
 
 export type EngineOutput = {

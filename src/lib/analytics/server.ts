@@ -9,7 +9,7 @@ function getPostHogKey(): string | undefined {
   return key && key.trim() ? key.trim() : undefined;
 }
 
-function getPostHog(): PostHog | null {
+export function getPostHogClient(): PostHog | null {
   const key = getPostHogKey();
   if (!key) return null;
   if (!client) {
@@ -30,7 +30,7 @@ export async function captureServerEvent({
   properties?: Record<string, unknown>;
 }): Promise<void> {
   try {
-    const posthog = getPostHog();
+    const posthog = getPostHogClient();
     if (!posthog) return;
     // captureImmediate flushes in this posthog-node version (no public flush()).
     await posthog.captureImmediate({

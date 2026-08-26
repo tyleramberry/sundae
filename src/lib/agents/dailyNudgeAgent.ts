@@ -17,11 +17,10 @@
 // caller falls back to a deterministic line -- see buildFallbackNudgeCopy
 // below -- so a Claude outage never blocks the actual email from sending.
 
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicModel } from "@/lib/anthropic/model";
+import { createTracedMessage, llmSessionId } from "@/lib/anthropic/traced";
 import type { OngoingProject, TodayBrief, TodayItem } from "@/lib/dailyBrief/gather";
-
-const client = new Anthropic();
 
 const MODEL = getAnthropicModel();
 
@@ -75,7 +74,7 @@ function describeProject(project: OngoingProject): string {
 // The real Claude call. Exported mainly so it can be tested/inspected on
 // its own -- callers building the actual email should use
 // getNudgeCopy below, which adds the fallback.
-export async function generateNudgeCopy(brief: TodayBrief): Promise<NudgeCopy> {
+export async function generateNudgeCopy(brief: TodayBrief, userId?: string): Promise<NudgeCopy> {
   const userContent = [
     `Today: ${brief.weekdayLabel}`,
     "",
@@ -88,15 +87,22 @@ export async function generateNudgeCopy(brief: TodayBrief): Promise<NudgeCopy> {
       : "Ongoing projects: none in progress this week.",
   ].join("\n");
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 512,
-    thinking: { type: "disabled" },
-    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-    tools: [TOOL],
-    tool_choice: { type: "tool", name: "write_nudge_copy" },
-    messages: [{ role: "user", content: userContent }],
-  });
+  const response = await createTracedMessage(
+    {
+      model: MODEL,
+      max_tokens: 512,
+      thinking: { type: "disabled" },
+      system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+      tools: [TOOL],
+      tool_choice: { type: "tool", name: "write_nudge_copy" },
+      messages: [{ role: "user", content: userContent }],
+    },
+    {
+      distinctId: userId,
+      sessionId: llmSessionId(userId, `daily-nudge:${brief.dateISO}`),
+      spanName: "daily-nudge",
+    },
+  );
 
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
@@ -133,9 +139,9 @@ export function buildFallbackNudgeCopy(brief: TodayBrief): NudgeCopy {
 
 // What callers should actually use: try the real agent, fall back to the
 // deterministic copy on any failure so a send is never blocked by it.
-export async function getNudgeCopy(brief: TodayBrief): Promise<NudgeCopy> {
+export async function getNudgeCopy(brief: TodayBrief, userId?: string): Promise<NudgeCopy> {
   try {
-    return await generateNudgeCopy(brief);
+    return await generateNudgeCopy(brief, userId);
   } catch (error) {
     console.error("Daily-nudge agent failed, using fallback copy:", error);
     return buildFallbackNudgeCopy(brief);
