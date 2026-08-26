@@ -5,6 +5,7 @@ import { getAppUrl } from "@/lib/appUrl";
 import {
   canPersistPendingCheckoutRow,
   hasOpenStripeSubscription,
+  isStripeMissingCustomerError,
   pickStripeCustomerForUser,
   shouldBlockNewCheckout,
 } from "@/lib/stripe/checkout";
@@ -83,11 +84,30 @@ export async function POST() {
     return NextResponse.json({ error: "Couldn't create a billing customer." }, { status: 500 });
   }
 
-  const listed = await stripe.subscriptions.list({
-    customer: customerId,
-    status: "all",
-    limit: 100,
-  });
+  let listed;
+  try {
+    listed = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "all",
+      limit: 100,
+    });
+  } catch (err) {
+    if (!isStripeMissingCustomerError(err)) {
+      console.error("[stripe/checkout] subscriptions.list failed:", err);
+      return NextResponse.json({ error: "Couldn't start checkout." }, { status: 500 });
+    }
+    // Test-mode (or deleted) customer IDs 404 after switching to live keys.
+    console.warn("[stripe/checkout] stored customer missing in Stripe; creating a new one");
+    customerId = await findOrCreateStripeCustomer(stripe, user.id, user.email ?? null);
+    if (!customerId) {
+      return NextResponse.json({ error: "Couldn't create a billing customer." }, { status: 500 });
+    }
+    listed = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "all",
+      limit: 100,
+    });
+  }
   if (hasOpenStripeSubscription(listed.data.map((s) => s.status))) {
     const portalUrl = await portalUrlForCustomer(stripe, customerId);
     return NextResponse.json(

@@ -8,6 +8,7 @@ import {
   isRecentIncompleteCheckout,
   pickStripeCustomerForUser,
   shouldBlockNewCheckout,
+  isStripeMissingCustomerError,
   type StripeCustomerLike,
 } from "./checkout";
 import { resolveWebhookSubscriptionOwner } from "./webhook";
@@ -28,6 +29,20 @@ describe("pickStripeCustomerForUser", () => {
       { id: "cus_unlabeled", metadata: null },
     ];
     assert.equal(pickStripeCustomerForUser(customers, "user-a"), null);
+  });
+});
+
+describe("isStripeMissingCustomerError", () => {
+  it("matches Stripe resource_missing on the customer param", () => {
+    assert.equal(
+      isStripeMissingCustomerError({ code: "resource_missing", param: "customer" }),
+      true,
+    );
+    assert.equal(
+      isStripeMissingCustomerError({ code: "resource_missing", param: "price" }),
+      false,
+    );
+    assert.equal(isStripeMissingCustomerError(new Error("nope")), false);
   });
 });
 

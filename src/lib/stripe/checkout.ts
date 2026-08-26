@@ -76,6 +76,14 @@ export function stripeSubscriptionIsLive(status: string | null | undefined): boo
   return status === "trialing" || status === "active";
 }
 
+// Test-mode customers (or deleted ones) 404 in live. Checkout must not
+// reuse a stripe_customer_id that Stripe no longer has.
+export function isStripeMissingCustomerError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; param?: string };
+  return e.code === "resource_missing" && e.param === "customer";
+}
+
 export function checkoutSessionLooksFulfilled(session: {
   status?: string | null;
   payment_status?: string | null;
