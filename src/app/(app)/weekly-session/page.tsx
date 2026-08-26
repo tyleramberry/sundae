@@ -1029,7 +1029,7 @@ export default function WeeklySessionPage() {
             {stage === "confirming" || stage === "writing" ? (
               // Confirm stage compose: same chat input the rest of the
               // session uses (revisions are just chat turns), plus a
-              // primary "Add to calendar?" pill positioned as a natural next
+              // primary "Add to calendar" pill positioned as a natural next
               // action, not a form submit. The label must be explicit that
               // confirming writes to Google Calendar (OAuth verification).
               // Sundae asked the question inline above; this is the reply.
@@ -1056,7 +1056,7 @@ export default function WeeklySessionPage() {
                   disabled={stage === "writing" || revising}
                   className="self-start rounded-full bg-emerald-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:text-white"
                 >
-                  {stage === "writing" ? "Adding to calendar…" : "Add to calendar?"}
+                  {stage === "writing" ? "Adding to calendar…" : "Add to calendar"}
                 </button>
               </div>
             ) : (
