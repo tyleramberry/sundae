@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getAppUrl } from "@/lib/appUrl";
 
-const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
+// Scoped to individual events on the primary calendar only -- every call in
+// src/lib/google/calendar.ts targets /calendars/primary/events (list,
+// create, get-by-id, delete). Nothing in the app manages calendar settings,
+// ACLs, or whole calendars, so the broader auth/calendar scope isn't needed;
+// calendar.events covers every real code path 1:1. Narrower scope also
+// makes the OAuth verification review's data-minimization question
+// (see docs/) honestly answerable.
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
 // Shared Google OAuth entry point -- used on both the landing page CTA and
 // the /login page so there's one definition of the scope + offline-token
