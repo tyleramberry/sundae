@@ -4,14 +4,13 @@
 // src/lib/agents/sessionRecapAgent.ts) and a KPI tile per role for the
 // week that just closed out (real numbers, computed the same way the
 // dashboard does -- see src/lib/kpi/compute.ts -- not narrated by a
-// model). Same raw-fetch-against-Resend style as dailyFollowUp.ts.
+// model). Sends through the shared Resend Node.js SDK helper in send.ts.
 
 import type { RoleKpi } from "@/lib/kpi/compute";
 import type { SessionRecap } from "@/lib/agents/sessionRecapAgent";
+import { EmailError, sendResendEmail } from "@/lib/email/send";
 
-const RESEND_API = "https://api.resend.com/emails";
-
-export class EmailError extends Error {}
+export { EmailError };
 
 export type SessionRecapEmail = {
   subject: string;
@@ -130,6 +129,7 @@ export function buildSessionRecapEmail(
 
 export type SendSessionRecapInput = {
   to: string;
+  userId: string;
   weekStart: string;
   recap: SessionRecap;
   roleKpis: RoleKpi[];
@@ -139,32 +139,21 @@ export type SendSessionRecapInput = {
 export async function sendSessionRecapEmail(
   input: SendSessionRecapInput,
 ): Promise<{ id: string }> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    throw new EmailError(
-      "RESEND_API_KEY is not set. Add a Resend API key to .env.local (and RESEND_FROM_EMAIL, once a sending domain is verified) to send real email.",
-    );
-  }
-
-  const from = process.env.RESEND_FROM_EMAIL ?? "Sundae <onboarding@resend.dev>";
   const { subject, html, text } = buildSessionRecapEmail(
     { weekStart: input.weekStart, recap: input.recap, roleKpis: input.roleKpis },
     input.appUrl,
   );
 
-  const response = await fetch(RESEND_API, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from, to: input.to, subject, html, text }),
+  return sendResendEmail({
+    to: input.to,
+    subject,
+    html,
+    text,
+    idempotencyKey: `session-recap/${input.userId}/${input.weekStart}`,
+    tags: [
+      { name: "category", value: "session-recap" },
+      { name: "user_id", value: input.userId },
+    ],
+    label: "session-recap email",
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new EmailError(`Failed to send session-recap email: ${body}`);
-  }
-
-  return response.json();
 }

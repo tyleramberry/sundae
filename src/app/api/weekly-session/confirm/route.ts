@@ -71,6 +71,7 @@ async function sendRecapBestEffort(
 
     await sendSessionRecapEmail({
       to: userEmail,
+      userId,
       weekStart: lastWeek.weekStart,
       recap,
       roleKpis,

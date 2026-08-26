@@ -1,7 +1,5 @@
 import { getAppUrl } from "@/lib/appUrl";
-import { EmailError } from "@/lib/email/dailyFollowUp";
-
-const RESEND_API = "https://api.resend.com/emails";
+import { sendResendEmail } from "@/lib/email/send";
 
 export type TrialReminderEmail = {
   subject: string;
@@ -57,32 +55,23 @@ export function buildTrialReminderEmail(appUrl?: string): TrialReminderEmail {
 
 export async function sendTrialReminderEmail(input: {
   to: string;
+  userId: string;
+  trialEnd?: string | null;
   appUrl?: string;
 }): Promise<{ id: string }> {
   const { subject, html, text } = buildTrialReminderEmail(input.appUrl);
+  const trialKey = (input.trialEnd ?? new Date().toISOString()).slice(0, 10);
 
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    throw new EmailError(
-      "RESEND_API_KEY is not set. Add a Resend API key to .env.local (and RESEND_FROM_EMAIL, once a sending domain is verified) to send real email.",
-    );
-  }
-
-  const from = process.env.RESEND_FROM_EMAIL ?? "Sundae <onboarding@resend.dev>";
-
-  const response = await fetch(RESEND_API, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from, to: input.to, subject, html, text }),
+  return sendResendEmail({
+    to: input.to,
+    subject,
+    html,
+    text,
+    idempotencyKey: `trial-reminder/${input.userId}/${trialKey}`,
+    tags: [
+      { name: "category", value: "trial-reminder" },
+      { name: "user_id", value: input.userId },
+    ],
+    label: "trial reminder email",
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new EmailError(`Failed to send trial reminder email: ${body}`);
-  }
-
-  return response.json();
 }

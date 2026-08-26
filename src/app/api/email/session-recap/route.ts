@@ -74,6 +74,7 @@ export async function POST() {
 
     const result = await sendSessionRecapEmail({
       to: user.email,
+      userId: user.id,
       weekStart: lastWeek.weekStart,
       recap,
       roleKpis,

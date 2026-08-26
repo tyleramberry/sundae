@@ -10,17 +10,15 @@
 // src/lib/agents/dailyNudgeAgent.ts -- see that file's header for why it's
 // split out rather than folded in here.
 //
-// Raw fetch against Resend's REST API, same style as calendar.ts's Google
-// Calendar calls -- no SDK dependency for a one-endpoint integration.
+// Sends through the shared Resend Node.js SDK helper in send.ts.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getTodayBrief, type TodayBrief } from "@/lib/dailyBrief/gather";
 import { getNudgeCopy, type NudgeCopy } from "@/lib/agents/dailyNudgeAgent";
 import { formatTrialFooter, getSubscriptionStatus, getTrialStatus, type SubscriptionRow } from "@/lib/trial";
+import { EmailError, sendResendEmail } from "@/lib/email/send";
 
-const RESEND_API = "https://api.resend.com/emails";
-
-export class EmailError extends Error {}
+export { EmailError };
 
 export type DailyFollowUpEmail = {
   subject: string;
@@ -178,28 +176,18 @@ export async function sendDailyFollowUpEmail(
     input.subscription,
   );
 
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    throw new EmailError(
-      "RESEND_API_KEY is not set. Add a Resend API key to .env.local (and RESEND_FROM_EMAIL, once a sending domain is verified) to send real email.",
-    );
-  }
+  const dayKey = (input.referenceDate ?? new Date()).toISOString().slice(0, 10);
 
-  const from = process.env.RESEND_FROM_EMAIL ?? "Sundae <onboarding@resend.dev>";
-
-  const response = await fetch(RESEND_API, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from, to: input.to, subject, html, text }),
+  return sendResendEmail({
+    to: input.to,
+    subject,
+    html,
+    text,
+    idempotencyKey: `daily-follow-up/${input.userId}/${dayKey}`,
+    tags: [
+      { name: "category", value: "daily-follow-up" },
+      { name: "user_id", value: input.userId },
+    ],
+    label: "daily follow-up email",
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new EmailError(`Failed to send daily follow-up email: ${body}`);
-  }
-
-  return response.json();
 }
