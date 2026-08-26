@@ -169,7 +169,7 @@ export async function sendDailyFollowUpEmail(
   // sending is configured yet. A missing RESEND_API_KEY shouldn't hide a
   // real bug in the brief or the agent behind an earlier, unrelated error.
   const brief = await getTodayBrief(input.supabase, input.userId, input.referenceDate);
-  const copy = await getNudgeCopy(brief);
+  const copy = await getNudgeCopy(brief, input.userId);
   const { subject, html, text } = buildDailyFollowUpEmail(
     brief,
     copy,

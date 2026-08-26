@@ -45,6 +45,7 @@ export async function POST(request: Request) {
     const result = await revisePlan({
       actions: body.actions,
       message: body.message,
+      userId: user.id,
     });
     return NextResponse.json(result);
   } catch (error) {

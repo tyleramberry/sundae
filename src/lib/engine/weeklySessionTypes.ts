@@ -173,6 +173,8 @@ export type WeeklySessionInput = {
   // still usually right, just not guaranteed to match the user like the
   // browser-supplied one is.
   timeZone?: string;
+  // Optional PostHog distinct id for LLM traces. Omit for anonymous debug.
+  userId?: string;
 };
 
 export type WeeklySessionAction =

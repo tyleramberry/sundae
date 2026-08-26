@@ -18,11 +18,10 @@
 // never blocks the confirm step or the recap email from going out with at
 // least the KPI numbers.
 
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicModel } from "@/lib/anthropic/model";
+import { createTracedMessage, llmSessionId } from "@/lib/anthropic/traced";
 import type { Turn } from "@/lib/engine/types";
-
-const client = new Anthropic();
 
 const MODEL = getAnthropicModel();
 
@@ -74,20 +73,30 @@ function transcriptToText(turns: Turn[]): string {
 // The real Claude call. Exported so it can be inspected/tested on its own
 // -- callers building the actual recap should use getSessionRecap below,
 // which adds the fallback.
-export async function extractSessionRecap(turns: Turn[]): Promise<SessionRecap> {
+export async function extractSessionRecap(
+  turns: Turn[],
+  userId?: string,
+): Promise<SessionRecap> {
   if (turns.length === 0) {
     return { wins: [], improvements: [] };
   }
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 512,
-    thinking: { type: "disabled" },
-    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-    tools: [TOOL],
-    tool_choice: { type: "tool", name: "extract_recap" },
-    messages: [{ role: "user", content: `Transcript:\n\n${transcriptToText(turns)}` }],
-  });
+  const response = await createTracedMessage(
+    {
+      model: MODEL,
+      max_tokens: 512,
+      thinking: { type: "disabled" },
+      system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+      tools: [TOOL],
+      tool_choice: { type: "tool", name: "extract_recap" },
+      messages: [{ role: "user", content: `Transcript:\n\n${transcriptToText(turns)}` }],
+    },
+    {
+      distinctId: userId,
+      sessionId: llmSessionId(userId, "session-recap"),
+      spanName: "session-recap",
+    },
+  );
 
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
@@ -106,9 +115,9 @@ export async function extractSessionRecap(turns: Turn[]): Promise<SessionRecap> 
 // What callers should actually use: try the real agent, fall back to empty
 // lists on any failure so the recap email still goes out with the KPI
 // numbers, just without the wins/improvements section.
-export async function getSessionRecap(turns: Turn[]): Promise<SessionRecap> {
+export async function getSessionRecap(turns: Turn[], userId?: string): Promise<SessionRecap> {
   try {
-    return await extractSessionRecap(turns);
+    return await extractSessionRecap(turns, userId);
   } catch (error) {
     console.error("Session-recap agent failed, sending recap without wins/improvements:", error);
     return { wins: [], improvements: [] };

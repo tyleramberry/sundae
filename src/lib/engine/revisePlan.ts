@@ -14,11 +14,10 @@
 // on the returned actions, so all the scheduling rules (one-habit-block-per
 // -day, honoring a named weekday) stay in exactly one place.
 
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicModel } from "@/lib/anthropic/model";
+import { createTracedMessage, llmSessionId } from "@/lib/anthropic/traced";
 import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
-
-const client = new Anthropic();
 
 const MODEL = getAnthropicModel();
 
@@ -122,6 +121,7 @@ type ToolInput = {
 export type RevisePlanInput = {
   actions: ClassifiedAction[];
   message: string;
+  userId?: string;
 };
 
 export type RevisePlanOutput = {
@@ -130,20 +130,27 @@ export type RevisePlanOutput = {
 };
 
 export async function revisePlan(input: RevisePlanInput): Promise<RevisePlanOutput> {
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1536,
-    thinking: { type: "disabled" },
-    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-    tools: [TOOL],
-    tool_choice: { type: "tool", name: "revise_plan" },
-    messages: [
-      {
-        role: "user",
-        content: `Current plan:\n${JSON.stringify(input.actions, null, 2)}\n\nRequested change:\n${input.message}`,
-      },
-    ],
-  });
+  const response = await createTracedMessage(
+    {
+      model: MODEL,
+      max_tokens: 1536,
+      thinking: { type: "disabled" },
+      system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+      tools: [TOOL],
+      tool_choice: { type: "tool", name: "revise_plan" },
+      messages: [
+        {
+          role: "user",
+          content: `Current plan:\n${JSON.stringify(input.actions, null, 2)}\n\nRequested change:\n${input.message}`,
+        },
+      ],
+    },
+    {
+      distinctId: input.userId,
+      sessionId: llmSessionId(input.userId, "revise-plan"),
+      spanName: "revise-plan",
+    },
+  );
 
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",

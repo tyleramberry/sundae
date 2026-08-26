@@ -17,9 +17,10 @@
 // bar, then the action items that make that goal a plan -- before anything
 // gets classified into a Habit, Goal, or Project.
 
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { DateTime } from "luxon";
 import { getAnthropicModel } from "@/lib/anthropic/model";
+import { createTracedMessage, llmSessionId } from "@/lib/anthropic/traced";
 import type {
   ClassifiedAction,
   ConversationState,
@@ -30,8 +31,6 @@ import type {
 } from "@/lib/engine/weeklySessionTypes";
 import { withPersonalRole } from "@/lib/engine/weeklySessionTypes";
 import { stabilizeActions } from "@/lib/engine/stabilizeActions";
-
-const client = new Anthropic();
 
 const MODEL = getAnthropicModel();
 
@@ -429,24 +428,32 @@ export async function processWeeklySessionMessage(
         }))
       : [{ role: "user" as const, content: "(start the session)" }];
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1536,
-    thinking: { type: "disabled" },
-    system: buildSystemBlocks(
-      mode,
-      roles,
-      input.lastWeek,
-      lockedActions,
-      input.weekLabel,
-      input.weekStart,
-      input.calendarSummary,
-      input.timeZone,
-    ),
-    tools: [buildTool(mode)],
-    tool_choice: { type: "tool", name: "weekly_session_turn" },
-    messages,
-  });
+  const weekSuffix = input.weekStart ? `weekly:${input.weekStart}` : "weekly";
+  const response = await createTracedMessage(
+    {
+      model: MODEL,
+      max_tokens: 1536,
+      thinking: { type: "disabled" },
+      system: buildSystemBlocks(
+        mode,
+        roles,
+        input.lastWeek,
+        lockedActions,
+        input.weekLabel,
+        input.weekStart,
+        input.calendarSummary,
+        input.timeZone,
+      ),
+      tools: [buildTool(mode)],
+      tool_choice: { type: "tool", name: "weekly_session_turn" },
+      messages,
+    },
+    {
+      distinctId: input.userId,
+      sessionId: llmSessionId(input.userId, `${weekSuffix}:${mode}`),
+      spanName: mode === "addendum" ? "weekly-session-addendum" : "weekly-session",
+    },
+  );
 
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
