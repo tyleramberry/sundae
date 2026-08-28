@@ -2,6 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { saveGoogleTokens } from "@/lib/google/tokens";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
+import { getOnboardingSurveyAnswers } from "@/lib/onboardingSurvey/persist";
+import {
+  isOnboardingPath,
+  isProductOnboardingComplete,
+  resolvePostAuthDestination,
+} from "@/lib/onboarding/status";
 import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
 import { captureServerEvent } from "@/lib/analytics/server";
 import { appendSearchParam, isNewSignup } from "@/lib/analytics/signup";
@@ -73,23 +79,34 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // An explicit deep-link destination wins. Otherwise, route new users into
-  // onboarding (survey -> demo -> hype -> subscribe) and returning users --
-  // anyone who's already completed Stage 0, so `onboarding_answers` exists --
-  // into subscribe or the app depending on billing.
+  // An explicit deep-link destination wins, except next=/onboarding for a
+  // user who already finished the product onboarding -- that stale next is
+  // what the unsigned /onboarding page itself sets, and must not send them
+  // through the survey again. Completion lives on the user row
+  // (onboarding_survey.completed_at / demo_goal_text, or the older
+  // onboarding_answers Stage 0 row). Logout only clears the session.
   let destination = next;
-  if (!destination) {
+  if (!destination || isOnboardingPath(destination)) {
+    let answers = null;
+    let survey = null;
     try {
-      const answers = await getOnboardingAnswers(supabase, user.id);
-      destination = answers ? "/dashboard" : "/onboarding";
+      answers = await getOnboardingAnswers(supabase, user.id);
     } catch (err) {
-      // Same reasoning: session is already valid. If we can't tell whether
-      // they've onboarded, /onboarding is the safer fallback -- /dashboard
-      // would fail anyway if the DB is unreachable, and /onboarding is
-      // self-guarding for the returning-user case.
       console.error("[auth/callback] failed to read onboarding answers:", err);
-      destination = "/onboarding";
     }
+    try {
+      survey = await getOnboardingSurveyAnswers(supabase, user.id);
+    } catch (err) {
+      console.error("[auth/callback] failed to read onboarding survey:", err);
+    }
+    const onboardingComplete = isProductOnboardingComplete({
+      survey,
+      hasOnboardingAnswers: Boolean(answers),
+    });
+    destination = resolvePostAuthDestination({
+      next: destination,
+      onboardingComplete,
+    });
   }
 
   destination = await applyBillingRedirect(supabase, user.id, destination);
@@ -126,7 +143,7 @@ async function applyBillingRedirect(
   destination: string,
 ): Promise<string> {
   if (!isBillingEnforced()) return destination;
-  if (destination === "/onboarding" || destination.startsWith("/onboarding?")) return destination;
+  if (isOnboardingPath(destination)) return destination;
   if (destination === "/subscribe" || destination.startsWith("/subscribe?")) return destination;
   if (!isAppDestination(destination)) return destination;
 

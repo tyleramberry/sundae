@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 // New onboarding (Day 7 redesign): survey -> live demo -> hype -> subscribe
 // (Stripe Checkout) before the first weekly session. Replaces the old chat-transcript
@@ -20,34 +19,18 @@ import { createClient } from "@/lib/supabase/client";
 //   means nobody exits having only half-learned the product.
 export default function OnboardingPage() {
   const router = useRouter();
-  const [authChecked, setAuthChecked] = useState(false);
   const [screenIndex, setScreenIndex] = useState(0);
   const screen = SCREEN_ORDER[screenIndex];
+  const [finishing, setFinishing] = useState(false);
 
   const [heardFrom, setHeardFrom] = useState<string | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
   const [motivations, setMotivations] = useState<string[]>([]);
   const [demoResult, setDemoResult] = useState<DemoResult | null>(null);
 
-  useEffect(() => {
-    void (async () => {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        router.replace("/login?next=/onboarding");
-        return;
-      }
-      setAuthChecked(true);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Fire-and-forget on purpose: this is funnel/context data, not anything
-  // the current screen's own success depends on, so a hiccup here shouldn't
-  // stall the hype train. See src/lib/onboardingSurvey/persist.ts.
+  // Auth + "already finished" is enforced by src/app/onboarding/layout.tsx.
+  // Incremental survey answers stay fire-and-forget; the hype CTA awaits
+  // completed: true so logout + login cannot race the persist.
   function saveSurveyPatch(patch: Record<string, unknown>) {
     void fetch("/api/onboarding/survey", {
       method: "POST",
@@ -56,16 +39,23 @@ export default function OnboardingPage() {
     }).catch((err) => console.error("Failed to save survey answer:", err));
   }
 
-  function goNext() {
-    setScreenIndex((i) => Math.min(i + 1, SCREEN_ORDER.length - 1));
+  async function finishOnboarding() {
+    if (finishing) return;
+    setFinishing(true);
+    try {
+      await fetch("/api/onboarding/survey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: true }),
+      });
+    } catch (err) {
+      console.error("Failed to mark onboarding complete:", err);
+    }
+    router.push("/subscribe");
   }
 
-  if (!authChecked) {
-    return (
-      <div className="flex flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
-      </div>
-    );
+  function goNext() {
+    setScreenIndex((i) => Math.min(i + 1, SCREEN_ORDER.length - 1));
   }
 
   return (
@@ -139,7 +129,11 @@ export default function OnboardingPage() {
         )}
 
         {screen === "hype" && demoResult && (
-          <HypeScreen result={demoResult} onContinue={() => router.push("/subscribe")} />
+          <HypeScreen
+            result={demoResult}
+            finishing={finishing}
+            onContinue={() => void finishOnboarding()}
+          />
         )}
       </div>
     </div>
@@ -584,7 +578,15 @@ function phaseAtLeast(current: DemoPhase, target: DemoPhase): boolean {
 // Hype screen — picks up exactly where the demo left off. The stat here is
 // real (how long that just took), not a fabricated marketing number.
 
-function HypeScreen({ result, onContinue }: { result: DemoResult; onContinue: () => void }) {
+function HypeScreen({
+  result,
+  onContinue,
+  finishing,
+}: {
+  result: DemoResult;
+  onContinue: () => void;
+  finishing: boolean;
+}) {
   const weeklyHoursIfEveryGoal = ((result.blockMinutes * 4) / 60).toFixed(1);
 
   return (
@@ -612,7 +614,7 @@ function HypeScreen({ result, onContinue }: { result: DemoResult; onContinue: ()
         </p>
       </div>
 
-      <ContinueButton disabled={false} onClick={onContinue}>
+      <ContinueButton disabled={finishing} onClick={onContinue}>
         Start your 7-day trial →
       </ContinueButton>
     </div>
