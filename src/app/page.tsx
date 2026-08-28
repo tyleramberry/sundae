@@ -7,8 +7,9 @@ import Reveal from "@/components/Reveal";
 // Marketing landing page -- the ad destination. Explains the product and
 // hands off straight into Google OAuth (top nav + hero + closing CTA all
 // launch the same sign-in). After login, /auth/callback routes new users
-// into onboarding, then subscribe; returning users without a subscription
-// land on /subscribe, entitled users on the dashboard.
+// into onboarding, then subscribe; returning users who already finished
+// onboarding skip it (entitled users land on the dashboard, others on
+// /subscribe).
 //
 // Structure note: this page scrolls. It used to be a single centered
 // viewport-height column, which was invisible on the page's own terms --

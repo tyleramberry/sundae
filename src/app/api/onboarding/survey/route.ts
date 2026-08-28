@@ -40,6 +40,7 @@ export async function POST(request: Request) {
     weeklyRoles?: unknown;
     goalsForSundae?: unknown;
     demoGoalText?: unknown;
+    completed?: unknown;
   } | null;
 
   if (!body) {
@@ -53,12 +54,13 @@ export async function POST(request: Request) {
     (body.heardFrom !== undefined && typeof body.heardFrom !== "string") ||
     (body.weeklyRoles !== undefined && !isStringArray(body.weeklyRoles)) ||
     (body.goalsForSundae !== undefined && !isStringArray(body.goalsForSundae)) ||
-    (body.demoGoalText !== undefined && typeof body.demoGoalText !== "string")
+    (body.demoGoalText !== undefined && typeof body.demoGoalText !== "string") ||
+    (body.completed !== undefined && typeof body.completed !== "boolean")
   ) {
     return NextResponse.json(
       {
         error:
-          "Fields must be: heardFrom?: string, weeklyRoles?: string[], goalsForSundae?: string[], demoGoalText?: string.",
+          "Fields must be: heardFrom?: string, weeklyRoles?: string[], goalsForSundae?: string[], demoGoalText?: string, completed?: boolean.",
       },
       { status: 400 },
     );
@@ -70,6 +72,7 @@ export async function POST(request: Request) {
     weeklyRoles: body.weeklyRoles as string[] | undefined,
     goalsForSundae: body.goalsForSundae as string[] | undefined,
     demoGoalText: body.demoGoalText as string | undefined,
+    completed: body.completed === true ? true : undefined,
   });
 
   return NextResponse.json({ ok: true });
