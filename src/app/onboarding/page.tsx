@@ -46,7 +46,13 @@ export default function OnboardingPage() {
       await fetch("/api/onboarding/survey", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: true }),
+        body: JSON.stringify({
+          completed: true,
+          // Re-send the demo text so completion is durable even if the
+          // earlier fire-and-forget save dropped, and even before the
+          // completed_at column is migrated (routing also keys off this).
+          ...(demoResult?.goalText ? { demoGoalText: demoResult.goalText } : {}),
+        }),
       });
     } catch (err) {
       console.error("Failed to mark onboarding complete:", err);

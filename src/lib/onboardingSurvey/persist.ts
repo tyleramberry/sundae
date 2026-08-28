@@ -60,6 +60,23 @@ export async function saveOnboardingSurveyAnswers(
     onConflict: "user_id",
   });
 
+  if (error && input.completed && "completed_at" in row) {
+    // Column may not be migrated yet. Persist the rest of the row so
+    // demo_goal_text still marks the flow complete on the next login.
+    console.error(
+      "Failed to set onboarding_survey.completed_at, retrying without it:",
+      error.message,
+    );
+    delete row.completed_at;
+    const retry = await supabase.from("onboarding_survey").upsert(row, {
+      onConflict: "user_id",
+    });
+    if (retry.error) {
+      throw new Error(`Failed to save onboarding survey answers: ${retry.error.message}`);
+    }
+    return;
+  }
+
   if (error) {
     throw new Error(`Failed to save onboarding survey answers: ${error.message}`);
   }
