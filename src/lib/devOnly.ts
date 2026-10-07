@@ -29,8 +29,17 @@ export function isDevOnlySurfacePath(pathname: string): boolean {
   );
 }
 
-// 404 unless the request is local (middleware's localhost / 127.0.0.1
-// check) or NODE_ENV is not production. Local `next dev` stays open.
+// Exact hostname, after dropping a numeric port. localhost.evil.com and
+// 127.0.0.1.evil.com are not local. IPv6 is not accepted.
+export function isLocalDevHost(host: string): boolean {
+  const colon = host.lastIndexOf(":");
+  const port = colon === -1 ? "" : host.slice(colon + 1);
+  const hostname = colon !== -1 && /^\d+$/.test(port) ? host.slice(0, colon) : host;
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+// 404 unless the request is local (exact localhost / 127.0.0.1, optional
+// port) or NODE_ENV is not production. Local `next dev` stays open.
 // A production NODE_ENV on localhost is still closed by the page and
 // route handlers themselves.
 export function shouldBlockDevOnlySurface(input: {

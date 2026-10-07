@@ -1,9 +1,23 @@
+// Backslash and ASCII controls. Browsers treat "\" like "/" in URLs, so
+// "/\evil.com" is another way to write a protocol-relative redirect.
+const UNSAFE_NEXT = /[\\\u0000-\u001F\u007F]/;
+const DUMMY_ORIGIN = "http://dummy.invalid";
+
 // Only allow relative in-app paths as a post-login destination, so a
 // crafted ?next=https://evil.example can't turn an auth redirect into an
 // open redirect. Shared by /auth/callback and the dev sign-in bridge.
+// Rejected values stay null, and callers fall back the same way they did
+// before these extra checks.
 export function safeNext(next: string | null): string | null {
   if (!next) return null;
   if (!next.startsWith("/") || next.startsWith("//")) return null;
+  if (UNSAFE_NEXT.test(next)) return null;
+  try {
+    const parsed = new URL(next, DUMMY_ORIGIN);
+    if (parsed.origin !== DUMMY_ORIGIN) return null;
+  } catch {
+    return null;
+  }
   return next;
 }
 

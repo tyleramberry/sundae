@@ -21,6 +21,17 @@ describe("safeNext", () => {
     assert.equal(safeNext(null), null);
     assert.equal(safeNext(""), null);
   });
+
+  it("allows a relative path with a query string", () => {
+    assert.equal(safeNext("/dashboard?role=Founder"), "/dashboard?role=Founder");
+  });
+
+  it("falls back for a backslash, a tab, or a newline in the path", () => {
+    for (const next of ["/\\evil.com", "/\t/evil.com", "/\n/evil.com"]) {
+      assert.equal(safeNext(next), null);
+      assert.equal(devSignInDestination(next), "/dashboard");
+    }
+  });
 });
 
 describe("devSignInDestination", () => {
