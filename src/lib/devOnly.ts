@@ -29,9 +29,8 @@ export function isDevOnlySurfacePath(pathname: string): boolean {
   );
 }
 
-// Exact hostname, after dropping a numeric port. startsWith would treat
-// localhost.evil.com and 127.0.0.1.evil.com as local. IPv6 is not a local
-// host here; the previous check did not accept it either.
+// Exact hostname, after dropping a numeric port. localhost.evil.com and
+// 127.0.0.1.evil.com are not local. IPv6 is not accepted.
 export function isLocalDevHost(host: string): boolean {
   const colon = host.lastIndexOf(":");
   const port = colon === -1 ? "" : host.slice(colon + 1);
