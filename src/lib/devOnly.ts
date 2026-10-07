@@ -16,3 +16,29 @@ export function productionUnavailableResponse() {
     { status: 404 },
   );
 }
+
+// Middleware belt for routes that must not answer on a deployed host.
+// /debug UI pages stay on the layout gate only — this list is the session
+// bridge and the admin-minting API, which are the ones QA flagged.
+export function isDevOnlySurfacePath(pathname: string): boolean {
+  return (
+    pathname === "/auth/dev-signin" ||
+    pathname.startsWith("/auth/dev-signin/") ||
+    pathname === "/api/debug" ||
+    pathname.startsWith("/api/debug/")
+  );
+}
+
+// 404 unless the request is local (middleware's localhost / 127.0.0.1
+// check) or NODE_ENV is not production. Local `next dev` stays open.
+// A production NODE_ENV on localhost is still closed by the page and
+// route handlers themselves.
+export function shouldBlockDevOnlySurface(input: {
+  pathname: string;
+  isLocal: boolean;
+  nodeEnv: string | undefined;
+}): boolean {
+  if (input.isLocal) return false;
+  if (input.nodeEnv !== "production") return false;
+  return isDevOnlySurfacePath(input.pathname);
+}

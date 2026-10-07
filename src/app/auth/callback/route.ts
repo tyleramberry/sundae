@@ -11,15 +11,7 @@ import {
 import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
 import { captureServerEvent } from "@/lib/analytics/server";
 import { appendSearchParam, isNewSignup } from "@/lib/analytics/signup";
-
-// Only allow relative in-app paths as a post-login destination, so a
-// crafted ?next=https://evil.example can't turn the callback into an open
-// redirect.
-function safeNext(next: string | null): string | null {
-  if (!next) return null;
-  if (!next.startsWith("/") || next.startsWith("//")) return null;
-  return next;
-}
+import { safeNext } from "@/lib/auth/safeNext";
 
 // Google OAuth redirects here with a `code`. We exchange it for a Supabase
 // session, then pull the Google provider tokens off that exchange (they're
