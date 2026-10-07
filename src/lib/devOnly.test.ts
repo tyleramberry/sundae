@@ -2,25 +2,28 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { isProductionRuntime, shouldBlockDevOnlySurface } from "./devOnly";
 
-const originalNodeEnv = process.env.NODE_ENV;
+// NODE_ENV is typed readonly. Tests write through a loose view and restore
+// whatever the process started with.
+const env = process.env as { NODE_ENV?: string };
+const originalNodeEnv = env.NODE_ENV;
 
 afterEach(() => {
-  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-  else process.env.NODE_ENV = originalNodeEnv;
+  if (originalNodeEnv === undefined) delete env.NODE_ENV;
+  else env.NODE_ENV = originalNodeEnv;
 });
 
 describe("isProductionRuntime", () => {
   it("is true only when NODE_ENV is production", () => {
-    process.env.NODE_ENV = "production";
+    env.NODE_ENV = "production";
     assert.equal(isProductionRuntime(), true);
 
-    process.env.NODE_ENV = "development";
+    env.NODE_ENV = "development";
     assert.equal(isProductionRuntime(), false);
 
-    process.env.NODE_ENV = "test";
+    env.NODE_ENV = "test";
     assert.equal(isProductionRuntime(), false);
 
-    delete process.env.NODE_ENV;
+    delete env.NODE_ENV;
     assert.equal(isProductionRuntime(), false);
   });
 });
