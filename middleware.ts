@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/proxy";
 import {
+  isLocalDevHost,
   productionUnavailableResponse,
   shouldBlockDevOnlySurface,
 } from "@/lib/devOnly";
@@ -27,8 +28,7 @@ function isMarketingPath(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const pathname = request.nextUrl.pathname;
-  const isLocal =
-    host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  const isLocal = isLocalDevHost(host);
 
   // Dev sign-in and /api/debug never answer on a deployed production host.
   // Localhost is left to the route guards so `next dev` seeding still works.

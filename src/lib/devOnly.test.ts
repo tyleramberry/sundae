@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { isProductionRuntime, shouldBlockDevOnlySurface } from "./devOnly";
+import { isLocalDevHost, isProductionRuntime, shouldBlockDevOnlySurface } from "./devOnly";
 
 // NODE_ENV is typed readonly. Tests write through a loose view and restore
 // whatever the process started with.
@@ -25,6 +25,20 @@ describe("isProductionRuntime", () => {
 
     delete env.NODE_ENV;
     assert.equal(isProductionRuntime(), false);
+  });
+});
+
+describe("isLocalDevHost", () => {
+  it("matches localhost and 127.0.0.1 with or without a port", () => {
+    assert.equal(isLocalDevHost("localhost"), true);
+    assert.equal(isLocalDevHost("127.0.0.1"), true);
+    assert.equal(isLocalDevHost("localhost:3000"), true);
+    assert.equal(isLocalDevHost("127.0.0.1:3000"), true);
+  });
+
+  it("does not treat a lookalike hostname as local", () => {
+    assert.equal(isLocalDevHost("localhost.evil.com"), false);
+    assert.equal(isLocalDevHost("127.0.0.1.evil.com"), false);
   });
 });
 
