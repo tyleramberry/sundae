@@ -165,7 +165,8 @@ export async function GET(request: NextRequest) {
   // action_link -- that link redirects into /auth/callback expecting a
   // PKCE code_verifier cookie the browser never set (see that page's file
   // header for the full reasoning). hashed_token + client-side verifyOtp
-  // sidesteps PKCE entirely.
+  // sidesteps PKCE entirely. The page 404s in production on its own; this
+  // route still has to stay gated because it mints the token_hash.
   const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
     type: "magiclink",
     email: TEST_EMAIL,
