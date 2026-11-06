@@ -2,14 +2,16 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe/client";
 import { getAppUrl } from "@/lib/appUrl";
+import { captureServerEvent } from "@/lib/analytics/server";
 import {
+  buildSubscriptionCheckoutParams,
   canPersistPendingCheckoutRow,
   hasOpenStripeSubscription,
   pickStripeCustomerForUser,
   shouldBlockNewCheckout,
 } from "@/lib/stripe/checkout";
 
-export async function POST() {
+export async function POST(request: Request) {
   const secret = process.env.STRIPE_SECRET_KEY;
   const priceId = process.env.STRIPE_PRICE_ID;
   if (!secret || !priceId) {
@@ -57,7 +59,7 @@ export async function POST() {
     );
     return NextResponse.json(
       {
-        error: "You already have an active trial or subscription.",
+        error: "You already have an active subscription.",
         code: "already_subscribed",
         ...(portalUrl ? { portalUrl } : {}),
       },
@@ -102,7 +104,7 @@ export async function POST() {
 
   // Persist incomplete before sessions.create (first-time, expired checkout,
   // and resubscribe after canceled/past_due). Open Stripe subs already 409'd
-  // above. trialing/active never reach here.
+  // above. trialing (legacy) / active never reach here.
   const existingStatus = typeof existing?.status === "string" ? existing.status : null;
   if (canPersistPendingCheckoutRow(existingStatus)) {
     const pending = {
@@ -126,20 +128,9 @@ export async function POST() {
 
   let session;
   try {
-    session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      customer: customerId,
-      line_items: [{ price: priceId, quantity: 1 }],
-      subscription_data: {
-        trial_period_days: 7,
-        metadata: { supabase_user_id: user.id },
-      },
-      success_url: `${appUrl}/subscribe?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${appUrl}/subscribe?checkout=canceled`,
-      client_reference_id: user.id,
-      metadata: { supabase_user_id: user.id },
-      payment_method_collection: "always",
-    });
+    session = await stripe.checkout.sessions.create(
+      buildSubscriptionCheckoutParams({ customerId, priceId, userId: user.id, appUrl }),
+    );
   } catch (err) {
     console.error("[stripe/checkout] sessions.create failed:", err);
     await releaseIncompleteLock(supabase, user.id);
@@ -149,6 +140,19 @@ export async function POST() {
   if (!session.url) {
     await releaseIncompleteLock(supabase, user.id);
     return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 500 });
+  }
+
+  // `?from=limit` (the free-limit card's button) is analytics-only; no
+  // behavior change. Captured server-side so ad blockers can't drop it.
+  const fromLimit = new URL(request.url).searchParams.get("from") === "limit";
+  try {
+    await captureServerEvent({
+      distinctId: user.id,
+      event: fromLimit ? "upgrade_clicked" : "checkout_started",
+      properties: { from: fromLimit ? "limit" : "subscribe" },
+    });
+  } catch (err) {
+    console.error("[stripe/checkout] checkout_started analytics failed:", err);
   }
 
   return NextResponse.json({ url: session.url });

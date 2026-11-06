@@ -13,7 +13,7 @@ import {
   upsertSubscriptionRow,
   type StripeSubscriptionLike,
 } from "@/lib/stripe/webhook";
-import { isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
+import { isSubscriptionEntitled, type SubscriptionRow } from "@/lib/billing";
 
 export async function GET(request: Request) {
   const supabase = await createClient();

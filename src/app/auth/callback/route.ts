@@ -8,7 +8,6 @@ import {
   isProductOnboardingComplete,
   resolvePostAuthDestination,
 } from "@/lib/onboarding/status";
-import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
 import { captureServerEvent } from "@/lib/analytics/server";
 import { appendSearchParam, isNewSignup } from "@/lib/analytics/signup";
 import { safeNext } from "@/lib/auth/safeNext";
@@ -101,8 +100,6 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  destination = await applyBillingRedirect(supabase, user.id, destination);
-
   if (newSignup) {
     destination = appendSearchParam(destination, "meta", "lead");
     try {
@@ -116,45 +113,4 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.redirect(`${origin}${destination}`);
-}
-
-function isAppDestination(path: string): boolean {
-  return (
-    path === "/dashboard" ||
-    path.startsWith("/dashboard/") ||
-    path === "/weekly-session" ||
-    path.startsWith("/weekly-session/") ||
-    path === "/daily-follow-ups" ||
-    path.startsWith("/daily-follow-ups/")
-  );
-}
-
-async function applyBillingRedirect(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  destination: string,
-): Promise<string> {
-  if (!isBillingEnforced()) return destination;
-  if (isOnboardingPath(destination)) return destination;
-  if (destination === "/subscribe" || destination.startsWith("/subscribe?")) return destination;
-  if (!isAppDestination(destination)) return destination;
-
-  try {
-    const { data: sub } = await supabase
-      .from("subscriptions")
-      .select(
-        "id, user_id, stripe_customer_id, stripe_subscription_id, status, trial_end, current_period_end, cancel_at_period_end, created_at, updated_at",
-      )
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (!isSubscriptionEntitled(sub as SubscriptionRow | null)) {
-      return "/subscribe";
-    }
-  } catch (err) {
-    console.error("[auth/callback] failed to read subscription:", err);
-    return "/subscribe";
-  }
-
-  return destination;
 }

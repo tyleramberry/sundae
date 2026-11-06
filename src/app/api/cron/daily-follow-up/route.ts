@@ -3,7 +3,7 @@ import { isAuthorizedCronRequest, unauthorizedCronResponse } from "@/lib/cron/au
 import { createAdminClient } from "@/lib/supabase/admin";
 import { EmailError, sendDailyFollowUpEmail } from "@/lib/email/dailyFollowUp";
 import { sendTrialReminderEmail } from "@/lib/email/trialReminder";
-import { trialReminderWindowBounds, type SubscriptionRow } from "@/lib/trial";
+import { trialReminderWindowBounds } from "@/lib/billing";
 
 // Day 11 cron trigger for the Day 10 email (see vercel.json for the
 // schedule). /api/email/daily-follow-up stays as-is -- a manual trigger for
@@ -49,18 +49,10 @@ export async function GET(request: Request) {
         continue;
       }
 
-      const { data: sub } = await supabase
-        .from("subscriptions")
-        .select("status, trial_end, current_period_end, created_at")
-        .eq("user_id", userId)
-        .maybeSingle();
-
       await sendDailyFollowUpEmail({
         to: userResult.user.email,
         userId,
         supabase,
-        createdAt: userResult.user.created_at,
-        subscription: sub as Pick<SubscriptionRow, "status" | "trial_end" | "current_period_end" | "created_at"> | null,
       });
       sent += 1;
     } catch (err) {
@@ -76,6 +68,10 @@ export async function GET(request: Request) {
   let trialRemindersSent = 0;
   const trialReminderFailures: { userId: string; message: string }[] = [];
 
+  // Legacy (dormant) day-6 reminder for pre-freemium card-backed trials --
+  // those users were promised a "you'll be charged tomorrow" email.
+  // Checkout no longer creates trials, so this query empties on its own;
+  // delete it with trialReminder.ts once the last existing trial_end passes.
   const window = trialReminderWindowBounds();
   const { data: trialing, error: trialError } = await supabase
     .from("subscriptions")

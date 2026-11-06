@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-// New onboarding (Day 7 redesign): survey -> live demo -> hype -> subscribe
-// (Stripe Checkout) before the first weekly session. Replaces the old chat-transcript
+// New onboarding (Day 7 redesign): survey -> live demo -> hype -> first
+// weekly session. Freemium: no card step -- the first two planning sessions
+// are free (src/lib/weeklySession/freeTier.ts). Replaces the old chat-transcript
 // flow that used to capture roles/goals here and end on "Your onboard."
 //
 // What changed and why, briefly (full rationale in docs/onboarding-flow.md):
@@ -57,7 +58,7 @@ export default function OnboardingPage() {
     } catch (err) {
       console.error("Failed to mark onboarding complete:", err);
     }
-    router.push("/subscribe");
+    router.push("/weekly-session");
   }
 
   function goNext() {
@@ -77,7 +78,7 @@ export default function OnboardingPage() {
         {screen === "heard-from" && (
           <>
             <p className="-mt-4 text-xs text-zinc-500 dark:text-zinc-400">
-              Your card won&apos;t be charged until 7 days after you start your trial.
+              No card needed. Your first two planning sessions are free.
             </p>
             <SingleSelectScreen
               title="How did you hear about Sundae?"
@@ -621,7 +622,7 @@ function HypeScreen({
       </div>
 
       <ContinueButton disabled={finishing} onClick={onContinue}>
-        Start your 7-day trial →
+        Start my first planning session →
       </ContinueButton>
     </div>
   );

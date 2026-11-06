@@ -34,7 +34,7 @@ export async function POST() {
   const customerId = sub?.stripe_customer_id as string | undefined;
   if (!customerId) {
     return NextResponse.json(
-      { error: "No billing customer on file. Start a trial first." },
+      { error: "No billing customer on file. Subscribe first." },
       { status: 400 },
     );
   }

@@ -24,8 +24,9 @@ import Reveal from "@/components/Reveal";
 // here needs to be a client boundary, so the interactive pieces are
 // islands, not the whole page.
 
-// $7.99/month after the 7-day card-backed Stripe trial. One constant so the
-// hero microcopy, closing CTA, and FAQ stay in lockstep.
+// $7.99/month after the first two free weekly planning sessions (freemium,
+// no card to start). One constant so the hero microcopy, closing CTA, and
+// FAQ stay in lockstep.
 const MONTHLY_PRICE = "$7.99";
 
 export default function Home() {
@@ -108,7 +109,7 @@ export default function Home() {
                 <div className="flex flex-col items-center gap-3 lg:items-start">
                   <GoogleSignInButton label="Get started free" />
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    7-day free trial, then {MONTHLY_PRICE}/month. Cancel anytime from Settings — no hoops.
+                    Free for your first 2 weekly planning sessions. No credit card required. Then {MONTHLY_PRICE}/month — cancel anytime from Settings.
                   </span>
                   {/* Pre-empts Google's consent screen, which is the very
                       next thing this button shows and is the scariest-
@@ -261,8 +262,8 @@ export default function Home() {
                 <GoogleSignInButton label="Get started free" />
                 <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   {MONTHLY_PRICE
-                    ? `Free for 7 days, then ${MONTHLY_PRICE}/month · cancel anytime`
-                    : "Free for 7 days · cancel anytime"}
+                    ? `First 2 planning sessions free, then ${MONTHLY_PRICE}/month · cancel anytime`
+                    : "First 2 planning sessions free · cancel anytime"}
                 </span>
               </div>
             </div>
@@ -388,8 +389,8 @@ function faqs(price: string | null) {
     {
       q: "Do I need a credit card to start?",
       a: price
-        ? `Yes. The 7-day trial is card-backed — you won't be charged until day 7, and the first charge is ${price}/month. Cancel any time before then and you pay nothing.`
-        : "Yes. The 7-day trial is card-backed — you won't be charged until day 7, and you can cancel any time before then and pay nothing.",
+        ? `No. Your first two weekly planning sessions are free, no card required. To keep planning after that, Sundae is ${price}/month — cancel anytime from Settings.`
+        : "No. Your first two weekly planning sessions are free, no card required. To keep planning after that, subscribe — cancel anytime from Settings.",
     },
     {
       q: "Which calendars does it work with?",

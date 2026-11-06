@@ -72,7 +72,7 @@ export default function PrivacyPolicy() {
               Subscription payments are processed by Stripe. Sundae does
               not receive or store your full card number — Stripe handles
               that directly and shares with us only what&apos;s needed to
-              manage your subscription (e.g. plan status, trial dates).
+              manage your subscription (e.g. plan status).
             </p>
             <h3 className="text-base font-medium text-black dark:text-zinc-50">
               Usage and log data
@@ -98,7 +98,7 @@ export default function PrivacyPolicy() {
                 To send you daily brief and follow-up emails about your
                 plan
               </li>
-              <li>To process your subscription and free trial via Stripe</li>
+              <li>To process your subscription via Stripe</li>
               <li>To maintain, secure, and improve the Service</li>
               <li>To respond to support requests</li>
             </ul>

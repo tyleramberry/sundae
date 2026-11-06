@@ -31,7 +31,7 @@ These steps need the live app, Google OAuth, a real calendar, and Stripe — the
 ### Core product
 
 - [ ] Landing page loads, scroll works, all sections render, CTA buttons fire Google OAuth.
-- [ ] FAQ still names the **$7.99/month** price after the 7-day trial (`MONTHLY_PRICE` in `src/app/page.tsx`).
+- [ ] FAQ says no card is needed for the first 2 weekly planning sessions and names the **$7.99/month** price (`MONTHLY_PRICE` in `src/app/page.tsx`).
 - [ ] Google sign-in → onboarding → **subscribe (Stripe Checkout)** → dashboard for a new user.
 - [ ] Returning entitled users skip checkout and land on the dashboard.
 - [ ] Start a weekly session with all 3 stages (Accountability, Goal Setting, Planning).
@@ -47,14 +47,14 @@ These steps need the live app, Google OAuth, a real calendar, and Stripe — the
 
 - [ ] `/subscribe` starts Checkout; success returns to `/subscribe?checkout=success` and, after the webhook, the dashboard.
 - [ ] Canceling Checkout returns to `/subscribe?checkout=canceled` with no charge.
-- [ ] App shell gates unentitled users to `/subscribe`; `trialing` and `active` pass through.
+- [ ] Freemium: a user with no subscription row reaches onboarding → `/weekly-session` with no card step. After 2 completed weeks, a new week shows the free-limit card and `POST /api/weekly-session/step` returns 402 `free_limit_reached`; `trialing`/`active` users are unlimited.
 - [ ] Sidebar “Manage subscription” opens the Stripe Customer Portal.
-- [ ] Trial reminder email: a `trialing` row with `trial_end` in the next 24–48 hours is picked up by the daily follow-up cron.
+- [ ] Legacy trial reminder email (dormant after freemium): a `trialing` row with `trial_end` in the next 24–48 hours is still picked up by the daily follow-up cron.
 
 ### Analytics / ads (only if keys are set in Vercel)
 
-- [ ] PostHog: `signup_completed` on first Google sign-in only; `trial_started` after Checkout; pageviews on client navigations.
-- [ ] Meta Pixel: `Lead` after new signup (`?meta=lead` is stripped); `StartTrial` once when Checkout is confirmed entitled.
+- [ ] PostHog: `signup_completed` on first Google sign-in only; `subscription_started` after Checkout; `free_limit_reached` / `upgrade_clicked` from the free-limit card; pageviews on client navigations.
+- [ ] Meta Pixel: `Lead` after new signup (`?meta=lead` is stripped); `Subscribe` once when Checkout is confirmed entitled.
 
 ### Deploy
 

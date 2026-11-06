@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { SubscriptionRow } from "@/lib/trial";
+import type { SubscriptionRow } from "@/lib/billing";
 
 // Minimal subscription shape covering both classic (period end on the
 // subscription) and basil/dahlia (period end on the first item). Webhook

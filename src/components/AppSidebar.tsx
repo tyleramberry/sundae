@@ -4,13 +4,15 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { formatFreePlanUsage, type PlanSummary } from "@/lib/weeklySession/freeTier";
 
 // The persistent app shell nav (built for the Day 11 UI/UX polish pass).
 // One clean rail on desktop, a top bar on mobile. Active state is driven by
 // the pathname, not hand-passed props, so it stays correct on any nav path
 // (sidebar click, deep link, browser back). Auth is enforced server-side in
-// the (app) layout -- this component only needs the email to display and a
-// sign-out control.
+// the (app) layout -- this component only needs the email to display, the
+// plan line (freemium: free usage + Upgrade, or subscriber + Manage
+// subscription), and a sign-out control.
 type NavItem = {
   href: string;
   label: string;
@@ -66,7 +68,13 @@ const BILLING_ICON = (
   </svg>
 );
 
-export default function AppSidebar({ email }: { email: string | null }) {
+export default function AppSidebar({
+  email,
+  plan,
+}: {
+  email: string | null;
+  plan: PlanSummary | null;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [portalLoading, setPortalLoading] = useState(false);
@@ -170,25 +178,52 @@ export default function AppSidebar({ email }: { email: string | null }) {
             {email}
           </span>
         )}
-        {portalError && (
-          <span className={collapsed ? "sr-only" : "text-xs text-red-600"}>{portalError}</span>
-        )}
-        <button
-          type="button"
-          onClick={() => void openPortal()}
-          disabled={portalLoading}
-          title="Manage subscription"
-          className={[
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
-            collapsed ? "md:justify-center md:px-2" : "",
-          ].join(" ")}
-        >
-          <span className={collapsed ? "hidden md:inline" : "hidden"}>{BILLING_ICON}</span>
-          <span className={collapsed ? "hidden" : "hidden md:inline"}>
-            {portalLoading ? "Opening…" : "Manage subscription"}
+        {plan && (
+          <span
+            className={[
+              "hidden text-xs text-zinc-500 dark:text-zinc-400",
+              collapsed ? "" : "md:block",
+            ].join(" ")}
+          >
+            {plan.kind === "free" ? formatFreePlanUsage(plan) : "Sundae subscriber"}
           </span>
-          <span className="md:hidden">{portalLoading ? "Opening…" : "Manage subscription"}</span>
-        </button>
+        )}
+        {plan?.kind === "free" ? (
+          <Link
+            href="/subscribe?reason=limit"
+            title="Upgrade"
+            className={[
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 dark:text-zinc-100 dark:hover:bg-zinc-900",
+              collapsed ? "md:justify-center md:px-2" : "",
+            ].join(" ")}
+          >
+            <span className={collapsed ? "hidden md:inline" : "hidden"}>{BILLING_ICON}</span>
+            <span className={collapsed ? "hidden" : "hidden md:inline"}>Upgrade</span>
+            <span className="md:hidden">Upgrade</span>
+          </Link>
+        ) : (
+          <>
+            {portalError && (
+              <span className={collapsed ? "sr-only" : "text-xs text-red-600"}>{portalError}</span>
+            )}
+            <button
+              type="button"
+              onClick={() => void openPortal()}
+              disabled={portalLoading}
+              title="Manage subscription"
+              className={[
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
+                collapsed ? "md:justify-center md:px-2" : "",
+              ].join(" ")}
+            >
+              <span className={collapsed ? "hidden md:inline" : "hidden"}>{BILLING_ICON}</span>
+              <span className={collapsed ? "hidden" : "hidden md:inline"}>
+                {portalLoading ? "Opening…" : "Manage subscription"}
+              </span>
+              <span className="md:hidden">{portalLoading ? "Opening…" : "Manage subscription"}</span>
+            </button>
+          </>
+        )}
         <button
           onClick={signOut}
           title={collapsed ? `Sign out${email ? ` (${email})` : ""}` : undefined}

@@ -1,56 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { trackMetaStartTrialOnce } from "@/lib/meta/pixel";
+import { trackMetaSubscribeOnce } from "@/lib/meta/pixel";
+import FreeLimitCard from "@/components/billing/FreeLimitCard";
+import { useStartCheckout } from "@/components/billing/useStartCheckout";
 
 const POLL_MS = 2500;
 const TIMEOUT_MS = 90_000;
 
 export default function SubscribeCheckout({
   resubscribe,
+  limitReached,
+  freeLimit,
   checkoutCanceled,
   checkoutSuccess,
   checkoutSessionId,
 }: {
   resubscribe: boolean;
+  limitReached: boolean;
+  freeLimit: number;
   checkoutCanceled: boolean;
   checkoutSuccess: boolean;
   checkoutSessionId: string | null;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [portalUrl, setPortalUrl] = useState<string | null>(null);
+  const { loading, error, portalUrl, startCheckout } = useStartCheckout();
 
   if (checkoutSuccess) {
     return <CheckoutConfirming sessionId={checkoutSessionId} />;
   }
 
-  async function startCheckout() {
-    setLoading(true);
-    setError(null);
-    setPortalUrl(null);
-    try {
-      const res = await fetch("/api/stripe/checkout", { method: "POST" });
-      const body = await res.json().catch(() => ({}));
-      if (res.status === 409) {
-        setError(body.error ?? "Couldn't start checkout.");
-        if (body.code === "already_subscribed" && typeof body.portalUrl === "string") {
-          setPortalUrl(body.portalUrl);
-        }
-        setLoading(false);
-        return;
-      }
-      if (!res.ok || typeof body.url !== "string") {
-        setError(body.error ?? "Couldn't start checkout. Please try again.");
-        setLoading(false);
-        return;
-      }
-      window.location.assign(body.url);
-    } catch {
-      setError("Couldn't start checkout. Please try again.");
-      setLoading(false);
-    }
+  // Freemium: /subscribe is the upgrade page, not a gate. A free user who's
+  // actually at the limit gets the same card the weekly-session page shows.
+  if (limitReached && !checkoutCanceled) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-6 py-32 font-sans dark:bg-black sm:px-16">
+        <FreeLimitCard limit={freeLimit} />
+      </div>
+    );
   }
 
   return (
@@ -60,12 +48,12 @@ export default function SubscribeCheckout({
           Sundae
         </span>
         <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-          {resubscribe ? "Pick up your subscription" : "Start your 7-day free trial"}
+          {resubscribe ? "Pick up your subscription" : "Keep planning with Sundae"}
         </h1>
         <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
           {resubscribe
-            ? "Your trial or billing period has ended. Resubscribe to keep planning weeks on your calendar — same $7.99/month, cancel anytime from Settings."
-            : "Card on file, no charge for 7 days. The first charge is $7.99/month unless you cancel from Settings before then."}
+            ? "Your billing period has ended. Resubscribe to keep planning weeks on your calendar — same $7.99/month, cancel anytime from Settings."
+            : "$7.99/month. Unlimited weekly planning sessions. Cancel anytime from Settings."}
         </p>
         {checkoutCanceled && (
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -91,6 +79,12 @@ export default function SubscribeCheckout({
               Manage subscription
             </button>
           )}
+          <Link
+            href="/dashboard"
+            className="text-sm text-zinc-500 underline-offset-4 hover:underline dark:text-zinc-400"
+          >
+            Back to dashboard
+          </Link>
         </div>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           Cancel anytime from Settings — no hoops.
@@ -120,8 +114,9 @@ function CheckoutConfirming({ sessionId }: { sessionId: string | null }) {
         const res = await fetch(url);
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.entitled === true) {
-          trackMetaStartTrialOnce();
-          router.replace("/dashboard");
+          trackMetaSubscribeOnce();
+          // Freemium: land back where the free limit blocked them.
+          router.replace("/weekly-session");
           return;
         }
         if (res.ok && body.pending === true) {
@@ -151,10 +146,10 @@ function CheckoutConfirming({ sessionId }: { sessionId: string | null }) {
           Sundae
         </span>
         <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-          Confirming your trial
+          Confirming your subscription
         </h1>
         <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
-          Card received. We&apos;re confirming your 7-day trial — this usually takes a few seconds.
+          Payment received. We&apos;re activating your account — this usually takes a few seconds.
         </p>
       </main>
     </div>

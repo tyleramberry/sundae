@@ -123,16 +123,40 @@ async function handleCheckoutCompleted(
   }
 
   const upserted = await upsertSubscriptionRow(admin, mapped);
-  if (upserted && (mapped.status === "trialing" || mapped.status === "active")) {
-    try {
-      await captureServerEvent({
-        distinctId: userId,
-        event: "trial_started",
-        properties: { status: mapped.status },
-      });
-    } catch (err) {
-      console.error("[stripe/webhook] trial_started analytics failed:", err);
-    }
+  // Freemium: checkout charges immediately, so a completed checkout with an
+  // active subscription is the paid conversion. (A payment that needs
+  // extra auth lands here as `incomplete` and is counted when
+  // customer.subscription.updated flips it to active.)
+  if (upserted && mapped.status === "active") {
+    await recordPaidSubscriptionStarted(admin, userId, subscription.id);
+  }
+}
+
+async function recordPaidSubscriptionStarted(
+  admin: AdminClient,
+  userId: string,
+  subscriptionId: string,
+): Promise<void> {
+  try {
+    await captureServerEvent({
+      distinctId: userId,
+      event: "subscription_started",
+      properties: { status: "active" },
+    });
+  } catch (err) {
+    console.error("[stripe/webhook] subscription_started analytics failed:", err);
+  }
+
+  try {
+    const { data: userResult } = await admin.auth.admin.getUserById(userId);
+    // eventId = subscription id, same as the legacy trial→paid path, so
+    // Meta dedupes if both ever fire for one subscription.
+    await sendMetaSubscribeEvent({
+      email: userResult?.user?.email ?? null,
+      eventId: subscriptionId,
+    });
+  } catch (err) {
+    console.error("[stripe/webhook] Meta CAPI Subscribe failed:", err);
   }
 }
 
@@ -165,6 +189,16 @@ async function handleSubscriptionUpdated(
   const upserted = await upsertSubscriptionRow(admin, mapped);
   if (!upserted) return;
 
+  // Freemium checkout whose first payment needed extra auth: incomplete →
+  // active is the paid conversion checkout.session.completed couldn't see.
+  if (mapped.status === "active" && previousAttributes?.status === "incomplete") {
+    await recordPaidSubscriptionStarted(admin, userId, subscription.id);
+    return;
+  }
+
+  // Legacy (dormant): pre-freemium card-backed trials converting to paid.
+  // No new trials are created; delete with trialConvert.ts once the last
+  // existing trial_end has passed.
   if (isTrialConvertedToActive(mapped.status, previousAttributes)) {
     try {
       await captureServerEvent({

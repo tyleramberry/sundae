@@ -57,17 +57,15 @@ export default function TermsOfService() {
 
           <section className="space-y-3">
             <h2 className="text-xl font-semibold text-black dark:text-zinc-50">
-              3. Free Trial &amp; Billing
+              3. Free Plan &amp; Billing
             </h2>
             <p>
-              Sundae is offered on a subscription basis through Stripe
-              Checkout, with a 7-day free trial. Your payment card is
-              collected at signup, and if you don&apos;t cancel before the
-              trial ends, your subscription begins automatically and your
-              card is charged. You can cancel at any time from your
-              account settings; cancellation takes effect at the end of
-              your current billing period, and you won&apos;t be charged
-              again after that.
+              Sundae is free for your first two completed weekly planning
+              sessions; no payment card is required. To start additional
+              weekly planning sessions you must subscribe at $7.99/month,
+              billed through Stripe Checkout and renewing monthly until you
+              cancel. You can cancel anytime from Settings; access continues
+              through the end of the paid period.
             </p>
           </section>
 

@@ -9,7 +9,7 @@ import DashboardStats, { type DashboardSummary } from "@/components/DashboardSta
 import TypeBreakdown, { type TypeBreakdownRow } from "@/components/TypeBreakdown";
 import Sparkline from "@/components/Sparkline";
 import { isItemComplete } from "@/lib/kpi/compute";
-import { formatTrialStatus, getSubscriptionStatus, getTrialStatus, type SubscriptionRow, type TrialStatus } from "@/lib/trial";
+import { formatFreePlanUsage, type PlanSummary } from "@/lib/weeklySession/freeTier";
 
 type DashItem = {
   id: string;
@@ -68,7 +68,7 @@ export default function DashboardPage() {
   // the existing hover behavior (which stays exactly as-is for desktop
   // mouse users -- this is purely additive).
   const [openRole, setOpenRole] = useState<string | null>(null);
-  const [trial, setTrial] = useState<TrialStatus | null>(null);
+  const [plan, setPlan] = useState<PlanSummary | null>(null);
   // Snapshot of `roles` from right before a drag starts -- if the save
   // below fails, this is what the tiles revert to, so a rejected reorder
   // (say, someone else's edit changed the role list mid-drag) can't leave
@@ -88,17 +88,11 @@ export default function DashboardPage() {
         return;
       }
 
-      setTrial(getTrialStatus(user.created_at));
-      const { data: sub } = await supabase
-        .from("subscriptions")
-        .select(
-          "id, user_id, stripe_customer_id, stripe_subscription_id, status, trial_end, current_period_end, cancel_at_period_end, created_at, updated_at",
-        )
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (sub) {
-        setTrial(getSubscriptionStatus(sub as SubscriptionRow));
-      }
+      // Freemium plan line -- off the critical path, fills in when it lands.
+      void fetch("/api/billing/plan")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => setPlan(b?.plan ?? null))
+        .catch(() => setPlan(null));
       setLoad("loading");
       // Fired together -- the account-wide stat row isn't on the critical
       // path for the rings, so a slow /summary shouldn't hold up the rest
@@ -256,9 +250,20 @@ export default function DashboardPage() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
-            {trial?.isActive && (
+            {plan?.kind === "free" && (
               <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 sm:inline">
-                {formatTrialStatus(trial)}
+                {formatFreePlanUsage(plan)} ·{" "}
+                <Link
+                  href="/subscribe?reason=limit"
+                  className="font-medium text-zinc-900 underline-offset-4 hover:underline dark:text-zinc-100"
+                >
+                  Upgrade
+                </Link>
+              </span>
+            )}
+            {plan?.kind === "subscriber" && (
+              <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 sm:inline">
+                Sundae subscriber
               </span>
             )}
             <Link

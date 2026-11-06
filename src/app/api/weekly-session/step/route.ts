@@ -28,6 +28,7 @@ import {
   formatCalendarSummary,
 } from "@/lib/weeklySession/calendarSummary";
 import { captureServerEvent } from "@/lib/analytics/server";
+import { getFreeLimitBlock } from "@/lib/weeklySession/freeTier";
 import { isFirstWeeklySessionUserMessage } from "@/lib/analytics/session";
 
 // Thin HTTP wrapper around the weekly-session engine, same shape as
@@ -119,6 +120,20 @@ export async function POST(request: Request) {
     // point of Day 16 is letting the user come back and plan something else
     // the moment it comes up, possibly more than once in a day.
     if (isFreshStart && mode === "full") {
+      // Freemium gate: a brand-new full session past the free limit stops
+      // here -- before the daily throttle, the Claude call, and the
+      // weekly_session_starts insert. Resumed rounds (turnCount > 0) and
+      // addendum mode never reach this branch.
+      const freeLimit = await getFreeLimitBlock(supabase, user.id, transcript);
+      if (freeLimit) {
+        await captureServerEvent({
+          distinctId: user.id,
+          event: "free_limit_reached",
+          properties: { completedSessions: freeLimit.completedSessions, source: "step" },
+        }).catch((err) => console.error("[weekly-session/step] analytics failed:", err));
+        return NextResponse.json(freeLimit, { status: 402 });
+      }
+
       const alreadyStartedToday = await hasStartedSessionToday(supabase, user.id);
       if (alreadyStartedToday) {
         return NextResponse.json({ error: SESSION_THROTTLE_MESSAGE }, { status: 429 });

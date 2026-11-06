@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { trackMetaLeadOnce, trackMetaStartTrialOnce } from "@/lib/meta/pixel";
+import { trackMetaLeadOnce, trackMetaSubscribeOnce } from "@/lib/meta/pixel";
 
 export default function MetaEvents() {
   if (!process.env.NEXT_PUBLIC_META_PIXEL_ID) return null;
@@ -31,12 +31,14 @@ function MetaEventsInner() {
       changed = true;
     }
 
-    // Legacy success_url landed on /dashboard?checkout=success. Current
-    // Checkout returns to /subscribe?checkout=success and StartTrial fires
-    // from the confirming UI once the user is entitled — don't double-fire
-    // on the subscribe confirming screen from the query alone.
-    if (checkout === "success" && pathname === "/dashboard") {
-      trackMetaStartTrialOnce();
+    // Checkout returns to /subscribe?checkout=success and Subscribe fires
+    // from the confirming UI once the user is entitled. If the webhook
+    // already entitled them before that page rendered, /subscribe redirects
+    // to /weekly-session?checkout=success and it fires here instead
+    // (/dashboard is the pre-freemium landing, kept for old links). Never
+    // fire on the subscribe confirming screen from the query alone.
+    if (checkout === "success" && (pathname === "/weekly-session" || pathname === "/dashboard")) {
+      trackMetaSubscribeOnce();
       next.delete("checkout");
       next.delete("session_id");
       changed = true;

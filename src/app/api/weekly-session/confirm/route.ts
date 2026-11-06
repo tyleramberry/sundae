@@ -27,6 +27,7 @@ import type { ProposedAction } from "@/lib/planning/blocks";
 import type { Turn } from "@/lib/engine/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { captureServerEvent } from "@/lib/analytics/server";
+import { getFreeLimitBlock } from "@/lib/weeklySession/freeTier";
 
 // Best-effort session-recap send: the wins/improvements the user gave
 // during this session's Accountability stage (extracted from the real
@@ -122,6 +123,24 @@ export async function POST(request: Request) {
   const fingerprint = fingerprintProposed(proposed as PendingProposedAction[]);
   let wroteAnyEvent = false;
   let calendarWarning: string | null = null;
+
+  // Freemium gate (see freeTier.ts getFreeLimitBlock): this route takes the
+  // plan from the request body, so it must not let a free user at the
+  // limit drive a brand-new week without a /step session. In-progress
+  // rounds and addendum weeks pass straight through.
+  try {
+    const freeLimit = await getFreeLimitBlock(
+      supabase,
+      user.id,
+      await getWeeklySessionTranscript(supabase, user.id, weekStart),
+    );
+    if (freeLimit) {
+      return NextResponse.json(freeLimit, { status: 402 });
+    }
+  } catch (error) {
+    console.error("[weekly-session/confirm] free-tier check failed:", error);
+    return NextResponse.json({ error: "Couldn't check your plan. Try again." }, { status: 500 });
+  }
 
   try {
     const begin = await tryBeginConfirm(supabase, user.id, weekStart, fingerprint);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  buildSubscriptionCheckoutParams,
   canPersistPendingCheckoutRow,
   checkoutSessionBelongsToUser,
   checkoutSessionLooksFulfilled,
@@ -142,5 +143,37 @@ describe("resolveWebhookSubscriptionOwner", () => {
       "same_user",
     );
     assert.equal(resolveWebhookSubscriptionOwner("user-a", null), "missing");
+  });
+});
+
+describe("buildSubscriptionCheckoutParams (freemium)", () => {
+  const params = buildSubscriptionCheckoutParams({
+    customerId: "cus_123",
+    priceId: "price_123",
+    userId: "user-1",
+    appUrl: "https://app.example.com/",
+  });
+
+  it("no longer creates a Stripe trial", () => {
+    assert.equal("trial_period_days" in params.subscription_data, false);
+    assert.equal(JSON.stringify(params).includes("trial"), false);
+  });
+
+  it("charges the existing price with a card, tagged to the Sundae user", () => {
+    assert.equal(params.mode, "subscription");
+    assert.equal(params.customer, "cus_123");
+    assert.deepEqual(params.line_items, [{ price: "price_123", quantity: 1 }]);
+    assert.equal(params.payment_method_collection, "always");
+    assert.equal(params.client_reference_id, "user-1");
+    assert.deepEqual(params.metadata, { supabase_user_id: "user-1" });
+    assert.deepEqual(params.subscription_data.metadata, { supabase_user_id: "user-1" });
+  });
+
+  it("returns to /subscribe for the confirm poll, trimming a trailing slash", () => {
+    assert.equal(
+      params.success_url,
+      "https://app.example.com/subscribe?checkout=success&session_id={CHECKOUT_SESSION_ID}",
+    );
+    assert.equal(params.cancel_url, "https://app.example.com/subscribe?checkout=canceled");
   });
 });

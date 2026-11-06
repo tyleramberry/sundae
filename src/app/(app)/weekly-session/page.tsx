@@ -15,6 +15,8 @@ import WeekCalendarGrid, {
 import { ChatBubble, TypingDots, turnMeta } from "@/components/weekly-session/ChatBits";
 import { RolesSetupScreen } from "@/components/weekly-session/RolesSetupScreen";
 import { parseDateOnly } from "@/lib/weeklySession/week";
+import FreeLimitCard from "@/components/billing/FreeLimitCard";
+import { FREE_SESSION_LIMIT } from "@/lib/weeklySession/freeTier";
 
 type Turn = { from: "engine" | "user"; text: string };
 
@@ -40,7 +42,13 @@ type Stage =
   // via /dashboard, and returning to /weekly-session lands them in
   // "chatting" with weekConfirmed=true (transcript.completedThisWeek is
   // now server-side true), so the mid-week addendum chat still works.
-  | "written";
+  | "written"
+  // Freemium: a free user who has used their free sessions and is about to
+  // start a new week. Replaces the chat (and the calendar panel) with the
+  // upgrade card; sidebar/dashboard/follow-ups stay usable. Set from the
+  // transcript route's `freeTier.reached` on load, or from a 402
+  // `free_limit_reached` off /step (e.g. a second tab).
+  | "limit-reached";
 
 // Real weekly-session UI. Accountability -> Goal Setting -> Planning,
 // driven by src/lib/engine/weeklySession.ts, then a confirmation screen
@@ -207,6 +215,7 @@ export default function WeeklySessionPage() {
   // from GET /api/weekly-session/transcript on mount, and set locally the
   // moment a confirm succeeds so the UI doesn't wait on a round-trip.
   const [weekConfirmed, setWeekConfirmed] = useState(false);
+  const [freeLimit, setFreeLimit] = useState(FREE_SESSION_LIMIT);
 
   // Snapshot of what was just written to Google Calendar -- captured on
   // confirm() success so the "written"-stage payoff screen can render a
@@ -376,6 +385,13 @@ export default function WeeklySessionPage() {
         const transcriptBody = await transcriptRes.json().catch(() => ({}));
         applyWeekMeta(transcriptBody);
         const transcript = transcriptRes.ok ? transcriptBody.transcript : null;
+        if (transcriptRes.ok && transcriptBody.freeTier?.reached === true) {
+          if (typeof transcriptBody.freeTier.limit === "number") {
+            setFreeLimit(transcriptBody.freeTier.limit);
+          }
+          setStage("limit-reached");
+          return;
+        }
         if (Array.isArray(transcriptBody.committedActions)) {
           setCommittedActions(transcriptBody.committedActions);
         }
@@ -544,6 +560,11 @@ export default function WeeklySessionPage() {
         body: JSON.stringify({ message, timeZone: browserTimeZone() }),
       });
       const body = await res.json();
+      if (res.status === 402 && body.code === "free_limit_reached") {
+        if (typeof body.limit === "number") setFreeLimit(body.limit);
+        setStage("limit-reached");
+        return;
+      }
       if (!res.ok) {
         setError(body.error ?? "Something went wrong. Try again.");
         return;
@@ -658,7 +679,7 @@ export default function WeeklySessionPage() {
       const res = await fetch("/api/weekly-session/revise", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actions: sessionActions, message }),
+        body: JSON.stringify({ actions: sessionActions, message, timeZone: browserTimeZone() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -758,6 +779,9 @@ export default function WeeklySessionPage() {
     setReviseTurns([]);
     void loadCalendarEvents(weekStart);
     setStage("written");
+    // Re-render the (app) layout so the sidebar's "n of 2 sessions used"
+    // picks up the week that just completed.
+    router.refresh();
     } catch {
       // Bug fix: same missing-catch class as send()/fetchProposed() above,
       // just higher stakes here since this is the actual calendar write --
@@ -813,6 +837,14 @@ export default function WeeklySessionPage() {
       return `You asked for ${bits.join(" ")} — that's already passed this week. The item still saves to this week's plan; replan it for a real time.`;
     }
     return "That time has already passed this week. The item still saves to this week's plan; replan it for a real time.";
+  }
+
+  if (stage === "limit-reached") {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto bg-zinc-50 px-6 py-16 font-sans dark:bg-black">
+        <FreeLimitCard limit={freeLimit} />
+      </div>
+    );
   }
 
   if (stage === "checking" || stage === "signed-out") {

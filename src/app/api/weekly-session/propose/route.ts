@@ -5,7 +5,8 @@ import {
   listWeekEvents,
 } from "@/lib/google/calendar";
 import { proposeActionBlocks } from "@/lib/planning/blocks";
-import { savePendingProposal } from "@/lib/weeklySession/persist";
+import { getWeeklySessionTranscript, savePendingProposal } from "@/lib/weeklySession/persist";
+import { getFreeLimitBlock } from "@/lib/weeklySession/freeTier";
 import {
   formatPlanningWeekRange,
   planningWeekEndDate,
@@ -52,6 +53,24 @@ export async function POST(request: Request) {
       },
       { status: 400 },
     );
+  }
+
+  // Freemium gate (see freeTier.ts getFreeLimitBlock): this route takes the
+  // plan from the request body, so it must not let a free user at the
+  // limit drive a brand-new week without a /step session. In-progress
+  // rounds and addendum weeks pass straight through.
+  try {
+    const freeLimit = await getFreeLimitBlock(
+      supabase,
+      user.id,
+      await getWeeklySessionTranscript(supabase, user.id, planningWeekStart(new Date(), timeZone)),
+    );
+    if (freeLimit) {
+      return NextResponse.json(freeLimit, { status: 402 });
+    }
+  } catch (error) {
+    console.error("[weekly-session/propose] free-tier check failed:", error);
+    return NextResponse.json({ error: "Couldn't check your plan. Try again." }, { status: 500 });
   }
 
   try {

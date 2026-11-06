@@ -16,8 +16,9 @@ function accessToken(): string | undefined {
   return token && token.trim() ? token.trim() : undefined;
 }
 
-// Server-side Subscribe for trial → paid. No-ops without keys; never throws
-// to the caller (Stripe webhooks must still 200).
+// Server-side Subscribe when a subscription becomes paid-active (freemium
+// checkout, or a legacy trial converting). No-ops without keys; never
+// throws to the caller (Stripe webhooks must still 200).
 export async function sendMetaSubscribeEvent({
   email,
   eventId,
@@ -42,7 +43,7 @@ export async function sendMetaSubscribeEvent({
         action_source: "website",
         event_id: eventId ?? undefined,
         user_data: userData,
-        custom_data: { currency: "USD", value: 12 },
+        custom_data: { currency: "USD", value: 7.99 },
       },
     ],
   };

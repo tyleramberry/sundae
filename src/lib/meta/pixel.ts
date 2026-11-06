@@ -1,6 +1,6 @@
 "use client";
 
-const START_TRIAL_KEY = "sundae_meta_start_trial";
+const SUBSCRIBE_KEY = "sundae_meta_subscribe";
 const LEAD_KEY = "sundae_meta_lead";
 
 function whenFbqReady(cb: () => void, attempts = 25): void {
@@ -34,13 +34,16 @@ export function trackMetaLeadOnce(): void {
   fbqTrack("Lead");
 }
 
-export function trackMetaStartTrialOnce(): void {
+// Freemium: checkout charges immediately (no trial), so a completed
+// checkout is Meta's standard Subscribe, not StartTrial. Server-side CAPI
+// Subscribe uses the subscription id as event_id for dedupe.
+export function trackMetaSubscribeOnce(): void {
   if (typeof window === "undefined") return;
   try {
-    if (sessionStorage.getItem(START_TRIAL_KEY) === "1") return;
-    sessionStorage.setItem(START_TRIAL_KEY, "1");
+    if (sessionStorage.getItem(SUBSCRIBE_KEY) === "1") return;
+    sessionStorage.setItem(SUBSCRIBE_KEY, "1");
   } catch {
     // Continue — worst case we fire twice in the same session.
   }
-  fbqTrack("StartTrial", { value: 0, currency: "USD" });
+  fbqTrack("Subscribe", { value: 7.99, currency: "USD" });
 }

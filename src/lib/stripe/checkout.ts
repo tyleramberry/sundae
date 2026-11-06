@@ -88,3 +88,34 @@ export function checkoutSessionLooksFulfilled(session: {
   if (!subId) return false;
   return session.payment_status === "paid" || session.status === "complete";
 }
+
+// Checkout Session params for the $7.99/mo plan. Freemium: no
+// trial_period_days -- the free sessions are the free tier now, so a
+// subscriber is charged at checkout. Card is still collected (it charges
+// now). Pure so the "no trial" rule is unit-tested.
+export function buildSubscriptionCheckoutParams({
+  customerId,
+  priceId,
+  userId,
+  appUrl,
+}: {
+  customerId: string;
+  priceId: string;
+  userId: string;
+  appUrl: string;
+}) {
+  const base = appUrl.replace(/\/$/, "");
+  return {
+    mode: "subscription" as const,
+    customer: customerId,
+    line_items: [{ price: priceId, quantity: 1 }],
+    subscription_data: {
+      metadata: { supabase_user_id: userId },
+    },
+    success_url: `${base}/subscribe?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${base}/subscribe?checkout=canceled`,
+    client_reference_id: userId,
+    metadata: { supabase_user_id: userId },
+    payment_method_collection: "always" as const,
+  };
+}

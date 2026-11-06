@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppSidebar from "@/components/AppSidebar";
-import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
+import { loadFreeTierAccess, planSummaryOf, type PlanSummary } from "@/lib/weeklySession/freeTier";
 
 // Shared shell for the signed-in app (Day 11 UI/UX polish). A route group,
 // so the URLs stay /weekly-session, /daily-follow-ups, /dashboard -- the
@@ -19,26 +19,15 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     redirect("/login");
   }
 
-  if (isBillingEnforced()) {
-    const { data: sub, error } = await supabase
-      .from("subscriptions")
-      .select(
-        "id, user_id, stripe_customer_id, stripe_subscription_id, status, trial_end, current_period_end, cancel_at_period_end, created_at, updated_at",
-      )
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (error) {
-      console.error("[app layout] failed to load subscription:", error);
-      redirect("/subscribe");
-    }
-
-    const row = sub as SubscriptionRow | null;
-    if (!row) {
-      redirect("/subscribe");
-    } else if (!isSubscriptionEntitled(row)) {
-      redirect("/subscribe?reason=resubscribe");
-    }
+  // Freemium: no subscription gate here anymore -- anyone signed in can use
+  // the app. The free-session limit is enforced per request by the
+  // weekly-session routes (src/lib/weeklySession/freeTier.ts); this only
+  // loads the plan line the sidebar shows. A failed lookup just hides it.
+  let plan: PlanSummary | null = null;
+  try {
+    plan = planSummaryOf(await loadFreeTierAccess(supabase, user.id));
+  } catch (error) {
+    console.error("[app layout] failed to load plan:", error);
   }
 
   // This shell owns its own viewport pinning: `h-dvh overflow-hidden` here,
@@ -63,7 +52,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   // scroll (the chat transcript) to do it in its own inner scroll region.
   return (
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden md:flex-row">
-      <AppSidebar email={user.email ?? null} />
+      <AppSidebar email={user.email ?? null} plan={plan} />
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-50 dark:bg-black">
         {children}
       </main>

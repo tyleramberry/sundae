@@ -1,12 +1,17 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { isSubscriptionEntitled, type SubscriptionRow } from "@/lib/trial";
+import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/billing";
+import {
+  countCompletedSessions,
+  FREE_SESSION_LIMIT,
+  getFreeTierAccess,
+} from "@/lib/weeklySession/freeTier";
 import SubscribeCheckout from "./SubscribeCheckout";
 
-// Lives outside the (app) route group on purpose: the signed-in shell
-// redirects here when billing is missing, so putting /subscribe under
-// that layout would loop. Checkout success also lands here (not on
-// /dashboard) so a pending webhook cannot bounce the user through the gate.
+// Freemium: the upgrade page, not a gate -- nothing redirects here for a
+// missing subscription anymore. Lives outside the (app) shell so Checkout
+// success can land here and poll until the webhook entitles the user, then
+// send them to /weekly-session (where the free limit blocked them).
 export default async function SubscribePage({
   searchParams,
 }: {
@@ -47,17 +52,34 @@ export default async function SubscribePage({
   }
 
   if (isSubscriptionEntitled(sub as SubscriptionRow | null)) {
-    // Keep checkout=success on the dashboard so Meta StartTrial can fire
-    // when the webhook already entitled the user before this page rendered
-    // (the confirming UI never mounts in that case).
-    redirect(checkoutSuccess ? "/dashboard?checkout=success" : "/dashboard");
+    // Keep checkout=success on the redirect so Meta Subscribe can fire when
+    // the webhook already entitled the user before this page rendered (the
+    // confirming UI never mounts in that case) -- see MetaEvents.tsx.
+    redirect(checkoutSuccess ? "/weekly-session?checkout=success" : "/dashboard");
   }
 
   const pendingCheckout = checkoutSuccess && sub?.status === "incomplete";
 
+  // Only show the "you've used your free sessions" card when it's true --
+  // the sidebar's Upgrade link sends free users here at any count.
+  let limitReached = false;
+  if (isBillingEnforced() && !pendingCheckout) {
+    try {
+      const completedSessions = await countCompletedSessions(supabase, user.id);
+      limitReached = !getFreeTierAccess({
+        subscription: sub as SubscriptionRow | null,
+        completedSessions,
+      }).canStartNewSession;
+    } catch (err) {
+      console.error("[subscribe] free-tier check failed:", err);
+    }
+  }
+
   return (
     <SubscribeCheckout
       resubscribe={params.reason === "resubscribe"}
+      limitReached={limitReached}
+      freeLimit={FREE_SESSION_LIMIT}
       checkoutCanceled={checkoutCanceled}
       checkoutSuccess={pendingCheckout}
       checkoutSessionId={params.session_id ?? null}
