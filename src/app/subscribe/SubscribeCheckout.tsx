@@ -114,7 +114,9 @@ function CheckoutConfirming({ sessionId }: { sessionId: string | null }) {
         const res = await fetch(url);
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.entitled === true) {
-          trackMetaSubscribeOnce();
+          trackMetaSubscribeOnce(
+            typeof body.subscriptionId === "string" ? body.subscriptionId : null,
+          );
           // Freemium: land back where the free limit blocked them.
           router.replace("/weekly-session");
           return;

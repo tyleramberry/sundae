@@ -34,13 +34,16 @@ function MetaEventsInner() {
     // Checkout returns to /subscribe?checkout=success and Subscribe fires
     // from the confirming UI once the user is entitled. If the webhook
     // already entitled them before that page rendered, /subscribe redirects
-    // to /weekly-session?checkout=success and it fires here instead
-    // (/dashboard is the pre-freemium landing, kept for old links). Never
-    // fire on the subscribe confirming screen from the query alone.
+    // to /weekly-session?checkout=success&sub=<subscription id> and it fires
+    // here instead, with that id as the eventID that dedupes against CAPI
+    // (no id -> no pixel event; see trackMetaSubscribeOnce). /dashboard is
+    // the pre-freemium landing, kept for old links. Never fire on the
+    // subscribe confirming screen from the query alone.
     if (checkout === "success" && (pathname === "/weekly-session" || pathname === "/dashboard")) {
-      trackMetaSubscribeOnce();
+      trackMetaSubscribeOnce(searchParams.get("sub"));
       next.delete("checkout");
       next.delete("session_id");
+      next.delete("sub");
       changed = true;
     }
 

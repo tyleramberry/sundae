@@ -52,10 +52,19 @@ export default async function SubscribePage({
   }
 
   if (isSubscriptionEntitled(sub as SubscriptionRow | null)) {
-    // Keep checkout=success on the redirect so Meta Subscribe can fire when
-    // the webhook already entitled the user before this page rendered (the
-    // confirming UI never mounts in that case) -- see MetaEvents.tsx.
-    redirect(checkoutSuccess ? "/weekly-session?checkout=success" : "/dashboard");
+    // Keep checkout=success (plus the subscription id, the Meta eventID that
+    // dedupes against CAPI) on the redirect so the pixel Subscribe can fire
+    // when the webhook already entitled the user before this page rendered
+    // (the confirming UI never mounts in that case) -- see MetaEvents.tsx.
+    if (checkoutSuccess) {
+      const subId = (sub as SubscriptionRow | null)?.stripe_subscription_id;
+      redirect(
+        subId
+          ? `/weekly-session?checkout=success&sub=${encodeURIComponent(subId)}`
+          : "/weekly-session?checkout=success",
+      );
+    }
+    redirect("/dashboard");
   }
 
   const pendingCheckout = checkoutSuccess && sub?.status === "incomplete";

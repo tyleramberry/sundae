@@ -40,7 +40,13 @@ export async function GET(request: Request) {
 
   const row = sub as SubscriptionRow | null;
   if (isSubscriptionEntitled(row)) {
-    return NextResponse.json({ entitled: true, status: row?.status ?? null, pending: false });
+    return NextResponse.json({
+      entitled: true,
+      status: row?.status ?? null,
+      pending: false,
+      // Meta pixel eventID, so the browser Subscribe dedupes against CAPI.
+      subscriptionId: row?.stripe_subscription_id ?? null,
+    });
   }
 
   const sessionId = new URL(request.url).searchParams.get("session_id");
@@ -74,6 +80,7 @@ export async function GET(request: Request) {
                   entitled: true,
                   status: mapped.status,
                   pending: false,
+                  subscriptionId: mapped.stripe_subscription_id,
                 });
               }
             }
