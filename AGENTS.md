@@ -53,11 +53,14 @@ Google Calendar. A daily cron nudges follow-up and reconciles KPIs.
 - **Calendar writes are confirm-before-write.** `/api/weekly-session/propose`
   is read-only — it slots proposed actions against the user's real calendar
   gaps but writes nothing. `/api/weekly-session/confirm` is the only path
-  that creates calendar events from a plan and persists `weekly_items`.
+  that creates calendar events from a plan and persists `weekly_items`
+  (the one exception is retry-calendar's extra habit rows, below).
   `/api/weekly-session/retry-calendar` is the one other `createCalendarEvent`
   caller: it may only (re)issue events for items already in that week's
-  confirmed `weekly_items`, on an explicit user click ("Fix missing", or the
-  confirmation-gated "Redo") -- never for items the user didn't confirm.
+  confirmed `weekly_items` (including extra blocks for a confirmed habit's
+  cadence, which also adds their `weekly_items` rows), on an explicit user
+  click ("Fix missing", or the confirmation-gated "Redo") -- never for items
+  the user didn't confirm.
   Don't add any other path that writes to the calendar without an explicit
   user confirm step in between.
 - **The onboarding/planning engine used to be regex/keyword-based and broke
