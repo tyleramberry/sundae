@@ -105,13 +105,18 @@ describe("checkoutSessionBelongsToUser", () => {
       checkoutSessionBelongsToUser({ client_reference_id: "u1" }, "u1"),
       true,
     );
-    // Regression (billing gap): a session carrying only a customer id must
-    // NOT count as ownership proof. The stored stripe_customer_id is
-    // client-writable (INSERT is allowed and the trigger is BEFORE UPDATE
-    // only), so a customer-id match used to let a signed-in user INSERT a
-    // row with someone else's cus_... id and claim that person's checkout
-    // session -- and with it, entitlement. The signature no longer even
-    // accepts a customer id; these prove neither proof alone suffices.
+    // Regression (billing gap): the attacker input is a session whose ONLY
+    // ownership signal is a customer id, passed alongside the stored
+    // (client-writable) stripe_customer_id as the third argument -- exactly
+    // the pre-fix signature. Before 0d79cea, that clause granted ownership
+    // (customer-id match against a client-writable column), letting a
+    // signed-in user claim someone else's checkout session and entitlement.
+    // The fixed signature no longer even accepts a customer id, hence the
+    // cast: a customer-id match alone can never grant ownership.
+    const res = (checkoutSessionBelongsToUser as (...a: unknown[]) => boolean)(
+      { customer: "cus_attacker_controlled" }, "u1", "cus_attacker_controlled",
+    );
+    assert.equal(res, false);
     assert.equal(checkoutSessionBelongsToUser({ metadata: {} }, "u1"), false);
     assert.equal(
       checkoutSessionBelongsToUser({ client_reference_id: "u2" }, "u1"),

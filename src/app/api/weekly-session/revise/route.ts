@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { revisePlan } from "@/lib/engine/revisePlan";
 import { isClassifiedAction } from "@/lib/weeklySession/parseActions";
-import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
 import { getWeeklySessionTranscript } from "@/lib/weeklySession/persist";
 import { planningWeekStart } from "@/lib/weeklySession/week";
 import { getFreeLimitBlock } from "@/lib/weeklySession/freeTier";
