@@ -20,6 +20,11 @@ import type { ConversationState } from "@/lib/engine/types";
 // here with it; the engine itself stays I/O-free.
 
 export const MAX_ENGINE_MESSAGE_LENGTH = 2000;
+// The turn cap bounds turn COUNT, not turn size: `state` comes off the
+// wire and is echoed back into the Claude prompt, so a single turn's
+// content can be arbitrarily large. Cap the serialized turns at what
+// TURN_CAP legitimate turns of MAX_ENGINE_MESSAGE_LENGTH each would be.
+export const MAX_ENGINE_TURNS_JSON_LENGTH = TURN_CAP * MAX_ENGINE_MESSAGE_LENGTH;
 
 type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
 
@@ -72,6 +77,18 @@ export async function runEngineStep(input: {
     return {
       status: 400,
       body: { error: `state.turns can't be longer than ${TURN_CAP} turns.` },
+    };
+  }
+
+  // Size cap on the same wire data: the array and length checks above
+  // bound turn COUNT, not string lengths, so a short array of huge turns
+  // would otherwise ride the whole conversation into the Claude prompt.
+  if (rawTurns !== undefined && JSON.stringify(rawTurns).length > MAX_ENGINE_TURNS_JSON_LENGTH) {
+    return {
+      status: 400,
+      body: {
+        error: `state.turns is too large — keep the conversation under ${MAX_ENGINE_TURNS_JSON_LENGTH} characters.`,
+      },
     };
   }
 

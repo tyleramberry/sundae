@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MAX_REVISE_ACTIONS, MAX_REVISE_MESSAGE_LENGTH, runRevisePlan } from "./route";
+import {
+  MAX_REVISE_ACTIONS,
+  MAX_REVISE_ACTIONS_JSON_LENGTH,
+  MAX_REVISE_MESSAGE_LENGTH,
+  runRevisePlan,
+} from "./route";
 import { LLM_SPEND_HOURLY_LIMIT, spendLimitBody } from "@/lib/llm/spendGuard";
 import type { createClient } from "@/lib/supabase/server";
 import type { revisePlan } from "@/lib/engine/revisePlan";
@@ -146,6 +151,25 @@ describe("runRevisePlan", () => {
     assert.equal(
       res.body.error,
       `Too many actions — a revision can handle at most ${MAX_REVISE_ACTIONS} actions.`,
+    );
+    assert.equal(s.reviseCalls(), 0);
+    assert.equal(s.inserts.length, 0);
+  });
+
+  it("400s a plan whose serialized actions exceed the JSON cap, without calling revisePlan", async () => {
+    const s = setup();
+    // Three actions is well under MAX_REVISE_ACTIONS, but one carries a
+    // huge description -- isClassifiedAction checks types, not lengths.
+    const huge = [
+      { ...action },
+      { ...action, description: "x".repeat(MAX_REVISE_ACTIONS_JSON_LENGTH) },
+      { ...action },
+    ];
+    const res = await run(s, { message: "Move the run", actions: huge });
+    assert.equal(res.status, 400);
+    assert.equal(
+      res.body.error,
+      `Actions are too large — keep the whole plan under ${MAX_REVISE_ACTIONS_JSON_LENGTH} characters.`,
     );
     assert.equal(s.reviseCalls(), 0);
     assert.equal(s.inserts.length, 0);

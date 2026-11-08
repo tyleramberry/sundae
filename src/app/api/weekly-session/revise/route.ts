@@ -20,6 +20,12 @@ import { enforceLlmSpend } from "@/lib/llm/spendGuard";
 
 export const MAX_REVISE_MESSAGE_LENGTH = 2000;
 export const MAX_REVISE_ACTIONS = 50;
+// isClassifiedAction validates types but not string lengths, so an
+// individual action's fields can be arbitrarily large. The whole array is
+// JSON-stringified into the Claude prompt, so the serialized size of that
+// array is what actually bounds the call.
+export const MAX_REVISE_ACTIONS_JSON_LENGTH =
+  MAX_REVISE_ACTIONS * MAX_REVISE_MESSAGE_LENGTH;
 
 type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
 
@@ -70,6 +76,18 @@ export async function runRevisePlan(input: {
       status: 400,
       body: {
         error: `Too many actions — a revision can handle at most ${MAX_REVISE_ACTIONS} actions.`,
+      },
+    };
+  }
+  // The count cap alone doesn't bound the payload: isClassifiedAction
+  // validates types, not string lengths, so a handful of huge actions
+  // would ride the whole array into the Claude prompt. Cap the serialized
+  // size the prompt actually sees.
+  if (JSON.stringify(body.actions).length > MAX_REVISE_ACTIONS_JSON_LENGTH) {
+    return {
+      status: 400,
+      body: {
+        error: `Actions are too large — keep the whole plan under ${MAX_REVISE_ACTIONS_JSON_LENGTH} characters.`,
       },
     };
   }

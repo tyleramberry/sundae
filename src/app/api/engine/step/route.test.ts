@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MAX_ENGINE_MESSAGE_LENGTH, runEngineStep } from "./route";
+import { MAX_ENGINE_MESSAGE_LENGTH, MAX_ENGINE_TURNS_JSON_LENGTH, runEngineStep } from "./route";
 import { TURN_CAP, TURN_CAP_MESSAGE } from "@/lib/weeklySession/throttle";
 import type { createClient } from "@/lib/supabase/server";
 import type { processMessage } from "@/lib/engine/engine";
@@ -101,6 +101,20 @@ describe("runEngineStep", () => {
     const res = await run(s, { message: "hi", state: { turns: new Array(TURN_CAP) } });
     assert.equal(res.status, 429);
     assert.equal(res.body.error, TURN_CAP_MESSAGE);
+    assert.equal(s.engineCalls(), 0);
+  });
+
+  it("400s when state.turns serializes over the size cap, before the engine", async () => {
+    const s = setup();
+    const res = await run(s, {
+      message: "hi",
+      state: {
+        turns: [
+          { role: "user", content: "x".repeat(MAX_ENGINE_TURNS_JSON_LENGTH) },
+        ],
+      },
+    });
+    assert.equal(res.status, 400);
     assert.equal(s.engineCalls(), 0);
   });
 
