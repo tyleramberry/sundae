@@ -9,6 +9,7 @@ import {
   isRecentIncompleteCheckout,
   pickStripeCustomerForUser,
   shouldBlockNewCheckout,
+  stripeCustomerBelongsToUser,
   type StripeCustomerLike,
 } from "./checkout";
 import { resolveWebhookSubscriptionOwner } from "./webhook";
@@ -175,5 +176,36 @@ describe("buildSubscriptionCheckoutParams (freemium)", () => {
       "https://app.example.com/subscribe?checkout=success&session_id={CHECKOUT_SESSION_ID}",
     );
     assert.equal(params.cancel_url, "https://app.example.com/subscribe?checkout=canceled");
+  });
+});
+
+describe("stripeCustomerBelongsToUser", () => {
+  it("accepts a customer tagged with this user", () => {
+    assert.equal(
+      stripeCustomerBelongsToUser({ metadata: { supabase_user_id: "u1" } }, "u1"),
+      true,
+    );
+  });
+  it("rejects another user's customer", () => {
+    assert.equal(
+      stripeCustomerBelongsToUser({ metadata: { supabase_user_id: "u2" } }, "u1"),
+      false,
+    );
+  });
+  it("rejects null / empty metadata", () => {
+    assert.equal(stripeCustomerBelongsToUser({ metadata: null }, "u1"), false);
+    assert.equal(stripeCustomerBelongsToUser({ metadata: {} }, "u1"), false);
+  });
+  it("rejects a deleted customer even with matching metadata", () => {
+    assert.equal(
+      stripeCustomerBelongsToUser(
+        { deleted: true, metadata: { supabase_user_id: "u1" } },
+        "u1",
+      ),
+      false,
+    );
+  });
+  it("rejects null", () => {
+    assert.equal(stripeCustomerBelongsToUser(null, "u1"), false);
   });
 });

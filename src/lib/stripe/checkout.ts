@@ -20,6 +20,26 @@ export function pickStripeCustomerForUser(
   return match?.id ?? null;
 }
 
+export type RetrievedStripeCustomer =
+  | { deleted?: unknown; metadata?: Record<string, string> | null }
+  | null
+  | undefined;
+
+// M3 (SEC-1): a Stripe Customer created by this app is tagged at birth with
+// metadata.supabase_user_id (findOrCreateStripeCustomer). That tag is the only
+// ownership proof we have, and the stored stripe_customer_id on
+// public.subscriptions is client-writable — so a customer we cannot positively
+// tie to this user is never handed to a portal or checkout session. A deleted
+// customer and a customer with no metadata are both "not ours".
+export function stripeCustomerBelongsToUser(
+  customer: RetrievedStripeCustomer,
+  userId: string,
+): boolean {
+  if (!customer) return false;
+  if (customer.deleted === true) return false;
+  return customer.metadata?.supabase_user_id === userId;
+}
+
 // Any status other than fully canceled / expired Checkout is still "live"
 // on the Stripe customer and must not get a second subscription.
 export function hasOpenStripeSubscription(statuses: string[]): boolean {
