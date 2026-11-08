@@ -96,21 +96,25 @@ describe("canPersistPendingCheckoutRow", () => {
 });
 
 describe("checkoutSessionBelongsToUser", () => {
-  it("accepts metadata, client_reference_id, or matching customer id", () => {
+  it("accepts only unforgeable proofs: session metadata or client_reference_id", () => {
     assert.equal(
-      checkoutSessionBelongsToUser({ metadata: { supabase_user_id: "u1" } }, "u1", null),
+      checkoutSessionBelongsToUser({ metadata: { supabase_user_id: "u1" } }, "u1"),
       true,
     );
     assert.equal(
-      checkoutSessionBelongsToUser({ client_reference_id: "u1" }, "u1", "cus_x"),
+      checkoutSessionBelongsToUser({ client_reference_id: "u1" }, "u1"),
       true,
     );
+    // Regression (billing gap): a session carrying only a customer id must
+    // NOT count as ownership proof. The stored stripe_customer_id is
+    // client-writable (INSERT is allowed and the trigger is BEFORE UPDATE
+    // only), so a customer-id match used to let a signed-in user INSERT a
+    // row with someone else's cus_... id and claim that person's checkout
+    // session -- and with it, entitlement. The signature no longer even
+    // accepts a customer id; these prove neither proof alone suffices.
+    assert.equal(checkoutSessionBelongsToUser({ metadata: {} }, "u1"), false);
     assert.equal(
-      checkoutSessionBelongsToUser({ customer: "cus_x" }, "u1", "cus_x"),
-      true,
-    );
-    assert.equal(
-      checkoutSessionBelongsToUser({ customer: "cus_other", metadata: {} }, "u1", "cus_x"),
+      checkoutSessionBelongsToUser({ client_reference_id: "u2" }, "u1"),
       false,
     );
   });

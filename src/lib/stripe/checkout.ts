@@ -67,20 +67,26 @@ export function canPersistPendingCheckoutRow(status: string | null | undefined):
   );
 }
 
+// Ownership of a checkout session must rest on unforgeable proofs only:
+// the session's own metadata.supabase_user_id or client_reference_id,
+// both of which our checkout route sets server-side. The stored
+// subscriptions.stripe_customer_id is client-writable (the migration's
+// trigger is BEFORE UPDATE only and INSERT is allowed), so a customer-id
+// match is NOT accepted here -- a signed-in user could otherwise INSERT
+// a row carrying someone else's cus_... id and claim that person's
+// session, and with it, entitlement. (The portal route already follows
+// the same rule via stripeCustomerBelongsToUser on the LIVE Stripe
+// customer's metadata.)
 export function checkoutSessionBelongsToUser(
   session: {
     metadata?: Record<string, string> | null;
     client_reference_id?: string | null;
-    customer?: string | { id: string } | null;
   },
   userId: string,
-  stripeCustomerId: string | null,
 ): boolean {
   if (session.metadata?.supabase_user_id === userId) return true;
   if (session.client_reference_id === userId) return true;
-  const customer =
-    typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
-  return Boolean(stripeCustomerId && customer === stripeCustomerId);
+  return false;
 }
 
 export function shouldBlockNewCheckout(existing: {
