@@ -107,7 +107,9 @@ export async function runRevisePlan(input: {
 
     const result = await input.revisePlan({
       actions: body.actions,
-      message: body.message,
+      // Sent trimmed so the cap above bounds the whole payload, not just its
+      // trimmed prefix (trailing padding would otherwise ride along).
+      message: body.message.trim(),
       userId: user.id,
     });
     return { status: 200, body: result as unknown as Record<string, unknown> };

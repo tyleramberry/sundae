@@ -28,6 +28,7 @@ function setup(preseeded = 0) {
   const inserts: Array<Record<string, unknown>> = [];
   const events: string[] = Array.from({ length: preseeded }, () => new Date().toISOString());
   let reviseCalls = 0;
+  let lastMessage = "";
   const transcript = {
     completed_at: new Date().toISOString(),
     active_state: { turns: [] },
@@ -63,12 +64,21 @@ function setup(preseeded = 0) {
     },
   } as unknown as Supabase;
   const result = { reply: "Moved the run to Saturday.", actions: actions(3) };
-  const stub = (async () => {
+  const stub = (async (arg: { message: string }) => {
     calls.push("revisePlan");
     reviseCalls++;
+    lastMessage = arg.message;
     return result;
   }) as unknown as typeof revisePlan;
-  return { supabase, calls, inserts, result, stub, reviseCalls: () => reviseCalls };
+  return {
+    supabase,
+    calls,
+    inserts,
+    result,
+    stub,
+    reviseCalls: () => reviseCalls,
+    lastMessage: () => lastMessage,
+  };
 }
 
 function run(s: ReturnType<typeof setup>, body: unknown) {
@@ -149,6 +159,16 @@ describe("runRevisePlan", () => {
     });
     assert.equal(res.status, 200);
     assert.equal(s.reviseCalls(), 1);
+  });
+
+  it("bounds the message it actually sends, not just its trimmed length", async () => {
+    const s = setup();
+    const padded = "x".repeat(MAX_REVISE_MESSAGE_LENGTH) + " ".repeat(5000);
+    const res = await run(s, { message: padded, actions: actions(3) });
+    assert.equal(res.status, 200);
+    assert.equal(s.reviseCalls(), 1);
+    assert.ok(s.lastMessage().length <= MAX_REVISE_MESSAGE_LENGTH);
+    assert.equal(s.lastMessage(), "x".repeat(MAX_REVISE_MESSAGE_LENGTH));
   });
 
   it("429s on the first attempt when the hour is already full, writing nothing", async () => {
