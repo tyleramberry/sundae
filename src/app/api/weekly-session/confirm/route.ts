@@ -84,6 +84,19 @@ async function sendRecapBestEffort(
   }
 }
 
+// The confirm body gate, exported so a test can drive the route's own 400
+// without a live Supabase session: POST calls exactly this function, so the
+// response a bad client gets is the response the test reads.
+export function invalidConfirmBodyResponse(proposed: unknown): NextResponse | null {
+  if (!Array.isArray(proposed) || !proposed.every(isIncomingAction)) {
+    return NextResponse.json(
+      { error: "Body must include `proposed: ProposedAction[]` (as returned by /propose)." },
+      { status: 400 },
+    );
+  }
+  return null;
+}
+
 // The confirm step: the only place in the whole weekly session that
 // actually writes anything. Per the MVP spec's permissions model ("Read
 // calendar -> propose blocks -> user confirms -> write"), this route only
@@ -112,12 +125,8 @@ export async function POST(request: Request) {
   // looking at.
   const timeZone = typeof body?.timeZone === "string" ? body.timeZone : undefined;
 
-  if (!Array.isArray(proposed) || !proposed.every(isIncomingAction)) {
-    return NextResponse.json(
-      { error: "Body must include `proposed: ProposedAction[]` (as returned by /propose)." },
-      { status: 400 },
-    );
-  }
+  const invalid = invalidConfirmBodyResponse(proposed);
+  if (invalid) return invalid;
 
   const weekStart = planningWeekStart(new Date(), timeZone);
   const fingerprint = fingerprintProposed(proposed as PendingProposedAction[]);
