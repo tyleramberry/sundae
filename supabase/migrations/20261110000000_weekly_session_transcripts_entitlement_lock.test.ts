@@ -290,4 +290,190 @@ describe("M1 entitlement lock: the gate's row key is not client-writable (real m
       await refusedAny("authenticated", `delete from ${T} where id = '${id}' returning id`);
     });
   });
+
+  // The *value* half of the same trigger: 076c9b3's predecessor refused only a
+  // non-empty turns array, and every other shape read as a forged gate input --
+  // freeTier.ts roundStateOf uses `active_state.turns.length`, so the string
+  // "nope" has length 4 -- while completed_at stayed writable in both
+  // directions. The block above proves the row key is frozen; this one proves
+  // the gate's own values are, on both arms of the trigger.
+  describe("the gate's own values are frozen on both arms", () => {
+    const FORGED_SHAPES: [string, string][] = [
+      ['{"turns":[{"from":"user","text":"hi"}]}', "in-progress turns"],
+      ['{"turns":"nope"}', "non-array turns (a string of length 4)"],
+      ['{"turns":{"0":"x"}}', "non-array turns (an object)"],
+      ['{"turns":null}', "null turns"],
+      ['{"turns": [], "extra": 1}', "the empty default plus another key"],
+      ["[]", "an array, not an object"],
+      ["{}", "an object with no turns"],
+      ["null", "'null'::jsonb"],
+    ];
+
+    for (const [state, label] of FORGED_SHAPES) {
+      it(`INSERT active_state = ${label} is refused 42501 and writes no row`, async () => {
+        const r = await refused42501(
+          "authenticated",
+          `insert into ${T} (user_id, week_start, active_state)
+           values ('${USER}', '${LAST_WEEK}', '${state}'::jsonb) returning id`,
+        );
+        assert.match(
+          String(r.message),
+          /active_state is server-owned on public\.weekly_session_transcripts/,
+        );
+        const after = await asCaller(
+          "authenticated",
+          `select id from ${T} where user_id = '${USER}' and week_start = '${LAST_WEEK}'`,
+        );
+        assert.equal(after.count, 0, "a refused INSERT must not leave a row behind");
+      });
+    }
+
+    for (const [completedAt, label] of [
+      ["now()", "now()"],
+      ["'2000-01-01'", "a date in the past"],
+    ] as [string, string][]) {
+      it(`INSERT completed_at = ${label} is refused 42501 and writes no row`, async () => {
+        const r = await refused42501(
+          "authenticated",
+          `insert into ${T} (user_id, week_start, completed_at)
+           values ('${USER}', '${LAST_WEEK}', ${completedAt}) returning id`,
+        );
+        assert.match(
+          String(r.message),
+          /completed_at is server-owned on public\.weekly_session_transcripts/,
+        );
+        const after = await asCaller(
+          "authenticated",
+          `select id from ${T} where user_id = '${USER}' and week_start = '${LAST_WEEK}'`,
+        );
+        assert.equal(after.count, 0, "a refused INSERT must not leave a row behind");
+      });
+    }
+
+    it("UPSERT carrying forged turns is refused (the app's own ON CONFLICT shape)", async () => {
+      await refused42501(
+        "authenticated",
+        `insert into ${T} (user_id, week_start, active_state)
+         values ('${USER}', '${LAST_WEEK}', '{"turns":[1]}'::jsonb)
+         on conflict (user_id, week_start) do update set active_state = excluded.active_state
+         returning id`,
+      );
+    });
+
+    it("UPDATE active_state with no id filter (the PostgREST PATCH shape) is refused", async () => {
+      await seedRow(LAST_WEEK);
+      await refused42501(
+        "authenticated",
+        `update ${T} set active_state = '{"turns":[1]}'::jsonb where user_id = '${USER}' returning id`,
+      );
+    });
+
+    it("UPDATE completed_at null -> now() is refused, and the row is unchanged", async () => {
+      const id = await seedRow(LAST_WEEK);
+      const before = await readWeek(LAST_WEEK);
+      const r = await refused42501(
+        "authenticated",
+        `update ${T} set completed_at = now() where id = '${id}' returning id`,
+      );
+      assert.match(String(r.message), /completed_at is server-owned/);
+      assert.deepEqual(await readWeek(LAST_WEEK), before, "a refused UPDATE must not change the row");
+    });
+
+    it("UPDATE completed_at set -> null is refused (the reset-the-free-session-count direction)", async () => {
+      const id = await seedRow(LAST_WEEK, "now()", "completed_at");
+      await refused42501(
+        "authenticated",
+        `update ${T} set completed_at = null where id = '${id}' returning id`,
+      );
+      const after = await readWeek(LAST_WEEK);
+      assert.equal(after.length, 1);
+      assert.notEqual(after[0].completed_at, null, "completed_at must still be set");
+    });
+
+    it("UPDATE both frozen columns in one statement is refused atomically", async () => {
+      const id = await seedRow(LAST_WEEK);
+      const before = await readWeek(LAST_WEEK);
+      await refused42501(
+        "authenticated",
+        `update ${T} set completed_at = now(), active_state = '{"turns":[1,2,3]}'::jsonb
+          where id = '${id}' returning id`,
+      );
+      assert.deepEqual(await readWeek(LAST_WEEK), before);
+    });
+
+    it("UPDATE active_state = active_state (a no-op on a frozen column) is still allowed", async () => {
+      const id = await seedRow(LAST_WEEK);
+      await allowed(
+        "authenticated",
+        `update ${T} set active_state = active_state, display_turns = '[]'::jsonb
+          where id = '${id}' returning id`,
+      );
+    });
+
+    it("UPDATE completed_at = completed_at (a no-op on a frozen column) is still allowed", async () => {
+      const id = await seedRow(LAST_WEEK);
+      await allowed(
+        "authenticated",
+        `update ${T} set completed_at = completed_at, display_turns = '[]'::jsonb
+          where id = '${id}' returning id`,
+      );
+    });
+
+    it("service_role may write both columns (in-progress turns, and completed_at straight away)", async () => {
+      await allowed(
+        "service_role",
+        `insert into ${T} (user_id, week_start, active_state)
+         values ('${USER}', '${LAST_WEEK}', '{"turns":[{"from":"user","text":"hi"}]}'::jsonb) returning id`,
+      );
+      await allowed(
+        "service_role",
+        `insert into ${T} (user_id, week_start, completed_at)
+         values ('${USER}', '2026-10-25', now()) returning id`,
+      );
+      const id = await seedRow("2026-10-18");
+      await allowed(
+        "service_role",
+        `update ${T} set active_state = '{"turns":[]}'::jsonb, completed_at = now()
+          where id = '${id}' returning id`,
+      );
+    });
+
+    // The other GUC shape Supabase has used: one whole request.jwt.claims JSON
+    // instead of the per-claim GUCs asCaller sets. auth.role() must resolve
+    // under either, or the trigger refuses the fix's own service-role writes.
+    async function asWholeClaims(role: Actor, sql: string): Promise<Result> {
+      await db.exec(`reset role;
+        set session request.jwt.claim.role = '';
+        set session request.jwt.claim.sub = '';
+        set session request.jwt.claims = '{"role":"${role}","sub":"${role === "service_role" ? "" : USER}"}';
+        set role ${role};`);
+      try {
+        const rows = (await db.query(sql)).rows as Record<string, unknown>[];
+        return { ok: true, rows, count: rows.length };
+      } catch (e) {
+        const err = e as { code?: string; message?: string };
+        return { ok: false, rows: [], count: 0, code: err.code, message: err.message };
+      } finally {
+        await db.exec("reset role;");
+      }
+    }
+
+    it("service_role is recognised through the whole-claims GUC shape", async () => {
+      const r = await asWholeClaims(
+        "service_role",
+        `insert into ${T} (user_id, week_start, active_state)
+         values ('${USER}', '${LAST_WEEK}', '{"turns":[1]}'::jsonb) returning id`,
+      );
+      assert.ok(r.ok && r.count >= 1, `expected allowed\n  ${describeFailure("service_role", "whole-claims INSERT", r)}`);
+    });
+
+    it("authenticated is still refused through the whole-claims GUC shape", async () => {
+      const r = await asWholeClaims(
+        "authenticated",
+        `insert into ${T} (user_id, week_start, active_state)
+         values ('${USER}', '${LAST_WEEK}', '{"turns":[1]}'::jsonb) returning id`,
+      );
+      assert.ok(!r.ok && r.code === "42501", `expected refused 42501\n  ${describeFailure("authenticated", "whole-claims INSERT", r)}`);
+    });
+  });
 });
