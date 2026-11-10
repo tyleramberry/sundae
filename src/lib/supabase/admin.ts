@@ -8,6 +8,15 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 // code that's already gated behind its own auth check (see
 // src/lib/cron/auth.ts) -- never import this into anything that handles a
 // single user's request without that gate in front of it.
+//
+// Second sanctioned use: the weekly-session transcript writes to
+// `active_state` / `completed_at` (persist.ts saveWeeklySessionTranscript /
+// recordWeeklySessionConfirmed). Those two columns decide freemium
+// entitlement, and the entitlement-lock trigger
+// (20261110000000_weekly_session_transcripts_entitlement_lock.sql) only lets
+// `service_role` write them. Both weekly-session routes (/step, /confirm)
+// have already authenticated the user (getUser() + 401) before building this
+// client, and every statement it runs is scoped by user_id.
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secretKey = process.env.SUPABASE_SECRET_KEY;

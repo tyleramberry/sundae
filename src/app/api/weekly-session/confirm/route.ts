@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { GoogleCalendarError, createCalendarEvent } from "@/lib/google/calendar";
 import {
   clearConfirmingAt,
@@ -128,7 +129,9 @@ export async function POST(request: Request) {
   const invalid = invalidConfirmBodyResponse(proposed);
   if (invalid) return invalid;
 
-  const weekStart = planningWeekStart(new Date(), timeZone);
+  // One instant + one zone for both the gate's week and the written week.
+  const now = new Date();
+  const weekStart = planningWeekStart(now, timeZone);
   const fingerprint = fingerprintProposed(proposed as PendingProposedAction[]);
   let wroteAnyEvent = false;
   let calendarWarning: string | null = null;
@@ -247,7 +250,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const created = await createWeeklyItems(supabase, user.id, new Date(), withEventIds);
+    const created = await createWeeklyItems(supabase, user.id, now, withEventIds, timeZone);
 
     const priorTranscript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
     const roundTurns: Turn[] = priorTranscript?.active_state.turns ?? [];
@@ -334,6 +337,7 @@ export async function POST(request: Request) {
       confirmationMessage,
       fingerprint,
       masterScore,
+      transcriptWriter: createAdminClient(),
     });
 
     // The plan is written -- everything after this point is a nice-to-have

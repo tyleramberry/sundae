@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { processWeeklySessionMessage } from "@/lib/engine/weeklySession";
 import {
   getLastWeekContext,
@@ -47,6 +49,9 @@ export async function handleWeeklySessionStep(
   deps: {
     supabase: Awaited<ReturnType<typeof createClient>>;
     processWeeklySessionMessage: typeof processWeeklySessionMessage;
+    // Service-role client for the active_state write (frozen for
+    // `authenticated` by the entitlement-lock trigger).
+    transcriptWriter: SupabaseClient;
   },
 ): Promise<Response> {
   const {
@@ -205,6 +210,7 @@ export async function handleWeeklySessionStep(
       activeState: result.state,
       actionsSoFar: result.actionsSoFar,
       expectedRoundSeq,
+      transcriptWriter: deps.transcriptWriter,
     });
 
     if (isFreshStart && mode === "full") {
@@ -254,5 +260,6 @@ export async function POST(request: Request) {
   return handleWeeklySessionStep(request, {
     supabase: await createClient(),
     processWeeklySessionMessage,
+    transcriptWriter: createAdminClient(),
   });
 }

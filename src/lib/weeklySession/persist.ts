@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { startOfWeek } from "@/lib/google/calendar";
-import { addDays, planningWeekStartDate } from "@/lib/weeklySession/week";
+import { addDays, planningWeekStart, planningWeekStartDate } from "@/lib/weeklySession/week";
 import type {
   ActionType,
   ClassifiedAction,
@@ -106,8 +106,12 @@ export async function createWeeklyItems(
   userId: string,
   referenceDate: Date,
   actions: (ProposedAction & { eventIds: string[]; percent?: number | null })[],
+  // The request's IANA zone, so the written week is the same one the caller
+  // gated on (planningWeekStart(now, timeZone)); undefined keeps the
+  // process-zone default.
+  timeZone?: string,
 ): Promise<number> {
-  const weekStart = toDateOnly(planningWeekStartDate(referenceDate));
+  const weekStart = planningWeekStart(referenceDate, timeZone);
 
   const rows: WeeklyItemInsert[] = [];
   for (const action of actions) {
@@ -184,6 +188,15 @@ export type { ClassifiedAction };
 // actually fed to Claude -- the two diverge the moment a round gets
 // confirmed (recordWeeklySessionConfirmed resets active_state, never
 // display_turns).
+//
+// Write client: `active_state` and `completed_at` are the inputs to the
+// freemium gate (freeTier.ts), so the entitlement-lock trigger
+// (20261110000000_weekly_session_transcripts_entitlement_lock.sql) refuses
+// them for `authenticated`. The two functions that write them therefore take
+// a separate `transcriptWriter` -- a service-role client, the only other
+// credential the app has -- while reads stay on the RLS-scoped client. The
+// service-role client bypasses RLS, so the user_id / week_start filters on
+// those writes are the only scoping that remains: keep them.
 
 // UI turn shape, matching the web page's own `Turn` type exactly -- kept
 // here (not re-exported from a shared module) since it's a display concern
@@ -383,10 +396,15 @@ type SaveTranscriptInput = {
   // Seq loaded at the start of this /step. The write is rejected if
   // /confirm incremented it in the meantime (stale Claude round-trip).
   expectedRoundSeq: number;
+  // Service-role client used for the insert/update (which carries
+  // active_state); the session client passed positionally is read-only here.
+  transcriptWriter: SupabaseClient;
 };
 
 // Called after every real turn (full-session or addendum-round alike) so a
-// refresh mid-conversation never loses progress. Deliberately never
+// refresh mid-conversation never loses progress. The write goes through
+// `transcriptWriter` (service role) because active_state is frozen for
+// `authenticated` by the entitlement-lock trigger. Deliberately never
 // includes `completed_at` in the payload -- an in-progress round's turns
 // must not clobber a completed_at a previous round already set. The
 // round_seq match is what stops a late /step from resurrecting pre-confirm
@@ -400,12 +418,13 @@ export async function saveWeeklySessionTranscript(
     activeState,
     actionsSoFar,
     expectedRoundSeq,
+    transcriptWriter,
   }: SaveTranscriptInput,
 ): Promise<void> {
   const existing = await getWeeklySessionTranscript(supabase, userId, weekStart);
 
   if (!existing) {
-    const { error } = await supabase.from("weekly_session_transcripts").insert({
+    const { error } = await transcriptWriter.from("weekly_session_transcripts").insert({
       user_id: userId,
       week_start: weekStart,
       display_turns: displayTurns,
@@ -428,7 +447,7 @@ export async function saveWeeklySessionTranscript(
     throw new StaleTranscriptError();
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await transcriptWriter
     .from("weekly_session_transcripts")
     .update({
       display_turns: displayTurns,
@@ -567,6 +586,10 @@ type RecordConfirmedInput = {
   // couldn't derive it); the column stays null in that case rather than
   // getting stamped with a fabricated 0.
   masterScore?: number | null;
+  // Service-role client for the upsert (active_state reset) and the
+  // completed_at update -- both columns are frozen for `authenticated` by the
+  // entitlement-lock trigger. The `existing` read stays on the session client.
+  transcriptWriter: SupabaseClient;
 };
 
 // Called once /api/weekly-session/confirm actually writes a plan (the
@@ -579,9 +602,12 @@ type RecordConfirmedInput = {
 // untouched apart from the appended marker -- it never resets.
 // round_seq bumps here so an in-flight /step that loaded the previous seq
 // cannot save over this reset.
+// The upsert and the completed_at update go through `transcriptWriter`
+// (service role): the entitlement-lock trigger refuses active_state and
+// completed_at for `authenticated`.
 export async function recordWeeklySessionConfirmed(
   supabase: SupabaseClient,
-  { userId, weekStart, confirmationMessage, fingerprint, masterScore }: RecordConfirmedInput,
+  { userId, weekStart, confirmationMessage, fingerprint, masterScore, transcriptWriter }: RecordConfirmedInput,
 ): Promise<{ isFirstConfirmThisWeek: boolean }> {
   const existing = await getWeeklySessionTranscript(supabase, userId, weekStart);
   const isFirstConfirmThisWeek = !existing?.completed_at;
@@ -612,7 +638,7 @@ export async function recordWeeklySessionConfirmed(
     upsertPayload.master_score = masterScore;
   }
 
-  const { error } = await supabase.from("weekly_session_transcripts").upsert(
+  const { error } = await transcriptWriter.from("weekly_session_transcripts").upsert(
     upsertPayload,
     { onConflict: "user_id,week_start" },
   );
@@ -626,7 +652,7 @@ export async function recordWeeklySessionConfirmed(
   // zero rows here and silently no-ops, rather than needing a separate
   // read-then-branch.
   if (isFirstConfirmThisWeek) {
-    const { error: completeError } = await supabase
+    const { error: completeError } = await transcriptWriter
       .from("weekly_session_transcripts")
       .update({ completed_at: new Date().toISOString() })
       .eq("user_id", userId)
