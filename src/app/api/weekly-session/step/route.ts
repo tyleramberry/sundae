@@ -34,6 +34,13 @@ import { getFreeLimitBlock } from "@/lib/weeklySession/freeTier";
 import { isFirstWeeklySessionUserMessage } from "@/lib/analytics/session";
 import { enforceLlmSpend } from "@/lib/llm/spendGuard";
 
+// A missing service-role key is a *deployment* problem, not a user or engine
+// problem. The generic 502 below ("The planning engine had trouble with that")
+// would blame the user's request for an operator's misconfiguration, so this
+// one says what is actually wrong and what did not happen.
+export const STEP_WRITER_UNAVAILABLE_MESSAGE =
+  "Planning is unavailable: the server is missing its service-role credentials, so nothing was saved. This is a deployment problem, not a problem with your request.";
+
 // Thin HTTP wrapper around the weekly-session engine, same shape as
 // /api/engine/step for onboarding, with one structural change (Day 16):
 // the server, not the client, now owns the conversation. The client only
@@ -50,8 +57,12 @@ export async function handleWeeklySessionStep(
     supabase: Awaited<ReturnType<typeof createClient>>;
     processWeeklySessionMessage: typeof processWeeklySessionMessage;
     // Service-role client for the active_state write (frozen for
-    // `authenticated` by the entitlement-lock trigger).
-    transcriptWriter: SupabaseClient;
+    // `authenticated` by the entitlement-lock trigger). A factory, not an
+    // instance: `createAdminClient()` throws when the deployment is missing
+    // SUPABASE_SECRET_KEY, and this handler must be the one to decide whether
+    // that throw happens before or after this request's own 401/400 gates
+    // (see the guard at the top of the `try` below).
+    transcriptWriter: () => SupabaseClient;
   },
 ): Promise<Response> {
   const {
@@ -76,6 +87,26 @@ export async function handleWeeklySessionStep(
   // this" boundary agrees with /propose and /confirm's -- see those
   // routes and blocks.ts's DEFAULT_TIME_ZONE comment.
   const timeZone = typeof body.timeZone === "string" ? body.timeZone : undefined;
+
+  // Fail fast, and honestly, on a deployment that is missing its service-role
+  // key. `SUPABASE_SECRET_KEY` is what authorises the frozen active_state /
+  // completed_at write at the end of this handler (see
+  // 20261110000000_weekly_session_transcripts_entitlement_lock.sql), so a
+  // deployment without it cannot serve a turn at all -- but this client used to
+  // be built in POST, *before* the auth and body gates above, so the throw
+  // turned every /step request -- including a signed-out one -- into a raw
+  // framework 500 instead of this handler's own 401/400 JSON. Built here
+  // instead: still before the first read, the Claude call and every write, but
+  // after this request's own gates, so a misconfigured deployment answers a
+  // signed-out caller with that caller's 401 and a signed-in caller with a
+  // plain JSON error that says what is wrong rather than a framework error page.
+  let transcriptWriter: SupabaseClient;
+  try {
+    transcriptWriter = deps.transcriptWriter();
+  } catch (error) {
+    console.error("[weekly-session/step] service-role client unavailable:", error);
+    return NextResponse.json({ error: STEP_WRITER_UNAVAILABLE_MESSAGE }, { status: 500 });
+  }
 
   // Bug fix: everything from here down used to run partly outside this
   // route's own try/catch (only the engine call + save were guarded). Any
@@ -210,7 +241,7 @@ export async function handleWeeklySessionStep(
       activeState: result.state,
       actionsSoFar: result.actionsSoFar,
       expectedRoundSeq,
-      transcriptWriter: deps.transcriptWriter,
+      transcriptWriter,
     });
 
     if (isFreshStart && mode === "full") {
@@ -260,6 +291,8 @@ export async function POST(request: Request) {
   return handleWeeklySessionStep(request, {
     supabase: await createClient(),
     processWeeklySessionMessage,
-    transcriptWriter: createAdminClient(),
+    // Deferred (see the seam's comment): constructed inside the handler, after
+    // this request's own auth/body gates.
+    transcriptWriter: () => createAdminClient(),
   });
 }

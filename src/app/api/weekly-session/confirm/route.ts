@@ -98,6 +98,35 @@ export function invalidConfirmBodyResponse(proposed: unknown): NextResponse | nu
   return null;
 }
 
+export const CONFIRM_WRITER_UNAVAILABLE_MESSAGE =
+  "Confirming is unavailable: the server is missing its service-role credentials, so nothing from this request was written to your calendar or to your plan. This is a deployment problem, not a problem with your request.";
+
+// The service-role client this route's closing write needs
+// (recordWeeklySessionConfirmed). Exported, like invalidConfirmBodyResponse
+// above, so a test can drive the failure without a live Supabase session:
+// POST calls exactly this function, in the position described below.
+//
+// It has to be resolved *before* the confirm lock is taken and before any
+// calendar event or weekly_items row is written. It used to be built down at
+// the recordWeeklySessionConfirmed call site, inside the big try below -- so on
+// a deployment missing SUPABASE_SECRET_KEY the throw landed in that try's
+// catch with wroteAnyEvent already true, and the caller was told
+// "some events were already written ... don't confirm this plan again" while
+// the transcript was never marked completed: plan written, week still reads
+// unconfirmed, user told not to retry.
+export function resolveConfirmWriter(
+  create: () => SupabaseClient = createAdminClient,
+): { writer: SupabaseClient } | { response: NextResponse } {
+  try {
+    return { writer: create() };
+  } catch (error) {
+    console.error("[weekly-session/confirm] service-role client unavailable:", error);
+    return {
+      response: NextResponse.json({ error: CONFIRM_WRITER_UNAVAILABLE_MESSAGE }, { status: 500 }),
+    };
+  }
+}
+
 // The confirm step: the only place in the whole weekly session that
 // actually writes anything. Per the MVP spec's permissions model ("Read
 // calendar -> propose blocks -> user confirms -> write"), this route only
@@ -128,6 +157,12 @@ export async function POST(request: Request) {
 
   const invalid = invalidConfirmBodyResponse(proposed);
   if (invalid) return invalid;
+
+  // Fail fast, before the confirm lock is taken and before anything is written
+  // (see resolveConfirmWriter).
+  const writer = resolveConfirmWriter();
+  if ("response" in writer) return writer.response;
+  const transcriptWriter = writer.writer;
 
   // One instant + one zone for both the gate's week and the written week.
   const now = new Date();
@@ -337,7 +372,7 @@ export async function POST(request: Request) {
       confirmationMessage,
       fingerprint,
       masterScore,
-      transcriptWriter: createAdminClient(),
+      transcriptWriter,
     });
 
     // The plan is written -- everything after this point is a nice-to-have
