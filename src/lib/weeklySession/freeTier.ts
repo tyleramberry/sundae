@@ -122,12 +122,20 @@ export async function loadFreeTierAccess(
 
 // Pure: the round facts isNewSessionBlocked needs, read off this week's
 // transcript row (null = no session at all this week yet).
+//
+// `Array.isArray`, not `?.length ?? 0`: this is the one read of `active_state`
+// that decides entitlement. A `turns` that is not an array (a malformed row, or
+// one written before the entitlement-lock trigger existed) would otherwise
+// report a turn count off that value's length -- the string "nope" reads as 4 --
+// and skip the gate for a brand-new week. Anything that is not a real turns
+// array now counts as 0 turns, i.e. the gate applies.
 export function roundStateOf(
   transcript: Pick<WeeklySessionTranscriptRow, "completed_at" | "active_state"> | null | undefined,
 ): { weekCompleted: boolean; roundTurnCount: number } {
+  const turns = transcript?.active_state?.turns as unknown;
   return {
     weekCompleted: Boolean(transcript?.completed_at),
-    roundTurnCount: transcript?.active_state?.turns?.length ?? 0,
+    roundTurnCount: Array.isArray(turns) ? turns.length : 0,
   };
 }
 

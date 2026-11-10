@@ -31,10 +31,14 @@
 --
 -- Rules:
 --   * service_role: always allowed.
---   * INSERT by anyone else: completed_at must be null and active_state's
---     'turns' must not be a non-empty jsonb array. A non-array / missing
---     'turns' counts as zero turns (which is how the gate reads it), so a
---     malformed row does not raise a confusing jsonb error here.
+--   * INSERT by anyone else: completed_at must be null and active_state must
+--     be exactly the empty default '{"turns": []}'. Not "must not be a
+--     non-empty turns array": freeTier.ts roundStateOf reads
+--     `active_state.turns.length`, so a 'turns' that is not an array (the
+--     string "nope" has length 4) reads as a non-zero turn count and skips
+--     the gate. Anything other than the empty default is therefore refused.
+--     tryBeginConfirm's insert leaves the column at its default and is the
+--     only client-side INSERT this repo makes.
 --   * UPDATE by anyone else: completed_at and active_state must be unchanged.
 --
 -- Deliberately NOT constrained (not entitlement inputs, stay writable by
@@ -44,9 +48,14 @@
 -- its empty default, completed_at null), savePendingProposal and
 -- clearConfirmingAt keep working unchanged.
 --
--- NOT EXECUTED: this DDL has not been run anywhere locally (no Docker /
--- Postgres in the authoring environment). Apply it through the normal
--- Supabase migration path and verify before relying on it.
+-- Verification status: this DDL was executed against a local WASM Postgres
+-- (PGlite, Postgres 17) with Supabase's own auth.uid()/auth.role() definitions
+-- emulated from session GUCs and `authenticated` / `service_role` (bypassrls)
+-- roles created by hand -- every attack and legitimate-write probe in the
+-- handing-off card's evidence log behaved as specified. That is NOT a Supabase
+-- instance: the RLS policies and the PostgREST path are emulated, not
+-- reproduced, so apply this through the normal Supabase migration path and
+-- re-verify there before relying on it.
 create or replace function public.weekly_session_transcripts_lock_entitlement()
 returns trigger
 language plpgsql
@@ -63,9 +72,7 @@ begin
         'completed_at is server-owned on public.weekly_session_transcripts'
         using errcode = '42501';
     end if;
-    if jsonb_typeof(new.active_state -> 'turns') = 'array'
-      and jsonb_array_length(new.active_state -> 'turns') > 0
-    then
+    if new.active_state is distinct from '{"turns": []}'::jsonb then
       raise exception
         'active_state is server-owned on public.weekly_session_transcripts'
         using errcode = '42501';

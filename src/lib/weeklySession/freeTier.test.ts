@@ -6,6 +6,7 @@ import {
   freeLimitBody,
   getFreeTierAccess,
   isNewSessionBlocked,
+  roundStateOf,
 } from "./freeTier";
 
 const NOW = new Date("2026-11-06T12:00:00.000Z");
@@ -70,6 +71,38 @@ describe("isNewSessionBlocked", () => {
 
   it("never blocks when the user can start a new session", () => {
     assert.equal(isNewSessionBlocked(open, { weekCompleted: false, roundTurnCount: 0 }), false);
+  });
+});
+
+describe("roundStateOf", () => {
+  const row = (activeState: unknown, completedAt: string | null = null) =>
+    ({ completed_at: completedAt, active_state: activeState }) as never;
+
+  it("counts the real turns array", () => {
+    assert.deepEqual(roundStateOf(null), { weekCompleted: false, roundTurnCount: 0 });
+    assert.deepEqual(roundStateOf(row({ turns: [] })), { weekCompleted: false, roundTurnCount: 0 });
+    assert.deepEqual(roundStateOf(row({ turns: [{ from: "user", text: "hi" }] })), {
+      weekCompleted: false,
+      roundTurnCount: 1,
+    });
+  });
+
+  it("reads a non-array/missing turns as 0 turns, so a malformed row cannot skip the gate", () => {
+    // `.length` on these values is non-zero (the string "nope" is 4), which used
+    // to read as an in-progress round and let an at-limit user start a new week.
+    assert.deepEqual(roundStateOf(row({ turns: "nope" })), { weekCompleted: false, roundTurnCount: 0 });
+    assert.deepEqual(roundStateOf(row({})), { weekCompleted: false, roundTurnCount: 0 });
+    assert.deepEqual(roundStateOf(row(null)), { weekCompleted: false, roundTurnCount: 0 });
+    assert.deepEqual(roundStateOf(row({ turns: { 0: "x" } })), { weekCompleted: false, roundTurnCount: 0 });
+    // ...and the gate therefore applies to it.
+    assert.equal(
+      isNewSessionBlocked({ canStartNewSession: false }, roundStateOf(row({ turns: "nope" }))),
+      true,
+    );
+  });
+
+  it("still reports a completed week (addenda stay free)", () => {
+    assert.equal(roundStateOf(row({ turns: [] }, "2026-11-01T00:00:00.000Z")).weekCompleted, true);
   });
 });
 
