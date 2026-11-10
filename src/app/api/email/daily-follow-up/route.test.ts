@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { runDailyFollowUpEmailTrigger } from "./route";
+import { afterEach, describe, it } from "node:test";
+import { POST, runDailyFollowUpEmailTrigger } from "./route";
 import type { createClient } from "@/lib/supabase/server";
 import type { sendDailyFollowUpEmail } from "@/lib/email/dailyFollowUp";
 
@@ -93,5 +93,92 @@ describe("runDailyFollowUpEmailTrigger", () => {
     });
     assert.equal(res.status, 502);
     assert.equal(sent, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Route-level coverage, ported from the Air chain's S-5 tests (c1b1124).
+// The helper tests above only exercise runDailyFollowUpEmailTrigger. These exercise POST itself,
+// because the production switch lives in POST, and deleting that one line
+// leaves every helper test green.
+// ---------------------------------------------------------------------------
+
+const env = process.env as { NODE_ENV?: string; RESEND_API_KEY?: string };
+const originalNodeEnv = env.NODE_ENV;
+const originalResendKey = env.RESEND_API_KEY;
+
+type FetchCall = { url: string; method: string };
+type FetchSpy = {
+  calls: FetchCall[];
+  resend: () => FetchCall[];
+  anthropic: () => FetchCall[];
+  restore: () => void;
+};
+
+const originalFetch = globalThis.fetch;
+let activeFetchSpy: FetchSpy | null = null;
+
+function installFetchSpy(): FetchSpy {
+  const calls: FetchCall[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push({ url, method: init?.method ?? "GET" });
+    return new Response(JSON.stringify({ id: "email-1" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  const spy: FetchSpy = {
+    calls,
+    resend: () => calls.filter((c) => c.url.includes("api.resend.com")),
+    anthropic: () => calls.filter((c) => c.url.includes("anthropic.com")),
+    restore: () => {
+      globalThis.fetch = originalFetch;
+    },
+  };
+  activeFetchSpy = spy;
+  return spy;
+}
+
+afterEach(() => {
+  if (originalNodeEnv === undefined) delete env.NODE_ENV;
+  else env.NODE_ENV = originalNodeEnv;
+  if (originalResendKey === undefined) delete env.RESEND_API_KEY;
+  else env.RESEND_API_KEY = originalResendKey;
+  activeFetchSpy?.restore();
+  activeFetchSpy = null;
+});
+
+describe("POST /api/email/daily-follow-up", () => {
+  it("404s in production before touching auth, Claude or Resend", async () => {
+    env.NODE_ENV = "production";
+    const spy = installFetchSpy();
+    let thrown: unknown;
+    let response: Response | undefined;
+    try {
+      response = await POST();
+    } catch (e) {
+      thrown = e;
+    }
+    assert.equal(
+      thrown,
+      undefined,
+      "POST must 404 before createClient()/auth runs, but it threw: " + String(thrown),
+    );
+    assert.ok(response);
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: "Not available outside local dev." });
+    assert.equal(spy.resend().length, 0);
+    assert.equal(spy.anthropic().length, 0);
+    assert.equal(spy.calls.length, 0);
+  });
+
+  it("spy control: the spy observes a Resend POST", async () => {
+    const spy = installFetchSpy();
+    // Proves the spy and its host classifier really see a Resend POST, so the
+    // zero counts above are not vacuous.
+    await globalThis.fetch("https://api.resend.com/emails", { method: "POST" });
+    assert.equal(spy.resend().length, 1);
   });
 });

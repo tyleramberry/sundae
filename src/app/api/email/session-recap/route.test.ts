@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { runSessionRecapEmailTrigger } from "./route";
+import { afterEach, describe, it } from "node:test";
+import { POST, runSessionRecapEmailTrigger } from "./route";
 import type { createClient } from "@/lib/supabase/server";
 import type { getLastWeekContext } from "@/lib/weeklySession/persist";
 import type { getOnboardingAnswers } from "@/lib/onboarding/persist";
 import type { getSessionRecap } from "@/lib/agents/sessionRecapAgent";
-import type { sendSessionRecapEmail } from "@/lib/email/sessionRecap";
+import { sendSessionRecapEmail } from "@/lib/email/sessionRecap";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -133,5 +133,99 @@ describe("runSessionRecapEmailTrigger", () => {
     });
     assert.equal(res.status, 502);
     assert.equal(claude, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Route-level coverage, ported from the Air chain's S-5 tests (c1b1124).
+// The helper tests above only exercise runSessionRecapEmailTrigger. These exercise POST itself,
+// because the production switch lives in POST, and deleting that one line
+// leaves every helper test green.
+// ---------------------------------------------------------------------------
+
+const env = process.env as { NODE_ENV?: string; RESEND_API_KEY?: string };
+const originalNodeEnv = env.NODE_ENV;
+const originalResendKey = env.RESEND_API_KEY;
+
+type FetchCall = { url: string; method: string };
+type FetchSpy = {
+  calls: FetchCall[];
+  resend: () => FetchCall[];
+  anthropic: () => FetchCall[];
+  restore: () => void;
+};
+
+const originalFetch = globalThis.fetch;
+let activeFetchSpy: FetchSpy | null = null;
+
+function installFetchSpy(): FetchSpy {
+  const calls: FetchCall[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push({ url, method: init?.method ?? "GET" });
+    return new Response(JSON.stringify({ id: "email-1" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  const spy: FetchSpy = {
+    calls,
+    resend: () => calls.filter((c) => c.url.includes("api.resend.com")),
+    anthropic: () => calls.filter((c) => c.url.includes("anthropic.com")),
+    restore: () => {
+      globalThis.fetch = originalFetch;
+    },
+  };
+  activeFetchSpy = spy;
+  return spy;
+}
+
+afterEach(() => {
+  if (originalNodeEnv === undefined) delete env.NODE_ENV;
+  else env.NODE_ENV = originalNodeEnv;
+  if (originalResendKey === undefined) delete env.RESEND_API_KEY;
+  else env.RESEND_API_KEY = originalResendKey;
+  activeFetchSpy?.restore();
+  activeFetchSpy = null;
+});
+
+describe("POST /api/email/session-recap", () => {
+  it("404s in production before touching auth, Claude or Resend", async () => {
+    env.NODE_ENV = "production";
+    const spy = installFetchSpy();
+    let thrown: unknown;
+    let response: Response | undefined;
+    try {
+      response = await POST();
+    } catch (e) {
+      thrown = e;
+    }
+    assert.equal(
+      thrown,
+      undefined,
+      "POST must 404 before createClient()/auth runs, but it threw: " + String(thrown),
+    );
+    assert.ok(response);
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: "Not available outside local dev." });
+    assert.equal(spy.resend().length, 0);
+    assert.equal(spy.anthropic().length, 0);
+    assert.equal(spy.calls.length, 0);
+  });
+
+  it("spy control: the real email module makes one observable Resend POST", async () => {
+    env.RESEND_API_KEY = "test-key";
+    const spy = installFetchSpy();
+    // A real Resend POST through the real email module, so the production
+    // test's zero counts have teeth.
+    const result = await sendSessionRecapEmail({
+      to: "user@example.com",
+      weekStart: "2026-11-02",
+      recap: { wins: ["a"], improvements: ["b"] },
+      roleKpis: [],
+    });
+    assert.deepEqual(result, { id: "email-1" });
+    assert.equal(spy.resend().length, 1);
   });
 });
