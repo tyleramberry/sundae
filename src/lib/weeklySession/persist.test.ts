@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { fingerprintProposed, classifiedActionsFromWeeklyItems, toDateOnly } from "./persist";
+import {
+  createWeeklyItems,
+  fingerprintProposed,
+  classifiedActionsFromWeeklyItems,
+  toDateOnly,
+} from "./persist";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 describe("toDateOnly", () => {
   it("keeps local midnight on the same calendar date", () => {
@@ -41,5 +47,61 @@ describe("classifiedActionsFromWeeklyItems", () => {
     const run = actions.find((a) => a.description === "Run");
     assert.equal(run?.cadenceCount, 2);
     assert.equal(actions.find((a) => a.description === "Send the update")?.type, "goal");
+  });
+});
+
+// A fake Supabase that records the rows handed to weekly_items.insert, so a
+// test can assert how many rows a given action fans out into.
+function fakeSupabase(inserted: unknown[]): SupabaseClient {
+  return {
+    from: (table: string) => {
+      assert.equal(table, "weekly_items");
+      return {
+        insert: async (rows: unknown[]) => {
+          inserted.push(...rows);
+          return { error: null };
+        },
+      };
+    },
+  } as unknown as SupabaseClient;
+}
+
+describe("createWeeklyItems cadence clamp", () => {
+  const habit = (cadenceCount: number) => ({
+    role: "Athlete",
+    description: "Run",
+    type: "habit" as const,
+    cadenceCount,
+    blocks: [],
+    eventIds: [],
+  });
+
+  it("caps a direct cadenceCount of 1e9 at 7 rows", async () => {
+    const insertedRows: Record<string, unknown>[] = [];
+    // Constructed directly, deliberately bypassing the validator.
+    const count = await createWeeklyItems(
+      fakeSupabase(insertedRows),
+      "user-1",
+      new Date(2026, 7, 10),
+      [habit(1e9)],
+    );
+    assert.equal(insertedRows.length, 7);
+    assert.equal(count, 7);
+    for (const row of insertedRows) {
+      assert.equal(row.type, "habit");
+      assert.equal(row.google_event_id, null);
+    }
+  });
+
+  it("cadenceCount 3 still creates 3 rows", async () => {
+    const insertedRows: Record<string, unknown>[] = [];
+    const count = await createWeeklyItems(
+      fakeSupabase(insertedRows),
+      "user-1",
+      new Date(2026, 7, 10),
+      [habit(3)],
+    );
+    assert.equal(insertedRows.length, 3);
+    assert.equal(count, 3);
   });
 });

@@ -140,7 +140,12 @@ export async function createWeeklyItems(
     // google_event_id left null, so the dashboard, the plan panel, and a
     // later retry (see /api/weekly-session/retry-calendar) all see the
     // true intended count, not a collapsed one.
-    const wanted = action.type === "habit" ? Math.max(1, action.cadenceCount ?? 1) : 1;
+    //
+    // The upper clamp of 7 (every day of the week) is defence in depth: the
+    // validators in parseActions.ts already bound cadenceCount to 1..7, but
+    // this loop is where a bad number becomes N rows, so it clamps too and
+    // an unvalidated caller can never fan out more than 7 rows per habit.
+    const wanted = action.type === "habit" ? Math.min(7, Math.max(1, action.cadenceCount ?? 1)) : 1;
     for (let i = 0; i < wanted; i++) {
       rows.push({
         user_id: userId,

@@ -160,17 +160,28 @@ async function recordPaidSubscriptionStarted(
   }
 }
 
-async function handleSubscriptionUpdated(
+// S-6: the event only tells us something *changed*; its `data.object` is a
+// snapshot taken when the event was created, not when it was delivered.
+// Stripe retries webhooks and can deliver them out of order, so a late or
+// retried `customer.subscription.updated` could otherwise write a stale
+// snapshot (e.g. revive a subscription that was since canceled) on top of
+// the newer state a previously delivered event already persisted. The
+// checkout handler already does the same thing: re-fetch the live
+// subscription from Stripe and persist THAT state. `previous_attributes`
+// still comes from the event -- it describes the transition, which only
+// the event knows -- but everything persisted comes from `live`.
+export async function handleSubscriptionUpdated(
   stripe: Stripe,
   admin: AdminClient,
   subscription: Stripe.Subscription,
   previousAttributes: SubscriptionPreviousAttributes | undefined,
 ): Promise<void> {
-  const customerId = stripeExpandableId(subscription.customer as string | { id: string } | null);
+  const live = await stripe.subscriptions.retrieve(subscription.id);
+  const customerId = stripeExpandableId(live.customer as string | { id: string } | null);
   const userId = await resolveUserId(stripe, admin, {
-    fromMetadata: subscription.metadata?.supabase_user_id ?? null,
+    fromMetadata: live.metadata?.supabase_user_id ?? null,
     customerId,
-    subscriptionId: subscription.id,
+    subscriptionId: live.id,
   });
 
   if (!userId) {
@@ -180,7 +191,7 @@ async function handleSubscriptionUpdated(
     return;
   }
 
-  const mapped = mapStripeSubscriptionToRow(subscription as StripeSubscriptionLike, userId);
+  const mapped = mapStripeSubscriptionToRow(live as StripeSubscriptionLike, userId);
   if (!mapped) {
     console.warn("[stripe/webhook] customer.subscription.updated missing customer id; acknowledging");
     return;
@@ -192,7 +203,7 @@ async function handleSubscriptionUpdated(
   // Freemium checkout whose first payment needed extra auth: incomplete →
   // active is the paid conversion checkout.session.completed couldn't see.
   if (mapped.status === "active" && previousAttributes?.status === "incomplete") {
-    await recordPaidSubscriptionStarted(admin, userId, subscription.id);
+    await recordPaidSubscriptionStarted(admin, userId, live.id);
     return;
   }
 
@@ -214,7 +225,7 @@ async function handleSubscriptionUpdated(
       const { data: userResult } = await admin.auth.admin.getUserById(userId);
       await sendMetaSubscribeEvent({
         email: userResult?.user?.email ?? null,
-        eventId: subscription.id,
+        eventId: live.id,
       });
     } catch (err) {
       console.error("[stripe/webhook] Meta CAPI Subscribe failed:", err);

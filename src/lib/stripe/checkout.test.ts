@@ -9,6 +9,7 @@ import {
   isRecentIncompleteCheckout,
   pickStripeCustomerForUser,
   shouldBlockNewCheckout,
+  stripeCustomerBelongsToUser,
   type StripeCustomerLike,
 } from "./checkout";
 import { resolveWebhookSubscriptionOwner } from "./webhook";
@@ -95,21 +96,30 @@ describe("canPersistPendingCheckoutRow", () => {
 });
 
 describe("checkoutSessionBelongsToUser", () => {
-  it("accepts metadata, client_reference_id, or matching customer id", () => {
+  it("accepts only unforgeable proofs: session metadata or client_reference_id", () => {
     assert.equal(
-      checkoutSessionBelongsToUser({ metadata: { supabase_user_id: "u1" } }, "u1", null),
+      checkoutSessionBelongsToUser({ metadata: { supabase_user_id: "u1" } }, "u1"),
       true,
     );
     assert.equal(
-      checkoutSessionBelongsToUser({ client_reference_id: "u1" }, "u1", "cus_x"),
+      checkoutSessionBelongsToUser({ client_reference_id: "u1" }, "u1"),
       true,
     );
-    assert.equal(
-      checkoutSessionBelongsToUser({ customer: "cus_x" }, "u1", "cus_x"),
-      true,
+    // Regression (billing gap): the attacker input is a session whose ONLY
+    // ownership signal is a customer id, passed alongside the stored
+    // (client-writable) stripe_customer_id as the third argument -- exactly
+    // the pre-fix signature. Before 0d79cea, that clause granted ownership
+    // (customer-id match against a client-writable column), letting a
+    // signed-in user claim someone else's checkout session and entitlement.
+    // The fixed signature no longer even accepts a customer id, hence the
+    // cast: a customer-id match alone can never grant ownership.
+    const res = (checkoutSessionBelongsToUser as (...a: unknown[]) => boolean)(
+      { customer: "cus_attacker_controlled" }, "u1", "cus_attacker_controlled",
     );
+    assert.equal(res, false);
+    assert.equal(checkoutSessionBelongsToUser({ metadata: {} }, "u1"), false);
     assert.equal(
-      checkoutSessionBelongsToUser({ customer: "cus_other", metadata: {} }, "u1", "cus_x"),
+      checkoutSessionBelongsToUser({ client_reference_id: "u2" }, "u1"),
       false,
     );
   });
@@ -175,5 +185,36 @@ describe("buildSubscriptionCheckoutParams (freemium)", () => {
       "https://app.example.com/subscribe?checkout=success&session_id={CHECKOUT_SESSION_ID}",
     );
     assert.equal(params.cancel_url, "https://app.example.com/subscribe?checkout=canceled");
+  });
+});
+
+describe("stripeCustomerBelongsToUser", () => {
+  it("accepts a customer tagged with this user", () => {
+    assert.equal(
+      stripeCustomerBelongsToUser({ metadata: { supabase_user_id: "u1" } }, "u1"),
+      true,
+    );
+  });
+  it("rejects another user's customer", () => {
+    assert.equal(
+      stripeCustomerBelongsToUser({ metadata: { supabase_user_id: "u2" } }, "u1"),
+      false,
+    );
+  });
+  it("rejects null / empty metadata", () => {
+    assert.equal(stripeCustomerBelongsToUser({ metadata: null }, "u1"), false);
+    assert.equal(stripeCustomerBelongsToUser({ metadata: {} }, "u1"), false);
+  });
+  it("rejects a deleted customer even with matching metadata", () => {
+    assert.equal(
+      stripeCustomerBelongsToUser(
+        { deleted: true, metadata: { supabase_user_id: "u1" } },
+        "u1",
+      ),
+      false,
+    );
+  });
+  it("rejects null", () => {
+    assert.equal(stripeCustomerBelongsToUser(null, "u1"), false);
   });
 });

@@ -58,8 +58,7 @@ export async function GET(request: Request) {
       const session = await stripe.checkout.sessions.retrieve(sessionId, {
         expand: ["subscription"],
       });
-      const customerId = row?.stripe_customer_id ?? null;
-      if (checkoutSessionBelongsToUser(session, user.id, customerId)) {
+      if (checkoutSessionBelongsToUser(session, user.id)) {
         const subscriptionId = stripeExpandableId(
           session.subscription as string | { id: string } | null,
         );

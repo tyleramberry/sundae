@@ -26,6 +26,17 @@ function isRecurrence(v: unknown): boolean {
   );
 }
 
+// cadenceCount and durationMinutes arrive from untrusted sources -- the
+// engine's tool_use output and the client's confirm body -- and one drives
+// how many weekly_items rows get inserted while the other sizes a calendar
+// block, so both must be bounded integers. The ceiling of 7 on cadenceCount
+// is the engine's every-day cadence ("7 = every day"); 1440 is one day of
+// minutes. Absent (undefined) is fine -- callers default it.
+function isBoundedInt(v: unknown, min: number, max: number): boolean {
+  if (v === undefined) return true;
+  return Number.isInteger(v) && (v as number) >= min && (v as number) <= max;
+}
+
 export function isClassifiedAction(value: unknown): value is ClassifiedAction {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
@@ -33,10 +44,9 @@ export function isClassifiedAction(value: unknown): value is ClassifiedAction {
     typeof v.role === "string" &&
     typeof v.description === "string" &&
     (v.type === "habit" || v.type === "goal" || v.type === "project") &&
-    (v.cadenceCount === undefined || typeof v.cadenceCount === "number") &&
+    isBoundedInt(v.cadenceCount, 1, 7) &&
     (v.preferredTime === undefined || typeof v.preferredTime === "string") &&
-    (v.durationMinutes === undefined ||
-      (typeof v.durationMinutes === "number" && v.durationMinutes > 0)) &&
+    isBoundedInt(v.durationMinutes, 1, 1440) &&
     isRecurrence(v.recurrence) &&
     (v.weekday === undefined || (typeof v.weekday === "number" && v.weekday >= 0 && v.weekday <= 6))
   );
@@ -59,10 +69,9 @@ export function isIncomingAction(value: unknown): value is PendingProposedAction
         (block.conflictsWith === undefined || typeof block.conflictsWith === "string")
       );
     }) &&
-    (v.cadenceCount === undefined || typeof v.cadenceCount === "number") &&
+    isBoundedInt(v.cadenceCount, 1, 7) &&
     (v.preferredTime === undefined || typeof v.preferredTime === "string") &&
-    (v.durationMinutes === undefined ||
-      (typeof v.durationMinutes === "number" && v.durationMinutes > 0)) &&
+    isBoundedInt(v.durationMinutes, 1, 1440) &&
     isRecurrence(v.recurrence)
   );
 }

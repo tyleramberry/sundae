@@ -20,6 +20,26 @@ export function pickStripeCustomerForUser(
   return match?.id ?? null;
 }
 
+export type RetrievedStripeCustomer =
+  | { deleted?: unknown; metadata?: Record<string, string> | null }
+  | null
+  | undefined;
+
+// M3 (SEC-1): a Stripe Customer created by this app is tagged at birth with
+// metadata.supabase_user_id (findOrCreateStripeCustomer). That tag is the only
+// ownership proof we have, and the stored stripe_customer_id on
+// public.subscriptions is client-writable — so a customer we cannot positively
+// tie to this user is never handed to a portal or checkout session. A deleted
+// customer and a customer with no metadata are both "not ours".
+export function stripeCustomerBelongsToUser(
+  customer: RetrievedStripeCustomer,
+  userId: string,
+): boolean {
+  if (!customer) return false;
+  if (customer.deleted === true) return false;
+  return customer.metadata?.supabase_user_id === userId;
+}
+
 // Any status other than fully canceled / expired Checkout is still "live"
 // on the Stripe customer and must not get a second subscription.
 export function hasOpenStripeSubscription(statuses: string[]): boolean {
@@ -47,20 +67,26 @@ export function canPersistPendingCheckoutRow(status: string | null | undefined):
   );
 }
 
+// Ownership of a checkout session must rest on unforgeable proofs only:
+// the session's own metadata.supabase_user_id or client_reference_id,
+// both of which our checkout route sets server-side. The stored
+// subscriptions.stripe_customer_id is client-writable (the migration's
+// trigger is BEFORE UPDATE only and INSERT is allowed), so a customer-id
+// match is NOT accepted here -- a signed-in user could otherwise INSERT
+// a row carrying someone else's cus_... id and claim that person's
+// session, and with it, entitlement. (The portal route already follows
+// the same rule via stripeCustomerBelongsToUser on the LIVE Stripe
+// customer's metadata.)
 export function checkoutSessionBelongsToUser(
   session: {
     metadata?: Record<string, string> | null;
     client_reference_id?: string | null;
-    customer?: string | { id: string } | null;
   },
   userId: string,
-  stripeCustomerId: string | null,
 ): boolean {
   if (session.metadata?.supabase_user_id === userId) return true;
   if (session.client_reference_id === userId) return true;
-  const customer =
-    typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
-  return Boolean(stripeCustomerId && customer === stripeCustomerId);
+  return false;
 }
 
 export function shouldBlockNewCheckout(existing: {

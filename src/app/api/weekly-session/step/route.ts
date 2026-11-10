@@ -30,6 +30,7 @@ import {
 import { captureServerEvent } from "@/lib/analytics/server";
 import { getFreeLimitBlock } from "@/lib/weeklySession/freeTier";
 import { isFirstWeeklySessionUserMessage } from "@/lib/analytics/session";
+import { enforceLlmSpend } from "@/lib/llm/spendGuard";
 
 // Thin HTTP wrapper around the weekly-session engine, same shape as
 // /api/engine/step for onboarding, with one structural change (Day 16):
@@ -41,11 +42,16 @@ import { isFirstWeeklySessionUserMessage } from "@/lib/analytics/session";
 // server-side decision the client doesn't have to track either. This also
 // removes the class of stale-closure bug the old client-round-tripped
 // `state` was prone to -- see weekly-session/page.tsx's git history.
-export async function POST(request: Request) {
-  const supabase = await createClient();
+export async function handleWeeklySessionStep(
+  request: Request,
+  deps: {
+    supabase: Awaited<ReturnType<typeof createClient>>;
+    processWeeklySessionMessage: typeof processWeeklySessionMessage;
+  },
+): Promise<Response> {
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await deps.supabase.auth.getUser();
 
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -81,7 +87,7 @@ export async function POST(request: Request) {
     // time a user gets here with no row yet, and only calls this route once
     // that's saved. This guard is now a safety net against a client that
     // skipped straight here, not the expected first-run path.
-    const onboarding = await getOnboardingAnswers(supabase, user.id);
+    const onboarding = await getOnboardingAnswers(deps.supabase, user.id);
     if (!onboarding || onboarding.roles.length === 0) {
       return NextResponse.json(
         { error: "No roles on file yet. Start at /weekly-session to set them up first." },
@@ -92,7 +98,7 @@ export async function POST(request: Request) {
     const weekStart = planningWeekStart(new Date(), timeZone);
     const weekStartDate = planningWeekStartDate(new Date(), timeZone);
     const weekLabel = formatPlanningWeekRange(weekStartDate, timeZone);
-    const transcript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
+    const transcript = await getWeeklySessionTranscript(deps.supabase, user.id, weekStart);
     const expectedRoundSeq = transcript?.round_seq ?? 0;
     const firstUserMessage = isFirstWeeklySessionUserMessage(transcript?.display_turns);
 
@@ -113,6 +119,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: TURN_CAP_MESSAGE }, { status: 429 });
     }
 
+    // This route (like /api/engine/step) calls Claude on every turn, and the
+    // once-a-day throttle below only covers *starting a fresh full* session,
+    // so addendum rounds were an unbounded Claude loop of their own. The
+    // shared per-user spend guard closes that; the gates below are unchanged.
+    const spendLimit = await enforceLlmSpend(deps.supabase, user.id, "weekly-session/step");
+    if (spendLimit) {
+      return NextResponse.json(spendLimit, { status: 429 });
+    }
+
     const isFreshStart = turnCount === 0;
     // The once-a-day throttle only guards *starting a brand-new full
     // session* -- the scripted-abuse case it was built for on Day 11. It
@@ -124,7 +139,7 @@ export async function POST(request: Request) {
       // here -- before the daily throttle, the Claude call, and the
       // weekly_session_starts insert. Resumed rounds (turnCount > 0) and
       // addendum mode never reach this branch.
-      const freeLimit = await getFreeLimitBlock(supabase, user.id, transcript);
+      const freeLimit = await getFreeLimitBlock(deps.supabase, user.id, transcript);
       if (freeLimit) {
         await captureServerEvent({
           distinctId: user.id,
@@ -134,13 +149,13 @@ export async function POST(request: Request) {
         return NextResponse.json(freeLimit, { status: 402 });
       }
 
-      const alreadyStartedToday = await hasStartedSessionToday(supabase, user.id);
+      const alreadyStartedToday = await hasStartedSessionToday(deps.supabase, user.id);
       if (alreadyStartedToday) {
         return NextResponse.json({ error: SESSION_THROTTLE_MESSAGE }, { status: 429 });
       }
     }
 
-    const lastWeek = mode === "full" ? await getLastWeekContext(supabase, user.id) : null;
+    const lastWeek = mode === "full" ? await getLastWeekContext(deps.supabase, user.id) : null;
 
     // Bug fix: load this week's real Google Calendar into the engine's
     // context every turn (both "full" and "addendum" -- a mid-week addition
@@ -151,14 +166,14 @@ export async function POST(request: Request) {
     // should still be able to chat, just without calendar awareness.
     let calendarSummary: string;
     try {
-      const events = await listWeekEvents(supabase, user.id, weekStartDate);
+      const events = await listWeekEvents(deps.supabase, user.id, weekStartDate);
       calendarSummary = formatCalendarSummary(events.items ?? []);
     } catch (calendarError) {
       if (!(calendarError instanceof GoogleCalendarError)) throw calendarError;
       calendarSummary = CALENDAR_UNAVAILABLE_SUMMARY;
     }
 
-    const result = await processWeeklySessionMessage({
+    const result = await deps.processWeeklySessionMessage({
       message: body.message,
       state: engineState,
       roles: onboarding.roles,
@@ -183,7 +198,7 @@ export async function POST(request: Request) {
       { from: "engine", text: result.reply },
     ];
 
-    await saveWeeklySessionTranscript(supabase, {
+    await saveWeeklySessionTranscript(deps.supabase, {
       userId: user.id,
       weekStart,
       displayTurns,
@@ -197,7 +212,7 @@ export async function POST(request: Request) {
       // hiccup here shouldn't fail their request -- worst case is one
       // extra start slipping through if this insert is the thing that
       // fails, which is an acceptable edge case for an MVP guard.
-      await recordSessionStart(supabase, user.id).catch((err) => {
+      await recordSessionStart(deps.supabase, user.id).catch((err) => {
         console.error("Failed to record weekly session start:", err);
       });
     }
@@ -233,4 +248,11 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return handleWeeklySessionStep(request, {
+    supabase: await createClient(),
+    processWeeklySessionMessage,
+  });
 }
