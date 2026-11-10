@@ -21,7 +21,8 @@ Google Calendar. A daily cron nudges follow-up and reconciles KPIs.
 - **Supabase** for auth + Postgres. Three client entry points in
   `src/lib/supabase/` — `client.ts` (browser), `server.ts` (RSC/route
   handlers, cookie-based session), `admin.ts` (service-role, bypasses RLS —
-  cron/debug routes only, never request-scoped user code).
+  two sanctioned uses: crons, and the entitlement-locked transcript writes
+  from authenticated weekly-session routes; never other request-scoped user code).
 - **Vercel Cron** (`vercel.json`) hits `/api/cron/daily-follow-up` and
   `/api/cron/reconcile-kpis` daily. Both routes are guarded by
   `src/lib/cron/auth.ts`, which fails closed if `CRON_SECRET` isn't set —
