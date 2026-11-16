@@ -18,6 +18,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicModel } from "@/lib/anthropic/model";
 import { createTracedMessage, llmSessionId } from "@/lib/anthropic/traced";
 import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
+import { descriptionOverlap } from "@/lib/engine/stabilizeActions";
 
 const MODEL = getAnthropicModel();
 
@@ -160,5 +161,29 @@ export async function revisePlan(input: RevisePlanInput): Promise<RevisePlanOutp
   }
   const result = toolUse.input as ToolInput;
 
-  return { reply: result.reply, actions: result.actions };
+  // Bug fix: this tool's own schema (above) has no obstacleNote/
+  // mitigationPlan slot -- the model regenerates the FULL action list from
+  // scratch on every revision, so a Stage 1 rollover's diagnosis (see
+  // ClassifiedAction.obstacleNote) would otherwise silently vanish the
+  // moment the user asks for any change on the confirm screen, even a
+  // change to a completely different item. Restore it here from the
+  // original list by matching role + a close description overlap -- the
+  // same heuristic stabilizeActions.ts uses -- rather than teaching this
+  // prompt about a field it has no reason to reason about.
+  const actions = result.actions.map((action) => {
+    const original = input.actions.find(
+      (a) =>
+        a.role === action.role &&
+        (a.obstacleNote !== undefined || a.mitigationPlan !== undefined) &&
+        descriptionOverlap(a.description, action.description) >= 0.6,
+    );
+    if (!original) return action;
+    return {
+      ...action,
+      obstacleNote: original.obstacleNote,
+      mitigationPlan: original.mitigationPlan,
+    };
+  });
+
+  return { reply: result.reply, actions };
 }

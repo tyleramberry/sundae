@@ -269,6 +269,7 @@ export default function DashboardPage() {
             <Link
               href="/weekly-session"
               className="rounded-full bg-black px-4 py-2 text-sm text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+              data-tour="new-session-btn"
             >
               New weekly session
             </Link>
@@ -284,7 +285,7 @@ export default function DashboardPage() {
             nothing hidden, just re-ordered per PRD. Suppressed until
             the summary lands so the layout doesn't reflow twice. */}
         {summary && (
-          <section className="rounded-xl bg-zinc-100 px-6 py-8 dark:bg-zinc-900">
+          <section className="rounded-xl bg-zinc-100 px-6 py-8 dark:bg-zinc-900" data-tour="master-score">
             <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-7xl font-semibold tracking-tight text-black dark:text-zinc-50">
@@ -308,7 +309,7 @@ export default function DashboardPage() {
         )}
 
         {roles.length === 0 && (
-          <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+          <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400" data-tour={!summary ? "master-score" : undefined}>
             No roles yet. Start a weekly session to set them up.
           </p>
         )}
@@ -323,7 +324,7 @@ export default function DashboardPage() {
             user has, the tiles fill the row and wrap only when they truly
             no longer fit, which is what keeps every ring on-screen at once
             instead of needing a scroll. */}
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-x-4 gap-y-8">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-x-4 gap-y-8" data-tour="role-rings">
           {roles.map((tile) => {
             const trendHref = `/dashboard/${encodeURIComponent(tile.role)}/trend`;
             return (

@@ -101,6 +101,8 @@ export async function POST(request: Request) {
       preferredTime: action.preferredTime,
       durationMinutes: action.durationMinutes,
       recurrence: action.recurrence,
+      obstacleNote: action.obstacleNote,
+      mitigationPlan: action.mitigationPlan,
       blocks: action.blocks.map((b) => ({
         start: b.start.toISOString(),
         end: b.end.toISOString(),

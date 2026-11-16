@@ -68,6 +68,14 @@ const BILLING_ICON = (
   </svg>
 );
 
+const TUTORIAL_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.5 9.5a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2.5 2-2.5 2" />
+    <circle cx="12" cy="16.5" r="0.5" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 export default function AppSidebar({
   email,
   plan,
@@ -188,6 +196,30 @@ export default function AppSidebar({
             {plan.kind === "free" ? formatFreePlanUsage(plan) : "Sundae subscriber"}
           </span>
         )}
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              localStorage.removeItem("sundae:tutorial:dismissed");
+              localStorage.setItem("sundae:tutorial:force", "1");
+              // Full-page nav (not router.push) so the tutorial hook's
+              // mount effect re-initializes with the force key set.
+              // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+              window.location.assign("/weekly-session");
+            } catch {
+              // localStorage blocked -- no-op.
+            }
+          }}
+          title="Replay tutorial"
+          className={[
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
+            collapsed ? "md:justify-center md:px-2" : "",
+          ].join(" ")}
+        >
+          <span className={collapsed ? "hidden md:inline" : "hidden"}>{TUTORIAL_ICON}</span>
+          <span className={collapsed ? "hidden" : "hidden md:inline"}>Replay tutorial</span>
+          <span className="md:hidden">Replay tutorial</span>
+        </button>
         {plan?.kind === "free" ? (
           <Link
             href="/subscribe?reason=limit"

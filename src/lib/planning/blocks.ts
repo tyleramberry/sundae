@@ -75,6 +75,12 @@ export type ProposedAction = {
   // to the master event, so future weeks recur without a second write
   // path. See ClassifiedAction.recurrence for shape.
   recurrence?: ClassifiedAction["recurrence"];
+  // Stage 1 rollover diagnosis, carried through untouched -- blocks.ts
+  // never reads or reasons about these, purely a pass-through so
+  // createWeeklyItems (persist.ts) can write them onto this week's row.
+  // See ClassifiedAction.obstacleNote.
+  obstacleNote?: string;
+  mitigationPlan?: string;
 };
 
 // A Google Calendar API event is either timed (start.dateTime/end.dateTime)
@@ -334,6 +340,8 @@ export function proposeActionBlocks(
       preferredTime: action.preferredTime,
       durationMinutes: action.durationMinutes,
       recurrence: action.recurrence,
+      obstacleNote: action.obstacleNote,
+      mitigationPlan: action.mitigationPlan,
     };
 
     if (action.type === "project") {

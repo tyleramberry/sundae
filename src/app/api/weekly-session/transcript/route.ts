@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   getCommittedPlanActions,
+  getLastWeekContext,
   getWeeklySessionTranscript,
 } from "@/lib/weeklySession/persist";
 import {
@@ -15,6 +16,8 @@ import {
   loadFreeTierAccess,
   roundStateOf,
 } from "@/lib/weeklySession/freeTier";
+import { getOnboardingAnswers } from "@/lib/onboarding/persist";
+import { computeKpisForRoles, groupItemsByRole, type KpiItem } from "@/lib/kpi/compute";
 
 // Day 16: page-load hydration for the weekly-session chat. Returns this
 // week's persisted transcript (or `{ transcript: null }` for a user with
@@ -63,12 +66,39 @@ export async function GET() {
     console.error("[weekly-session/transcript] free-tier check failed:", error);
   }
 
+  // Feature: role-priority reorder screen (see RolePriorityScreen.tsx),
+  // shown only when a brand-new week's session is about to start -- no
+  // transcript yet, or one with no turns in it. Computed only in that
+  // case: every other page load (resuming mid-session, mid-week addendum)
+  // has no use for it, so skip the extra KPI query. Same
+  // getLastWeekContext + computeKpisForRoles recipe confirm/route.ts uses
+  // for the session-recap email -- one source of truth for "what did last
+  // week look like per role".
+  const needsLastWeekStats = !transcript || (transcript.display_turns?.length ?? 0) === 0;
+  let lastWeekStats: { role: string; numerator: number; denominator: number; percent: number | null }[] = [];
+  if (needsLastWeekStats) {
+    const [lastWeek, onboarding] = await Promise.all([
+      getLastWeekContext(supabase, user.id),
+      getOnboardingAnswers(supabase, user.id),
+    ]);
+    if (lastWeek && onboarding) {
+      const kpiItems: (KpiItem & { role: string })[] = lastWeek.items.map((i) => ({
+        role: i.role,
+        type: i.type,
+        done: i.done,
+        percent: i.percent,
+      }));
+      lastWeekStats = computeKpisForRoles(onboarding.roles, groupItemsByRole(kpiItems));
+    }
+  }
+
   if (!transcript) {
     return NextResponse.json({
       weekStart,
       weekLabel,
       committedActions,
       freeTier,
+      lastWeekStats,
       transcript: null,
     });
   }
@@ -78,6 +108,7 @@ export async function GET() {
     weekLabel,
     committedActions,
     freeTier,
+    lastWeekStats,
     transcript: {
       weekStart: transcript.week_start,
       displayTurns: transcript.display_turns,

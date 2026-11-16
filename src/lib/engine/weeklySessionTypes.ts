@@ -76,6 +76,15 @@ export type ClassifiedAction = {
   // removes that whole class of bug at the source instead of patching the
   // regex again. Project: always omitted, same as cadenceCount/preferredTime.
   weekday?: number;
+  // Stage 1 rollover diagnosis only ("what got in the way" / "what will
+  // you do differently") -- see weeklySession.ts's Stage 1 instructions.
+  // Set together, only on an item that's rolling over from an unfinished
+  // last-week item, never on a freshly-captured action. Written onto
+  // THIS week's weekly_items row so next week's Stage 1 can read it back
+  // as carried history (LastWeekItem below) and open with a specific
+  // callback instead of asking the generic question again.
+  obstacleNote?: string;
+  mitigationPlan?: string;
 };
 
 // What the caller already knows about last week, read from `weekly_items`
@@ -87,6 +96,12 @@ export type LastWeekItem = {
   title: string;
   done: boolean;
   percent: number | null; // project only
+  // Carried forward from an EARLIER week's Stage 1 diagnosis, if this item
+  // has stalled more than one week -- see ClassifiedAction.obstacleNote.
+  // Read straight off last week's weekly_items row; undefined when the
+  // item is new or was never diagnosed.
+  obstacleNote?: string;
+  mitigationPlan?: string;
 };
 
 export type LastWeekContext = {

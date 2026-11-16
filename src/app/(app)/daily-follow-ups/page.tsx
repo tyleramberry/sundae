@@ -156,7 +156,7 @@ function DailyFollowUpsInner() {
         )}
 
         {!hasItems && (
-          <div className="rounded-xl border border-dashed border-zinc-300 p-8 text-center dark:border-zinc-700">
+          <div className="rounded-xl border border-dashed border-zinc-300 p-8 text-center dark:border-zinc-700" data-tour="follow-up-list">
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Nothing planned yet this week.
             </p>
@@ -169,13 +169,14 @@ function DailyFollowUpsInner() {
           </div>
         )}
 
-        {groups.map((group) => (
+        {groups.map((group, groupIndex) => (
           <section
             key={group.role}
             ref={(el) => {
               if (el) roleRefs.current.set(group.role, el);
             }}
             className="flex flex-col gap-2"
+            {...(groupIndex === 0 ? { "data-tour": "follow-up-list" } : {})}
           >
             <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               {group.role}

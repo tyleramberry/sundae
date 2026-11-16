@@ -14,6 +14,7 @@ import WeekCalendarGrid, {
 } from "@/components/WeekCalendarGrid";
 import { ChatBubble, TypingDots, turnMeta } from "@/components/weekly-session/ChatBits";
 import { RolesSetupScreen } from "@/components/weekly-session/RolesSetupScreen";
+import { RolePriorityScreen, type LastWeekRoleStat } from "@/components/weekly-session/RolePriorityScreen";
 import { parseDateOnly } from "@/lib/weeklySession/week";
 import FreeLimitCard from "@/components/billing/FreeLimitCard";
 import { FREE_SESSION_LIMIT } from "@/lib/weeklySession/freeTier";
@@ -32,6 +33,12 @@ type Stage =
   | "checking"
   | "signed-out"
   | "roles-setup"
+  // One-time-per-week screen: confirm/reorder role priority before Stage 1
+  // opens. Only entered from the bootstrap effect when a brand-new week's
+  // session is about to start (no transcript turns yet this week) -- never
+  // on a resumed session or a mid-week addendum visit. See
+  // RolePriorityScreen.tsx.
+  | "prioritize"
   | "chatting"
   | "proposing"
   | "confirming"
@@ -217,6 +224,11 @@ export default function WeeklySessionPage() {
   const [weekConfirmed, setWeekConfirmed] = useState(false);
   const [freeLimit, setFreeLimit] = useState(FREE_SESSION_LIMIT);
 
+  // Last week's per-role completion, used only to seed the "prioritize"
+  // screen's suggested drag order (least progress first) -- see
+  // RolePriorityScreen.tsx. Empty for a user's first-ever session.
+  const [lastWeekStats, setLastWeekStats] = useState<LastWeekRoleStat[]>([]);
+
   // Snapshot of what was just written to Google Calendar -- captured on
   // confirm() success so the "written"-stage payoff screen can render a
   // read-only week view of the exact blocks that landed, without depending
@@ -379,8 +391,8 @@ export default function WeeklySessionPage() {
       const hasRoles = res.ok && body.answers && body.answers.roles?.length > 0;
 
       if (hasRoles) {
-        setRoles(body.answers.roles ?? []);
-        setStage("chatting");
+        const declaredRoles: string[] = body.answers.roles ?? [];
+        setRoles(declaredRoles);
         const transcriptRes = await fetch("/api/weekly-session/transcript");
         const transcriptBody = await transcriptRes.json().catch(() => ({}));
         applyWeekMeta(transcriptBody);
@@ -399,6 +411,7 @@ export default function WeeklySessionPage() {
         void loadCalendarEvents(weekDate);
 
         if (transcript && transcript.displayTurns?.length > 0) {
+          setStage("chatting");
           setTurns(transcript.displayTurns);
           setActionsSoFar(transcript.actionsSoFar ?? []);
           setWeekConfirmed(Boolean(transcript.completedThisWeek));
@@ -407,7 +420,14 @@ export default function WeeklySessionPage() {
             setSessionActions(transcript.pendingSessionActions ?? []);
             setStage("confirming");
           }
+        } else if (declaredRoles.length >= 2 && Array.isArray(transcriptBody.lastWeekStats)) {
+          // Brand-new week's session, nothing captured yet, and there's
+          // more than one role to sequence -- confirm priority order
+          // before Stage 1 opens. See RolePriorityScreen.tsx.
+          setLastWeekStats(transcriptBody.lastWeekStats);
+          setStage("prioritize");
         } else {
+          setStage("chatting");
           void send("");
         }
       } else {
@@ -903,6 +923,23 @@ export default function WeeklySessionPage() {
     );
   }
 
+  // Priority reorder runs pre-split too, same reasoning as roles-setup
+  // below -- nothing to show on the right until it hands off into
+  // "chatting" and the first Stage 1/2 question actually lands.
+  if (stage === "prioritize") {
+    return (
+      <RolePriorityScreen
+        roles={roles}
+        lastWeekStats={lastWeekStats}
+        onConfirm={(orderedRoles) => {
+          setRoles(orderedRoles);
+          setStage("chatting");
+          void send("");
+        }}
+      />
+    );
+  }
+
   // Roles-setup runs pre-split -- there's no plan or calendar to show on
   // the right until it finishes and hands off into "chatting". Same
   // full-width chat as before.
@@ -958,7 +995,7 @@ export default function WeeklySessionPage() {
             : undefined
         }
       >
-        <div className="flex items-start justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
+        <div className="flex items-start justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800" data-tour="session-header">
           <div>
             <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
               Sundae
@@ -1057,7 +1094,7 @@ export default function WeeklySessionPage() {
             <div ref={chatEndRef} />
           </div>
 
-          <div className="border-t border-zinc-200 px-6 py-4 dark:border-zinc-800">
+          <div className="border-t border-zinc-200 px-6 py-4 dark:border-zinc-800" data-tour="compose-bar">
             {stage === "confirming" || stage === "writing" ? (
               // Confirm stage compose: same chat input the rest of the
               // session uses (revisions are just chat turns), plus a
@@ -1150,7 +1187,7 @@ export default function WeeklySessionPage() {
             always the calendar with the proposal overlay -- no toggle
             needed. */}
         {stage === "chatting" && (
-          <div className="flex items-center justify-end border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-white">
+          <div className="flex items-center justify-end border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-white" data-tour="panel-toggle">
             <div className="inline-flex rounded-full border border-zinc-300 p-0.5 text-xs dark:border-zinc-300">
               <button
                 onClick={() => setChatPanelView("plan")}

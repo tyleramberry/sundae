@@ -83,6 +83,8 @@ function mergeLocked(locked: ClassifiedAction, incoming: ClassifiedAction): Clas
   if (incoming.durationMinutes !== undefined) next.durationMinutes = incoming.durationMinutes;
   if (incoming.recurrence !== undefined) next.recurrence = incoming.recurrence;
   if (incoming.weekday !== undefined) next.weekday = incoming.weekday;
+  if (incoming.obstacleNote !== undefined) next.obstacleNote = incoming.obstacleNote;
+  if (incoming.mitigationPlan !== undefined) next.mitigationPlan = incoming.mitigationPlan;
   if (next.type === "project") {
     delete next.cadenceCount;
     delete next.preferredTime;

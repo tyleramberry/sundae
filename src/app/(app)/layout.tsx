@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppSidebar from "@/components/AppSidebar";
 import { loadFreeTierAccess, planSummaryOf, type PlanSummary } from "@/lib/weeklySession/freeTier";
+import TutorialOverlay from "@/components/TutorialOverlay";
 
 // Shared shell for the signed-in app (Day 11 UI/UX polish). A route group,
 // so the URLs stay /weekly-session, /daily-follow-ups, /dashboard -- the
@@ -56,6 +57,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-50 dark:bg-black">
         {children}
       </main>
+      <TutorialOverlay />
     </div>
   );
 }

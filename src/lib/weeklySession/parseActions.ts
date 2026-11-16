@@ -38,7 +38,9 @@ export function isClassifiedAction(value: unknown): value is ClassifiedAction {
     (v.durationMinutes === undefined ||
       (typeof v.durationMinutes === "number" && v.durationMinutes > 0)) &&
     isRecurrence(v.recurrence) &&
-    (v.weekday === undefined || (typeof v.weekday === "number" && v.weekday >= 0 && v.weekday <= 6))
+    (v.weekday === undefined || (typeof v.weekday === "number" && v.weekday >= 0 && v.weekday <= 6)) &&
+    (v.obstacleNote === undefined || typeof v.obstacleNote === "string") &&
+    (v.mitigationPlan === undefined || typeof v.mitigationPlan === "string")
   );
 }
 
@@ -63,6 +65,8 @@ export function isIncomingAction(value: unknown): value is PendingProposedAction
     (v.preferredTime === undefined || typeof v.preferredTime === "string") &&
     (v.durationMinutes === undefined ||
       (typeof v.durationMinutes === "number" && v.durationMinutes > 0)) &&
-    isRecurrence(v.recurrence)
+    isRecurrence(v.recurrence) &&
+    (v.obstacleNote === undefined || typeof v.obstacleNote === "string") &&
+    (v.mitigationPlan === undefined || typeof v.mitigationPlan === "string")
   );
 }

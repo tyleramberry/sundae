@@ -24,6 +24,8 @@ export type WeeklyItemRow = {
   done: boolean;
   percent: number | null;
   removed_at: string | null;
+  obstacle_note: string | null;
+  mitigation_plan: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -60,7 +62,7 @@ export async function getLastWeekContext(
 
   const { data, error } = await supabase
     .from("weekly_items")
-    .select("role, type, title, done, percent")
+    .select("role, type, title, done, percent, obstacle_note, mitigation_plan")
     .eq("user_id", userId)
     .eq("week_start", weekStart)
     .is("removed_at", null);
@@ -79,6 +81,8 @@ export async function getLastWeekContext(
       title: row.title,
       done: row.done,
       percent: row.percent,
+      obstacleNote: row.obstacle_note ?? undefined,
+      mitigationPlan: row.mitigation_plan ?? undefined,
     })),
   };
 }
@@ -91,6 +95,8 @@ type WeeklyItemInsert = {
   title: string;
   google_event_id: string | null;
   percent: number | null;
+  obstacle_note?: string | null;
+  mitigation_plan?: string | null;
 };
 
 // Persists the confirmed session: one `weekly_items` row per written
@@ -124,6 +130,8 @@ export async function createWeeklyItems(
         title: action.description,
         google_event_id: null,
         percent,
+        obstacle_note: action.obstacleNote ?? null,
+        mitigation_plan: action.mitigationPlan ?? null,
       });
       continue;
     }
@@ -150,6 +158,8 @@ export async function createWeeklyItems(
         title: action.description,
         google_event_id: action.eventIds[i] ?? null,
         percent: null,
+        obstacle_note: action.obstacleNote ?? null,
+        mitigation_plan: action.mitigationPlan ?? null,
       });
     }
   }
@@ -213,6 +223,11 @@ export type PendingProposedAction = {
   // instead of N one-off events. See ClassifiedAction.recurrence for the
   // engine-layer shape; the field is identical here.
   recurrence?: ClassifiedAction["recurrence"];
+  // Stage 1 rollover diagnosis, round-tripped end-to-end the same way as
+  // the fields above so createWeeklyItems can write it onto this week's
+  // row -- see ClassifiedAction.obstacleNote.
+  obstacleNote?: string;
+  mitigationPlan?: string;
 };
 
 export type WeeklySessionTranscriptRow = {

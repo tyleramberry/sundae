@@ -158,6 +158,8 @@ export async function POST(request: Request) {
           type: "project",
           blocks: [],
           eventIds: [],
+          obstacleNote: action.obstacleNote,
+          mitigationPlan: action.mitigationPlan,
         });
         continue;
       }
@@ -235,6 +237,8 @@ export async function POST(request: Request) {
         preferredTime: action.preferredTime,
         durationMinutes: action.durationMinutes,
         recurrence: action.recurrence,
+        obstacleNote: action.obstacleNote,
+        mitigationPlan: action.mitigationPlan,
       });
     }
 
