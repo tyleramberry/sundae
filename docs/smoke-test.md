@@ -31,7 +31,7 @@ These steps need the live app, Google OAuth, a real calendar, and Stripe — the
 ### Core product
 
 - [ ] Landing page loads, scroll works, all sections render, CTA buttons fire Google OAuth.
-- [ ] FAQ says no card is needed for the first 2 weekly planning sessions and names the **$7.99/month** price (`MONTHLY_PRICE` in `src/app/page.tsx`).
+- [ ] FAQ says no card is needed for the first 3 weekly planning sessions and names the **$7.99/month** price (`MONTHLY_PRICE` in `src/app/page.tsx`).
 - [ ] Google sign-in → onboarding → **subscribe (Stripe Checkout)** → dashboard for a new user.
 - [ ] Returning entitled users skip checkout and land on the dashboard.
 - [ ] Start a weekly session with all 3 stages (Accountability, Goal Setting, Planning).
@@ -47,7 +47,7 @@ These steps need the live app, Google OAuth, a real calendar, and Stripe — the
 
 - [ ] `/subscribe` starts Checkout; success returns to `/subscribe?checkout=success` and, after the webhook, the dashboard.
 - [ ] Canceling Checkout returns to `/subscribe?checkout=canceled` with no charge.
-- [ ] Freemium: a user with no subscription row reaches onboarding → `/weekly-session` with no card step. After 2 completed weeks, a new week shows the free-limit card and `POST /api/weekly-session/step` returns 402 `free_limit_reached`; `trialing`/`active` users are unlimited.
+- [ ] Freemium: a user with no subscription row reaches onboarding → `/weekly-session` with no card step. After 3 completed weeks, a new week shows the free-limit card and `POST /api/weekly-session/step` returns 402 `free_limit_reached`; `trialing`/`active` users are unlimited.
 - [ ] Sidebar “Manage subscription” opens the Stripe Customer Portal.
 - [ ] Legacy trial reminder email (dormant after freemium): a `trialing` row with `trial_end` in the next 24–48 hours is still picked up by the daily follow-up cron.
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 // New onboarding (Day 7 redesign): survey -> live demo -> hype -> first
-// weekly session. Freemium: no card step -- the first two planning sessions
+// weekly session. Freemium: no card step -- the first three planning sessions
 // are free (src/lib/weeklySession/freeTier.ts). Replaces the old chat-transcript
 // flow that used to capture roles/goals here and end on "Your onboard."
 //
@@ -78,7 +78,7 @@ export default function OnboardingPage() {
         {screen === "heard-from" && (
           <>
             <p className="-mt-4 text-xs text-zinc-500 dark:text-zinc-400">
-              No card needed. Your first two planning sessions are free.
+              No card needed. Your first three planning sessions are free.
             </p>
             <SingleSelectScreen
               title="How did you hear about Sundae?"

@@ -24,7 +24,7 @@ import Reveal from "@/components/Reveal";
 // here needs to be a client boundary, so the interactive pieces are
 // islands, not the whole page.
 
-// $7.99/month after the first two free weekly planning sessions (freemium,
+// $7.99/month after the first three free weekly planning sessions (freemium,
 // no card to start). One constant so the hero microcopy, closing CTA, and
 // FAQ stay in lockstep.
 const MONTHLY_PRICE = "$7.99";
@@ -262,8 +262,8 @@ export default function Home() {
                 <GoogleSignInButton label="Get started free" />
                 <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   {MONTHLY_PRICE
-                    ? `First 2 planning sessions free, then ${MONTHLY_PRICE}/month · cancel anytime`
-                    : "First 2 planning sessions free · cancel anytime"}
+                    ? `First 3 planning sessions free, then ${MONTHLY_PRICE}/month · cancel anytime`
+                    : "First 3 planning sessions free · cancel anytime"}
                 </span>
               </div>
             </div>

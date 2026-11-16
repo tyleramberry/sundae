@@ -779,7 +779,7 @@ export default function WeeklySessionPage() {
     setReviseTurns([]);
     void loadCalendarEvents(weekStart);
     setStage("written");
-    // Re-render the (app) layout so the sidebar's "n of 2 sessions used"
+    // Re-render the (app) layout so the sidebar's "n of 3 sessions used"
     // picks up the week that just completed.
     router.refresh();
     } catch {

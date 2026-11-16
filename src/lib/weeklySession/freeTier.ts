@@ -15,7 +15,7 @@ import type { WeeklySessionTranscriptRow } from "@/lib/weeklySession/persist";
 // can't be inflated by re-confirming or reset by the client. No counter
 // column, no migration.
 
-export const FREE_SESSION_LIMIT = 2;
+export const FREE_SESSION_LIMIT = 3;
 
 export const FREE_LIMIT_CODE = "free_limit_reached";
 
@@ -161,8 +161,8 @@ export function planSummaryOf(access: FreeTierAccess & { enforced: boolean }): P
   return { kind: "free", completedSessions: access.completedSessions, limit: access.limit };
 }
 
-// "Free plan · 1 of 2 sessions used". Capped at the limit so a lapsed
-// subscriber with five completed weeks doesn't read "5 of 2".
+// "Free plan · 1 of 3 sessions used". Capped at the limit so a lapsed
+// subscriber with five completed weeks doesn't read "5 of 3".
 export function formatFreePlanUsage(plan: { completedSessions: number; limit: number }): string {
   const used = Math.min(plan.completedSessions, plan.limit);
   return `Free plan · ${used} of ${plan.limit} sessions used`;

@@ -27,19 +27,19 @@ const SUBS = {
 const ENTITLED: (keyof typeof SUBS)[] = ["trialing", "active", "pastDueInGrace", "canceledInGrace"];
 
 describe("getFreeTierAccess", () => {
-  it("limit is 2", () => {
-    assert.equal(FREE_SESSION_LIMIT, 2);
+  it("limit is 3", () => {
+    assert.equal(FREE_SESSION_LIMIT, 3);
   });
 
   for (const [name, subscription] of Object.entries(SUBS) as [keyof typeof SUBS, (typeof SUBS)[keyof typeof SUBS]][]) {
     const entitled = ENTITLED.includes(name);
-    for (const completedSessions of [0, 1, 2, 3]) {
-      it(`${name} with ${completedSessions} completed → ${entitled || completedSessions < 2 ? "can" : "cannot"} start`, () => {
+    for (const completedSessions of [0, 1, 2, 3, 4]) {
+      it(`${name} with ${completedSessions} completed → ${entitled || completedSessions < 3 ? "can" : "cannot"} start`, () => {
         const access = getFreeTierAccess({ subscription, completedSessions, now: NOW });
         assert.equal(access.entitled, entitled);
         assert.equal(access.completedSessions, completedSessions);
-        assert.equal(access.limit, 2);
-        assert.equal(access.canStartNewSession, entitled || completedSessions < 2);
+        assert.equal(access.limit, 3);
+        assert.equal(access.canStartNewSession, entitled || completedSessions < 3);
       });
     }
   }
@@ -59,7 +59,7 @@ describe("isNewSessionBlocked", () => {
     assert.equal(isNewSessionBlocked(atLimit, { weekCompleted: false, roundTurnCount: 0 }), true);
   });
 
-  it("never blocks an in-progress round (lets session 2 finish, or a lapsed sub finish)", () => {
+  it("never blocks an in-progress round (lets session 3 finish, or a lapsed sub finish)", () => {
     assert.equal(isNewSessionBlocked(atLimit, { weekCompleted: false, roundTurnCount: 1 }), false);
     assert.equal(isNewSessionBlocked(atLimit, { weekCompleted: false, roundTurnCount: 40 }), false);
   });
