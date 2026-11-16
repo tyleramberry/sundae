@@ -60,7 +60,7 @@ export default function TermsOfService() {
               3. Free Plan &amp; Billing
             </h2>
             <p>
-              Sundae is free for your first two completed weekly planning
+              Sundae is free for your first three completed weekly planning
               sessions; no payment card is required. To start additional
               weekly planning sessions you must subscribe at $7.99/month,
               billed through Stripe Checkout and renewing monthly until you
