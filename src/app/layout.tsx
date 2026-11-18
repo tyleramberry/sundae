@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import {
+  Bricolage_Grotesque,
+  Climate_Crisis,
+  Geist,
+  Geist_Mono,
+} from "next/font/google";
 import "./globals.css";
 import { getLandingUrl } from "@/lib/appUrl";
 import PostHogProvider from "@/components/PostHogProvider";
@@ -14,6 +19,23 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// Marketing display type (see the "Landing type" block in globals.css).
+// Bricolage Grotesque is the headline face -- the width axis is loaded so
+// headlines can be set condensed and heavy. Climate Crisis is the brand's
+// "melting" face: its one axis (YEAR) literally melts the letterforms, and
+// it's only ever used for a word or two (the wordmark, one headline word).
+const bricolage = Bricolage_Grotesque({
+  variable: "--font-bricolage",
+  subsets: ["latin"],
+  axes: ["opsz", "wdth"],
+});
+
+const climate = Climate_Crisis({
+  variable: "--font-climate",
+  subsets: ["latin"],
+  axes: ["YEAR"],
 });
 
 const TITLE = "Sundae — AI-guided weekly planning";
@@ -54,7 +76,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} ${climate.variable} h-full antialiased`}
     >
       {/* `min-h-full`, NOT `h-full overflow-hidden`. The viewport-pinned,
           never-scrolls behavior belongs to the signed-in shell only -- it

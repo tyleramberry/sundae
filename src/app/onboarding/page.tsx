@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import FocusShell from "@/components/FocusShell";
+import MeltWord from "@/components/MeltWord";
 
 // New onboarding (Day 7 redesign): survey -> live demo -> hype -> first
 // weekly session. Freemium: no card step -- the first three planning sessions
@@ -65,22 +67,29 @@ export default function OnboardingPage() {
     setScreenIndex((i) => Math.min(i + 1, SCREEN_ORDER.length - 1));
   }
 
-  return (
-    <div className="flex flex-1 flex-col items-center bg-zinc-50 px-6 py-16 font-sans dark:bg-black">
-      <div className="flex w-full max-w-lg flex-1 flex-col gap-8">
-        <div className="flex flex-col gap-3">
-          <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-            Sundae
-          </span>
-          <ProgressDots current={screenIndex} total={SCREEN_ORDER.length} />
-        </div>
+  // The last screen is a moment, not a form, so it goes dark like the
+  // landing page's closing section.
+  const night = screen === "hype";
 
+  return (
+    <FocusShell
+      tone={night ? "night" : "canvas"}
+      aside={
+        <span
+          className={`font-mono text-xs tabular-nums ${
+            night ? "text-white/50" : "text-ink-secondary"
+          }`}
+        >
+          {String(screenIndex + 1).padStart(2, "0")} / {String(SCREEN_ORDER.length).padStart(2, "0")}
+        </span>
+      }
+    >
+      <ProgressBar current={screenIndex} total={SCREEN_ORDER.length} night={night} />
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pt-10 sm:pt-16">
         {screen === "heard-from" && (
           <>
-            <p className="-mt-4 text-xs text-zinc-500 dark:text-zinc-400">
-              No card needed. Your first three planning sessions are free.
-            </p>
             <SingleSelectScreen
+              note="No card needed. Your first three planning sessions are free."
               title="How did you hear about Sundae?"
               subtitle="Helps us know what's actually working."
               options={HEARD_FROM_OPTIONS}
@@ -143,7 +152,7 @@ export default function OnboardingPage() {
           />
         )}
       </div>
-    </div>
+    </FocusShell>
   );
 }
 
@@ -201,17 +210,32 @@ const MOTIVATION_OPTIONS = [
 // ---------------------------------------------------------------------------
 // Shared bits
 
-function ProgressDots({ current, total }: { current: number; total: number }) {
+// One continuous bar rather than dots: it fills with strawberry as you go,
+// and the step count lives in the top bar.
+function ProgressBar({
+  current,
+  total,
+  night,
+}: {
+  current: number;
+  total: number;
+  night: boolean;
+}) {
   return (
-    <div className="flex gap-1.5">
-      {Array.from({ length: total }).map((_, i) => (
-        <span
-          key={i}
-          className={`h-1.5 flex-1 rounded-full transition-colors ${
-            i <= current ? "bg-black dark:bg-white" : "bg-zinc-200 dark:bg-zinc-800"
-          }`}
-        />
-      ))}
+    <div
+      className={`h-1 w-full overflow-hidden rounded-full ${
+        night ? "bg-white/10" : "bg-ink/10"
+      }`}
+      role="progressbar"
+      aria-valuemin={1}
+      aria-valuemax={total}
+      aria-valuenow={current + 1}
+      aria-label="Onboarding progress"
+    >
+      <div
+        className="h-full rounded-full bg-strawberry transition-[width] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]"
+        style={{ width: `${((current + 1) / total) * 100}%` }}
+      />
     </div>
   );
 }
@@ -220,22 +244,43 @@ function Chip({
   label,
   selected,
   onClick,
+  index,
 }: {
   label: string;
   selected: boolean;
   onClick: () => void;
+  /** Staggers the chips' entrance. */
+  index: number;
 }) {
   return (
     <button
       type="button"
+      aria-pressed={selected}
       onClick={onClick}
-      className={`rounded-full border px-4 py-2 text-left text-sm transition ${
+      style={{ animationDelay: `${index * 25}ms` }}
+      className={`inline-flex animate-[fade-in-up_0.4s_ease-out_backwards] items-center gap-2 rounded-full border px-4 py-2.5 text-left text-[15px] font-medium transition duration-200 active:scale-95 sm:px-5 sm:py-3 sm:text-base ${
         selected
-          ? "border-black bg-black text-white dark:border-white dark:bg-white dark:text-black"
-          : "border-zinc-300 text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600"
+          ? "border-strawberry bg-strawberry text-night"
+          : "border-ink/15 text-ink hover:border-ink/40"
       }`}
     >
       {label}
+      {selected && (
+        <svg
+          viewBox="0 0 20 20"
+          className="h-4 w-4 animate-[pop-in_0.25s_ease-out]"
+          aria-hidden
+        >
+          <path
+            d="M4.5 10.5 8.2 14 15.5 6.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
     </button>
   );
 }
@@ -244,20 +289,49 @@ function ContinueButton({
   disabled,
   onClick,
   children = "Continue",
+  tone = "ink",
 }: {
   disabled: boolean;
   onClick: () => void;
   children?: React.ReactNode;
+  tone?: "ink" | "strawberry";
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="self-start rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition disabled:opacity-40 dark:bg-white dark:text-black"
+      className={`group inline-flex items-center gap-2 self-start rounded-full px-7 py-3.5 text-base font-semibold transition hover:-translate-y-0.5 active:translate-y-0 disabled:pointer-events-none disabled:opacity-30 ${
+        tone === "strawberry"
+          ? "bg-strawberry text-night hover:brightness-110"
+          : "bg-ink text-white hover:bg-black"
+      }`}
     >
       {children}
+      <span
+        aria-hidden
+        className="transition-transform duration-200 group-hover:translate-x-0.5"
+      >
+        →
+      </span>
     </button>
+  );
+}
+
+function ScreenTitle({
+  title,
+  subtitle,
+}: {
+  title: React.ReactNode;
+  subtitle: string;
+}) {
+  return (
+    <div className="animate-[fade-in-up_0.45s_ease-out]">
+      <h1 className="display text-[2.75rem] sm:text-7xl">{title}</h1>
+      <p className="mt-4 max-w-xl text-lg leading-8 text-ink-secondary">
+        {subtitle}
+      </p>
+    </div>
   );
 }
 
@@ -267,6 +341,7 @@ function ContinueButton({
 function SingleSelectScreen({
   title,
   subtitle,
+  note,
   options,
   value,
   onChange,
@@ -274,23 +349,30 @@ function SingleSelectScreen({
 }: {
   title: string;
   subtitle: string;
+  note?: string;
   options: string[];
   value: string | null;
   onChange: (v: string) => void;
   onContinue: () => void;
 }) {
   return (
-    <div className="flex flex-1 flex-col gap-6 animate-[fade-in-up_0.35s_ease-out]">
-      <div>
-        <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">{title}</h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{subtitle}</p>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {options.map((opt) => (
-          <Chip key={opt} label={opt} selected={value === opt} onClick={() => onChange(opt)} />
+    <div className="flex flex-1 flex-col gap-10">
+      <ScreenTitle title={title} subtitle={subtitle} />
+      <div className="flex flex-wrap gap-2.5">
+        {options.map((opt, i) => (
+          <Chip
+            key={opt}
+            index={i}
+            label={opt}
+            selected={value === opt}
+            onClick={() => onChange(opt)}
+          />
         ))}
       </div>
-      <ContinueButton disabled={!value} onClick={onContinue} />
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
+        <ContinueButton disabled={!value} onClick={onContinue} />
+        {note && <p className="text-sm text-ink-secondary">{note}</p>}
+      </div>
     </div>
   );
 }
@@ -315,17 +397,25 @@ function MultiSelectScreen({
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-6 animate-[fade-in-up_0.35s_ease-out]">
-      <div>
-        <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">{title}</h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{subtitle}</p>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {options.map((opt) => (
-          <Chip key={opt} label={opt} selected={value.includes(opt)} onClick={() => toggle(opt)} />
+    <div className="flex flex-1 flex-col gap-10">
+      <ScreenTitle title={title} subtitle={subtitle} />
+      <div className="flex flex-wrap gap-2.5">
+        {options.map((opt, i) => (
+          <Chip
+            key={opt}
+            index={i}
+            label={opt}
+            selected={value.includes(opt)}
+            onClick={() => toggle(opt)}
+          />
         ))}
       </div>
-      <ContinueButton disabled={value.length === 0} onClick={onContinue} />
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
+        <ContinueButton disabled={value.length === 0} onClick={onContinue} />
+        <p className="font-mono text-xs text-ink-secondary" aria-live="polite">
+          {value.length === 0 ? "Pick at least one" : `${value.length} picked`}
+        </p>
+      </div>
     </div>
   );
 }
@@ -412,10 +502,10 @@ function nextDemoSlot(): { start: Date; end: Date; label: string } {
 
 function TypingDots() {
   return (
-    <div className="flex max-w-[80%] items-center gap-1 self-start rounded-2xl rounded-bl-sm bg-zinc-200 px-4 py-3 dark:bg-zinc-800">
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.3s] dark:bg-zinc-400" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.15s] dark:bg-zinc-400" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 dark:bg-zinc-400" />
+    <div className="flex max-w-[80%] items-center gap-1 self-start rounded-2xl rounded-bl-sm bg-white/10 px-4 py-3.5">
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/60 [animation-delay:-0.3s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/60 [animation-delay:-0.15s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/60" />
     </div>
   );
 }
@@ -468,26 +558,31 @@ function DemoScreen({ onDone }: { onDone: (result: DemoResult) => void }) {
 
   if (phase === "typing") {
     return (
-      <div className="flex flex-1 flex-col gap-6 animate-[fade-in-up_0.35s_ease-out]">
-        <div>
-          <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
-            Now let&apos;s see it work.
-          </h1>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Type one real thing that&apos;s actually on your mind this week — big or small.
-          </p>
-        </div>
-        <form onSubmit={submit} className="flex flex-col gap-3">
+      <div className="flex flex-1 flex-col gap-10">
+        <ScreenTitle
+          title={<>Now watch it work.</>}
+          subtitle="Type one real thing that’s on your mind this week. Big or small."
+        />
+        <form onSubmit={submit} className="flex flex-col gap-8">
+          {/* One big underlined line, not a boxed field: the answer is the
+              hero of this screen. */}
           <input
             autoFocus
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="e.g. get back in shape, close the seed round, spend more time with my kids…"
-            className="rounded-2xl border border-zinc-300 px-4 py-3 text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            placeholder="get back in shape"
+            aria-label="Something on your mind this week"
+            className="display w-full border-b-2 border-ink/20 bg-transparent pb-3 text-4xl text-ink caret-strawberry outline-none transition-colors placeholder:text-ink/20 focus:border-strawberry sm:text-6xl"
           />
-          <ContinueButton disabled={!input.trim()} onClick={() => submit()}>
-            Watch it happen
-          </ContinueButton>
+          <p className="-mt-4 text-sm text-ink-secondary">
+            Or try: close the seed round, more time with my kids, finish the
+            thesis.
+          </p>
+          <div className="pt-2">
+            <ContinueButton disabled={!input.trim()} onClick={() => submit()}>
+              Watch it happen
+            </ContinueButton>
+          </div>
         </form>
       </div>
     );
@@ -496,24 +591,25 @@ function DemoScreen({ onDone }: { onDone: (result: DemoResult) => void }) {
   const action = goalText ? deriveActionItem(goalText) : "";
 
   return (
-    <div className="flex flex-1 flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">Watch it happen</h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Same drill-down Sundae runs on every goal — vague idea to scheduled action.
-        </p>
-      </div>
+    <div className="flex flex-1 flex-col gap-8">
+      <ScreenTitle
+        title="Watch it happen."
+        subtitle="The same drill-down Sundae runs on every goal: vague idea to a time on your calendar."
+      />
 
-      <div className="flex flex-1 flex-col justify-end gap-2 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+      {/* The demo runs in the landing page's dark "product" surface, with
+          the role-block colors: strawberry for you, vanilla for the action,
+          pistachio for the calendar block. */}
+      <div className="flex min-h-[22rem] flex-col justify-end gap-3 rounded-[1.75rem] bg-night p-5 text-white sm:p-7">
         {/* User's goal */}
         {phaseAtLeast(phase, "goal-shown") && (
-          <div className="flex flex-col items-end gap-1">
-            <div className="max-w-[80%] animate-[fade-in-up_0.3s_ease-out] self-end rounded-2xl rounded-br-sm bg-black px-4 py-2 text-sm text-white dark:bg-white dark:text-black">
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="max-w-[80%] animate-[fade-in-up_0.3s_ease-out] self-end rounded-2xl rounded-br-sm bg-strawberry px-4 py-2.5 text-[15px] font-medium text-night">
               {goalText}
             </div>
             {phaseAtLeast(phase, "consensus") && (
-              <span className="animate-[pop-in_0.3s_ease-out] rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-                That&apos;s the one ✓
+              <span className="animate-[pop-in_0.3s_ease-out] font-mono text-[11px] text-white/50">
+                that&rsquo;s the one ✓
               </span>
             )}
           </div>
@@ -523,8 +619,9 @@ function DemoScreen({ onDone }: { onDone: (result: DemoResult) => void }) {
 
         {/* AI reframe */}
         {phaseAtLeast(phase, "ai-reframe") && (
-          <div className="max-w-[80%] animate-[fade-in-up_0.3s_ease-out] self-start rounded-2xl rounded-bl-sm bg-zinc-200 px-4 py-2 text-sm text-black dark:bg-zinc-800 dark:text-zinc-100">
-            If you could only get one thing done this week toward that, what would it be?
+          <div className="max-w-[80%] animate-[fade-in-up_0.3s_ease-out] self-start rounded-2xl rounded-bl-sm bg-white/10 px-4 py-2.5 text-[15px] text-white">
+            If you could only get one thing done this week toward that, what
+            would it be?
           </div>
         )}
 
@@ -532,32 +629,34 @@ function DemoScreen({ onDone }: { onDone: (result: DemoResult) => void }) {
 
         {/* Concrete action item */}
         {phaseAtLeast(phase, "action-item") && (
-          <div className="animate-[pop-in_0.35s_ease-out] self-start rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm dark:border-emerald-900 dark:bg-emerald-950">
-            <p className="text-xs font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-              This week&apos;s action
+          <div className="max-w-[85%] animate-[pop-in_0.35s_ease-out] self-start rounded-2xl bg-vanilla px-4 py-3 text-night">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-night/60">
+              This week&rsquo;s action
             </p>
-            <p className="mt-1 text-black dark:text-zinc-50">{action}</p>
+            <p className="mt-1 text-base font-semibold leading-snug">{action}</p>
           </div>
         )}
 
-        {/* Calendar block landing */}
+        {/* Calendar block landing. Worded as a proposal: this is a demo,
+            nothing is written to the user's calendar here. */}
         {phaseAtLeast(phase, "calendar-block") && slot && (
-          <div className="animate-[pop-in_0.35s_ease-out] flex items-center gap-3 self-start rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black text-white dark:bg-white dark:text-black">
-              📅
-            </span>
-            <div>
-              <p className="text-sm font-medium text-black dark:text-zinc-50">{slot.label}</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Added to your calendar</p>
+          <div className="block-drop flex max-w-[85%] items-stretch gap-3 self-start overflow-hidden rounded-2xl bg-pistachio text-night">
+            <span className="w-1.5 shrink-0 bg-night/25" aria-hidden />
+            <div className="py-3 pr-4">
+              <p className="text-base font-semibold leading-snug">{slot.label}</p>
+              <p className="text-sm text-night/70">
+                Proposed for your calendar
+              </p>
             </div>
           </div>
         )}
 
         {/* Counter */}
         {phaseAtLeast(phase, "counter") && (
-          <div className="animate-[pop-in_0.35s_ease-out] self-start text-sm font-medium text-emerald-700 dark:text-emerald-400">
-            +{BLOCK_MINUTES} min planned, zero minutes spent staring at a blank calendar
-          </div>
+          <p className="animate-[pop-in_0.35s_ease-out] self-start font-mono text-xs text-white/60">
+            +{BLOCK_MINUTES} min planned. Zero minutes staring at a blank
+            calendar.
+          </p>
         )}
       </div>
     </div>
@@ -594,35 +693,33 @@ function HypeScreen({
   onContinue: () => void;
   finishing: boolean;
 }) {
-  const weeklyHoursIfEveryGoal = ((result.blockMinutes * 4) / 60).toFixed(1);
-
   return (
-    <div className="flex flex-1 flex-col justify-center gap-6 animate-[fade-in-up_0.4s_ease-out]">
-      <div className="flex flex-col gap-3">
-        <span className="w-fit animate-[pop-in_0.4s_ease-out] rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-          {result.elapsedSeconds}s, start to scheduled
-        </span>
-        <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-          That&apos;s the whole loop.
+    <div className="flex flex-1 flex-col justify-center gap-10 py-6">
+      <div className="flex flex-col gap-6">
+        <p className="animate-[fade-in-up_0.4s_ease-out] font-mono text-sm text-white/50">
+          Start to scheduled
+        </p>
+        {/* The stat is real: how long the demo above actually took. */}
+        <p
+          className="display animate-[pop-in_0.5s_ease-out] text-[clamp(6rem,24vw,14rem)] leading-[0.8] text-strawberry"
+          aria-label={`${result.elapsedSeconds} seconds`}
+        >
+          {result.elapsedSeconds}
+          <MeltWord text="s" drips={{ 0: { x: 0.18, len: 0.3 } }} className="text-[0.62em]" />
+        </p>
+        <h1 className="display max-w-3xl animate-[fade-in-up_0.5s_ease-out] text-5xl text-white sm:text-7xl">
+          That&rsquo;s the whole loop.
         </h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          You just went from &ldquo;{result.goalText}&rdquo; to a scheduled action in{" "}
-          {result.elapsedSeconds} seconds — no blank calendar, no deciding where to start.
+        <p className="max-w-xl animate-[fade-in-up_0.6s_ease-out] text-lg leading-8 text-white/70">
+          You went from &ldquo;{result.goalText}&rdquo; to a concrete action
+          with a time attached. Your first session does that for every role
+          you play, against your real calendar, and nothing is added until
+          you say yes.
         </p>
       </div>
 
-      <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <p className="text-sm text-zinc-700 dark:text-zinc-300">
-          Do that for everything you&apos;re juggling — say 4 goals a week — and that&apos;s roughly{" "}
-          <span className="font-semibold text-black dark:text-white">
-            {weeklyHoursIfEveryGoal} hours
-          </span>{" "}
-          of &ldquo;figuring out what to do&rdquo; that Sundae just does for you, every single week.
-        </p>
-      </div>
-
-      <ContinueButton disabled={finishing} onClick={onContinue}>
-        Start my first planning session →
+      <ContinueButton tone="strawberry" disabled={finishing} onClick={onContinue}>
+        {finishing ? "Starting…" : "Start my first planning session"}
       </ContinueButton>
     </div>
   );

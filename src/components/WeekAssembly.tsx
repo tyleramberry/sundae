@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useReducedMotion } from "@/lib/hooks/useReducedMotion";
+import Drip from "@/components/Drip";
 
 // useLayoutEffect warns if it runs during SSR (there's no browser layout to
 // read on the server). This component always has a real client to
@@ -62,24 +63,29 @@ const BLOCKS: Block[] = [
   { role: "parent", day: 6, row: 7, label: "Family dinner" },
 ];
 
+// One row-height definition shared by the grid and its time gutter, so the
+// hour labels can't drift out of line with the rows. Rows grow with the
+// viewport so block labels have room on a wide screen.
+const ROW_TEMPLATE = `repeat(${ROW_LABELS.length}, clamp(1.75rem, 3.4vw, 3rem))`;
+
 const ROLES: { id: Role; name: string; dot: string; block: string }[] = [
   {
     id: "founder",
     name: "Founder",
-    dot: "bg-violet-500",
-    block: "bg-violet-500 border-violet-600/40",
+    dot: "bg-strawberry",
+    block: "bg-strawberry text-night",
   },
   {
     id: "parent",
     name: "Parent",
-    dot: "bg-amber-500",
-    block: "bg-amber-500 border-amber-600/40",
+    dot: "bg-vanilla",
+    block: "bg-vanilla text-night",
   },
   {
     id: "athlete",
     name: "Athlete",
-    dot: "bg-emerald-500",
-    block: "bg-emerald-500 border-emerald-600/40",
+    dot: "bg-pistachio",
+    block: "bg-pistachio text-night",
   },
 ];
 
@@ -185,12 +191,16 @@ export default function WeekAssembly() {
   return (
     <section
       ref={sectionRef}
-      className="relative border-y border-zinc-200 bg-white dark:border-zinc-900 dark:bg-zinc-950"
+      className="relative bg-night text-white"
       // The extra height is the scroll runway the pinned panel scrubs
       // through when motion is allowed; reduced motion drops the section
       // back to its natural (auto) height as ordinary stacked content.
       style={reducedMotion ? undefined : { height: "min(340vh, 2600px)" }}
     >
+      {/* Melting edges: the page above drips into this dark section, and
+          this section drips into the page below. */}
+      <Drip className="absolute inset-x-0 top-0 z-10 text-canvas" />
+      <Drip className="absolute inset-x-0 top-full z-10 text-night" />
       <div
         className={
           reducedMotion
@@ -198,7 +208,7 @@ export default function WeekAssembly() {
             : "sticky top-0 flex h-dvh flex-col justify-center overflow-hidden px-6 sm:px-10"
         }
       >
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 lg:flex-row lg:items-center lg:gap-16">
+        <div className="mx-auto flex w-full max-w-[75rem] flex-col gap-8 lg:flex-row lg:items-center lg:gap-20">
           <div className="flex flex-col gap-6 lg:flex-1">
             <SectionHeading />
 
@@ -228,7 +238,7 @@ export default function WeekAssembly() {
             <ProgressRail active={activeStep} />
           </div>
 
-          <div className="lg:flex-1">
+          <div className="lg:flex-[1.35]">
             <WeekGrid placed={placed} reducedMotion={reducedMotion} />
           </div>
         </div>
@@ -242,10 +252,10 @@ export default function WeekAssembly() {
 function SectionHeading() {
   return (
     <div className="flex flex-col gap-3">
-      <span className="text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+      <span className="font-mono text-xs uppercase tracking-widest text-strawberry">
         One sitting a week
       </span>
-      <h2 className="text-3xl font-semibold leading-tight tracking-tight text-black dark:text-zinc-50 sm:text-4xl">
+      <h2 className="display text-4xl text-white sm:text-6xl">
         Watch a week build itself.
       </h2>
     </div>
@@ -265,26 +275,24 @@ function StepCard({
 }) {
   return (
     <div
-      className={`flex gap-4 rounded-xl border p-4 transition-all duration-500 ${
-        active
-          ? "border-zinc-300 bg-zinc-50 opacity-100 dark:border-zinc-700 dark:bg-zinc-900/60"
-          : "border-transparent opacity-40"
+      className={`flex gap-4 border-l-2 py-1 pl-5 transition-all duration-500 ${
+        active ? "border-strawberry opacity-100" : "border-white/10 opacity-35"
       } ${compact ? "min-h-[8.5rem]" : ""}`}
     >
       <span
         className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors duration-500 ${
           active
-            ? "bg-black text-white dark:bg-white dark:text-black"
-            : "bg-zinc-200 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500"
+            ? "bg-strawberry text-night"
+            : "bg-white/10 text-white/50"
         }`}
       >
         {index + 1}
       </span>
       <div className="flex flex-col gap-1">
-        <h3 className="text-base font-semibold text-black dark:text-zinc-50">
+        <h3 className="text-lg font-semibold leading-snug tracking-normal text-white">
           {step.title}
         </h3>
-        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+        <p className="text-base leading-7 text-white/65">
           {step.body}
         </p>
       </div>
@@ -300,8 +308,8 @@ function ProgressRail({ active }: { active: number }) {
           key={s.title}
           className={`h-1 flex-1 rounded-full transition-colors duration-500 ${
             i <= active
-              ? "bg-black dark:bg-white"
-              : "bg-zinc-200 dark:bg-zinc-800"
+              ? "bg-strawberry"
+              : "bg-white/10"
           }`}
         />
       ))}
@@ -324,13 +332,13 @@ function WeekGrid({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/40 sm:p-4">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 sm:p-4">
         <div className="mb-2 flex items-center justify-between px-1">
-          <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          <span className="text-xs font-medium text-white/50">
             Your week
           </span>
           <span
-            className="text-xs font-medium tabular-nums text-zinc-500 dark:text-zinc-400"
+            className="text-xs font-medium tabular-nums text-white/50"
             aria-live="off"
           >
             {placed} / {BLOCKS.length} blocks
@@ -339,11 +347,14 @@ function WeekGrid({
 
         <div className="flex gap-1.5">
           {/* Time gutter */}
-          <div className="flex w-6 shrink-0 flex-col pt-5">
+          <div
+            className="grid w-6 shrink-0 gap-1 pt-5"
+            style={{ gridTemplateRows: ROW_TEMPLATE }}
+          >
             {ROW_LABELS.map((label) => (
               <span
                 key={label}
-                className="flex h-7 items-start text-[9px] leading-none text-zinc-400 dark:text-zinc-600 sm:h-8"
+                className="text-[9px] leading-none text-white/40 sm:text-[10px]"
               >
                 {label}
               </span>
@@ -355,7 +366,7 @@ function WeekGrid({
               {DAYS.map((d) => (
                 <span
                   key={d}
-                  className="text-center text-[10px] font-medium text-zinc-500 dark:text-zinc-400"
+                  className="text-center text-[10px] font-medium text-white/50"
                 >
                   {d}
                 </span>
@@ -365,7 +376,7 @@ function WeekGrid({
             <div
               className="grid grid-cols-7 gap-1"
               style={{
-                gridTemplateRows: `repeat(${ROW_LABELS.length}, minmax(1.75rem, auto))`,
+                gridTemplateRows: ROW_TEMPLATE,
               }}
             >
               {/* Empty cells, drawn first so blocks paint over them. */}
@@ -373,7 +384,7 @@ function WeekGrid({
                 ROW_LABELS.map((_, r) => (
                   <div
                     key={`${day}-${r}`}
-                    className="rounded-[5px] bg-white ring-1 ring-inset ring-zinc-200/70 dark:bg-zinc-950/40 dark:ring-zinc-800/70"
+                    className="rounded-[5px] bg-white/[0.05]"
                     style={{ gridColumn: d + 1, gridRow: r + 1 }}
                   />
                 )),
@@ -389,13 +400,13 @@ function WeekGrid({
                 return (
                   <div
                     key={`${block.day}-${block.row}-${block.label}`}
-                    className={`relative flex items-center justify-center overflow-hidden rounded-[5px] border px-1 text-[8px] font-semibold leading-tight text-white sm:text-[9px] ${
+                    className={`relative flex items-center justify-center overflow-hidden rounded-[5px] text-[8px] font-bold leading-tight tracking-tight sm:px-1 sm:text-[10px] sm:tracking-normal lg:rounded-lg lg:text-xs ${
                       role?.block ?? ""
                     } ${reducedMotion ? "" : "block-drop"}`}
                     style={{ gridColumn: block.day + 1, gridRow: block.row }}
                     title={`${role?.name}: ${block.label}`}
                   >
-                    <span className="truncate px-0.5">{block.label}</span>
+                    <span className="line-clamp-2 text-center sm:px-0.5">{block.label}</span>
                   </div>
                 );
               })}
@@ -408,13 +419,13 @@ function WeekGrid({
         {counts.map((role) => (
           <div
             key={role.id}
-            className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 dark:border-zinc-800 dark:bg-zinc-950"
+            className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5"
           >
             <span className={`h-2 w-2 rounded-full ${role.dot}`} />
-            <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            <span className="text-xs font-medium text-white">
               {role.name}
             </span>
-            <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
+            <span className="text-xs tabular-nums text-white/40">
               {role.done}/{role.total}
             </span>
           </div>

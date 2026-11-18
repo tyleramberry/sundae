@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
+import FocusShell from "@/components/FocusShell";
 
 // Standalone sign-in page. Reached from a deep link (a signed-out user
 // hitting an app route redirects here with ?next=), from the landing page's
@@ -13,26 +14,45 @@ async function LoginInner({
   const { next, error, auto } = await searchParams;
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex w-full max-w-md flex-col items-center justify-center gap-8 px-6 py-32 text-center sm:px-16">
-        <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-          Sundae
-        </span>
-        <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-          Sign in
+    <FocusShell>
+      <div className="flex flex-1 flex-col justify-center gap-8 py-10">
+        {/* New visitors land here too (the landing page's CTA hops here
+            with ?auto=google on the marketing domain), so no "welcome
+            back". */}
+        <h1 className="display text-6xl sm:text-8xl">
+          {auto === "google" ? (
+            <>
+              Off to
+              <br />
+              Google…
+            </>
+          ) : (
+            <>
+              Let&rsquo;s plan
+              <br />
+              your week.
+            </>
+          )}
         </h1>
-        <p className="text-base text-zinc-600 dark:text-zinc-400">
-          Connect your Google account so Sundae can read and propose blocks on
-          your calendar.
+        <p className="max-w-md text-lg leading-8 text-ink-secondary">
+          Sign in with Google. Sundae reads your calendar to find open time,
+          and only adds blocks you confirm.
         </p>
         {error && (
-          <p className="text-sm text-red-600">
+          <p className="border-l-2 border-red-600 pl-4 text-sm text-red-600">
             Something went wrong signing in. Please try again.
           </p>
         )}
-        <GoogleSignInButton next={next} autoStart={auto === "google"} />
-      </main>
-    </div>
+        <div>
+          <GoogleSignInButton
+            next={next}
+            autoStart={auto === "google"}
+            label="Continue with Google"
+            className="inline-flex items-center justify-center gap-3 rounded-full bg-ink py-2.5 pl-2.5 pr-7 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-black active:translate-y-0 disabled:opacity-60"
+          />
+        </div>
+      </div>
+    </FocusShell>
   );
 }
 

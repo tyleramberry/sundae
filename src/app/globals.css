@@ -40,6 +40,18 @@
   --color-accent-tint: #EDF3EE;
   --color-border: #DDD6CC;
 
+  /* --- Landing palette (2026-11). The calm canvas + ink stay the base;
+     these are the ice-cream accents layered on top. Night is the dark
+     section background. Strawberry is the one loud color -- headline
+     emphasis and the CTA on dark. Vanilla and pistachio only appear as
+     calendar-block colors, next to strawberry. */
+  --font-display: var(--font-bricolage), system-ui, sans-serif;
+  --font-melt: var(--font-climate), var(--font-bricolage), sans-serif;
+  --color-night: #14100D;
+  --color-strawberry: #FF5C8A;
+  --color-vanilla: #F6E6B4;
+  --color-pistachio: #8DBF6F;
+
   /* Zinc override: existing bg-zinc, text-zinc, border-zinc usages get
      retinted to warm neutrals. Same shade ladder direction (50 lightest,
      950 darkest), just remapped end to end. */
@@ -96,12 +108,16 @@ body {
 /* Heading defaults (spec #3): calmer vertical rhythm + a hairline of
    letter-spacing so headings read as intentional labels instead of
    dense text. Applies to any h1/h2/h3 that doesn't override
-   line-height / letter-spacing on its own via a utility class. */
-h1,
-h2,
-h3 {
-  line-height: 1.4;
-  letter-spacing: 0.01em;
+   line-height / letter-spacing on its own via a utility class -- which is
+   why this sits in @layer base: unlayered, it outranked every `leading-*`
+   / `tracking-*` utility and no heading could actually opt out. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+  }
 }
 
 /* Onboarding demo animation (Day 7 redesign) -- the live goal -> action ->
@@ -339,6 +355,88 @@ h3 {
   animation: float-soft 6s ease-in-out infinite;
 }
 
+/* Landing type. `.display` is the headline setting: Bricolage, heavy and
+   condensed. A plain class rather than utilities because the width and
+   optical-size axes have to be set together in one declaration. */
+.display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-variation-settings:
+    "wdth" 80,
+    "opsz" 96;
+  letter-spacing: -0.035em;
+  line-height: 0.94;
+}
+
+/* The melting face. Climate Crisis has a single axis, YEAR, that runs
+   from solid (1979) to almost gone (2050). Past ~2025 the letters get too
+   thin to read, so nothing here goes further than that. `.melt` is the
+   solid setting (the wordmark); `.melt-loop` wastes a word away and brings
+   it back; `.melt-hover` melts on hover. */
+.melt {
+  font-family: var(--font-melt);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  font-variation-settings: "YEAR" 1979;
+}
+
+@keyframes melt-cycle {
+  0%,
+  12% {
+    font-variation-settings: "YEAR" 1979;
+  }
+  70%,
+  100% {
+    font-variation-settings: "YEAR" 2024;
+  }
+}
+
+/* Drips off the bottom of a melting word (see MeltWord.tsx). Same timing
+   as melt-cycle so the drip lengthens exactly as its letter thins. `top`
+   is the face's baseline, measured from the top of the letter's box. */
+@keyframes drip-grow {
+  0%,
+  12% {
+    transform: scaleY(0);
+  }
+  70%,
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+.melt-drip {
+  position: absolute;
+  top: 0.86em;
+  width: 0.085em;
+  border-radius: 0 0 999px 999px;
+  background: currentColor;
+  transform-origin: top;
+  animation: drip-grow 5.5s cubic-bezier(0.45, 0, 0.2, 1) infinite alternate;
+}
+
+.melt-loop {
+  animation: melt-cycle 5.5s cubic-bezier(0.45, 0, 0.2, 1) infinite alternate;
+}
+
+.melt-hover {
+  font-variation-settings: "YEAR" 1979;
+  transition: font-variation-settings 0.9s cubic-bezier(0.45, 0, 0.2, 1);
+}
+
+.melt-hover:hover {
+  font-variation-settings: "YEAR" 2024;
+}
+
+/* FAQ disclosure: hide the native marker, rotate our own plus into an x. */
+.faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-item[open] .faq-plus {
+  transform: rotate(45deg);
+}
+
 /* One accessibility guard for the whole landing motion layer. Anything
    added above should be listed here too. */
 @media (prefers-reduced-motion: reduce) {
@@ -355,8 +453,14 @@ h3 {
   .shimmer-text,
   .block-drop,
   .land-pulse,
-  .float-soft {
+  .float-soft,
+  .melt-loop,
+  .melt-drip {
     animation: none;
+  }
+
+  .melt-hover {
+    transition: none;
   }
 
   .shimmer-text {

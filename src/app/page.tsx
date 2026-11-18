@@ -2,357 +2,383 @@ import GoogleSignInButton from "@/components/GoogleSignInButton";
 import AgentDemo from "@/components/AgentDemo";
 import RoleMarquee from "@/components/RoleMarquee";
 import WeekAssembly from "@/components/WeekAssembly";
+import StickyCta from "@/components/StickyCta";
+import Drip from "@/components/Drip";
+import MeltWord from "@/components/MeltWord";
 import Reveal from "@/components/Reveal";
+import { FREE_SESSION_LIMIT } from "@/lib/weeklySession/freeTier";
 
 // Marketing landing page -- the ad destination. Explains the product and
-// hands off straight into Google OAuth (top nav + hero + closing CTA all
-// launch the same sign-in). After login, /auth/callback routes new users
-// into onboarding, then subscribe; returning users who already finished
-// onboarding skip it (entitled users land on the dashboard, others on
-// /subscribe).
+// hands off straight into Google OAuth (every button on the page launches
+// the same sign-in). After login, /auth/callback routes new users into
+// onboarding; returning users skip it.
 //
-// Structure note: this page scrolls. It used to be a single centered
-// viewport-height column, which was invisible on the page's own terms --
-// <body> carried `overflow-hidden` for the signed-in shell's benefit, so
-// everything past the fold (the feature cards, the footer's Privacy/Terms
-// links) was unreachable on every laptop and most phones. That cap now
-// lives in src/app/(app)/layout.tsx; see the comment in src/app/layout.tsx.
+// Design rules for this page, so additions stay in keeping:
+//   - Type does the work. Headlines are `.display` (heavy, condensed);
+//     one word per headline may `.melt`. No eyebrow pills, no icon tiles.
+//   - No boxed cards. Content is separated by hairlines and whitespace.
+//     The only "cards" are the two product demos, which are pictures of
+//     the product, not layout.
+//   - Two surfaces: canvas and night. Strawberry is the single accent.
+//     Sections meet with a Drip, not a border.
+//   - No testimonials, user counts, or press logos unless they're real.
 //
-// Motion note: the scroll reveals (Reveal), the scroll-scrubbed week build
-// (WeekAssembly), and the looping agent demo (AgentDemo) are all client
-// components, but this page itself stays a server component -- nothing
-// here needs to be a client boundary, so the interactive pieces are
-// islands, not the whole page.
+// This page stays a server component. The interactive pieces (AgentDemo,
+// WeekAssembly, StickyCta, Reveal) are client islands.
 
-// $7.99/month after the first three free weekly planning sessions (freemium,
-// no card to start). One constant so the hero microcopy, closing CTA, and
-// FAQ stay in lockstep.
+// One constant each so the hero, pricing, FAQ, and sticky bar can't drift
+// apart (they had: the page used to say "2 free sessions" in one place and
+// "3" in another). The free-session count is read from the same constant
+// the paywall enforces.
 const MONTHLY_PRICE = "$7.99";
+const FREE_SESSIONS = FREE_SESSION_LIMIT;
+
+// Where the drips hang off each melting word: letter index -> offset and
+// length in em (see MeltWord.tsx).
+const HERO_DRIPS = {
+  0: { x: 0.1, len: 0.34 },
+  2: { x: 0.07, len: 0.2 },
+  4: { x: 0.36, len: 0.46 },
+};
+const CLOSING_DRIPS = {
+  0: { x: 0.1, len: 0.3 },
+  3: { x: 0.2, len: 0.42 },
+};
+
+const CTA_ON_LIGHT =
+  "inline-flex items-center justify-center gap-3 rounded-full bg-ink py-2.5 pl-2.5 pr-7 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-black active:translate-y-0 disabled:opacity-60";
+const CTA_ON_DARK =
+  "inline-flex items-center justify-center gap-3 rounded-full bg-strawberry py-2.5 pl-2.5 pr-7 text-base font-semibold text-night transition hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-60";
 
 export default function Home() {
   return (
-    <div className="flex flex-1 flex-col bg-zinc-50 font-sans dark:bg-black">
+    <div className="flex flex-1 flex-col bg-canvas font-sans text-ink">
       {/* Reveal.tsx starts every `.reveal` element hidden and un-hides it
-          from an effect once IntersectionObserver confirms it's on screen.
-          Without JS that effect never runs, so this forces the visible
-          state back on -- a visitor with JS off (or a hydration failure)
-          gets a static page instead of permanently-invisible content. */}
+          once it's on screen. Without JS that never runs, so this forces
+          the visible state -- a JS failure gives a static page, not a
+          blank one. */}
       <noscript>
         <style>{`.reveal { opacity: 1 !important; transform: none !important; }`}</style>
       </noscript>
 
-      <header className="sticky top-0 z-20 flex w-full items-center justify-between border-b border-transparent px-6 py-5 backdrop-blur-md sm:px-10">
-        <span className="text-sm font-semibold uppercase tracking-[0.2em] text-black dark:text-zinc-50">
-          Sundae
-        </span>
-        {/* Deliberately the quiet, returning-user entry point -- "Sign in",
-            not "Sign in with Google", so it doesn't read as the thing a
-            first-time visitor is supposed to click. The hero's "Get started
-            free" is the primary path; both fire the same OAuth. */}
-        <GoogleSignInButton
-          label="Sign in"
-          className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white/70 px-4 py-2 text-sm font-medium text-zinc-800 backdrop-blur transition hover:border-zinc-400 hover:bg-white dark:border-zinc-700 dark:bg-black/50 dark:text-zinc-200 dark:hover:bg-zinc-900"
-        />
+      <header>
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-10">
+          {/* The wordmark melts on hover. The header itself scrolls away
+              with the page: a pinned light bar would sit on top of the
+              dark sections, and phones get the sticky CTA bar instead. */}
+          <a
+            href="#top"
+            className="melt melt-hover text-xl leading-none text-ink sm:text-2xl"
+          >
+            Sundae
+          </a>
+
+          <div className="flex items-center gap-7">
+            <nav
+              aria-label="Page sections"
+              className="hidden items-center gap-7 text-sm font-medium text-ink-secondary md:flex"
+            >
+              <a href="#how" className="transition hover:text-ink">
+                How it works
+              </a>
+              <a href="#pricing" className="transition hover:text-ink">
+                Pricing
+              </a>
+              <a href="#faq" className="transition hover:text-ink">
+                Questions
+              </a>
+            </nav>
+            {/* The quiet, returning-user entry point. "Sign in", not "Get
+                started", so a first-time visitor's eye goes to the hero
+                button. Both fire the same OAuth. */}
+            <GoogleSignInButton
+              label="Sign in"
+              className="inline-flex items-center gap-2 rounded-full border border-ink/15 py-1 pl-1 pr-4 text-sm font-medium text-ink transition hover:border-ink/40 disabled:opacity-60"
+            />
+          </div>
+        </div>
       </header>
 
-      <main className="flex flex-1 flex-col">
+      <main id="top" className="flex flex-1 flex-col">
         {/* ---------------------------------------------------------------
-            Hero */}
-        <section className="relative overflow-hidden">
-          {/* Ambient drifting glow, purely decorative. Sits below
-              everything else in the hero and is inert to pointer events so
-              it can never intercept a click meant for the CTA. */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
-          >
-            {/* Calm-identity retheme (spec #3): removed the aurora/violet
-                gradient wash. PRD calls for no background gradients or
-                decorative SVGs not tied to data. Kept the empty divs out
-                entirely rather than transparent-ing them so the DOM
-                actually shrinks with the visual. */}
-          </div>
+            Hero. The headline runs the full width on its own; the pitch
+            and the session demo sit underneath it. */}
+        <section className="mx-auto w-full max-w-7xl px-5 pb-24 pt-8 sm:px-10 sm:pb-32 sm:pt-14">
+          <Reveal>
+            <h1 className="display text-[clamp(3.25rem,10.5vw,9.5rem)]">
+              Plan the week
+              <br />
+              before it{" "}
+              <MeltWord
+                text="melts."
+                drips={HERO_DRIPS}
+                className="text-[0.78em] text-strawberry"
+              />
+            </h1>
+          </Reveal>
 
-          <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-12 px-6 pb-10 pt-10 sm:px-10 sm:pt-16 lg:flex-row lg:items-center lg:gap-16 lg:pb-16">
-            <div className="flex min-w-0 w-full max-w-xl flex-col items-center gap-6 text-center lg:items-start lg:text-left">
-              {/* Plain uppercase eyebrow, matching the same label style
-                  WeekAssembly's "One sitting a week" uses -- no pill, no
-                  dot. Consistent with the rest of the page's restrained,
-                  designed-system look rather than the rounded-badge-with-
-                  status-dot pattern that reads as generic AI-product
-                  chrome. */}
-              <Reveal>
-                <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                  AI-guided weekly planning
-                </span>
-              </Reveal>
-              <Reveal delay={70}>
-                <h1 className="text-4xl font-semibold leading-tight tracking-tight text-black dark:text-zinc-50 sm:text-5xl">
-                  Set the vision.{" "}
-                  {/* Calm-identity retheme: gradient text swapped for a
-                      solid accent-hover for readable, on-palette emphasis. */}
-                  <span className="text-emerald-700 dark:text-emerald-400">
-                    Sundae handles the busywork.
-                  </span>
-                </h1>
-              </Reveal>
-              <Reveal delay={140}>
-                <p className="text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-                  Every AI planner answers &ldquo;when.&rdquo; Sundae asks
-                  &ldquo;who for.&rdquo; Define the roles you actually play —
-                  founder, parent, athlete — and one short guided session
-                  turns them into a real week on your calendar.
+          <div className="mt-10 grid grid-cols-[minmax(0,1fr)] items-start gap-12 sm:mt-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:gap-20">
+            <div className="flex min-w-0 max-w-xl flex-col gap-7">
+              <Reveal delay={80}>
+                <p className="text-xl leading-8 text-ink sm:text-2xl sm:leading-9">
+                  Sundae turns the roles you play into real time on your
+                  Google Calendar. One guided session, about ten minutes,
+                  and the whole week is set.
                 </p>
               </Reveal>
 
-              <Reveal delay={210}>
-                <div className="flex flex-col items-center gap-3 lg:items-start">
-                  <GoogleSignInButton label="Get started free" />
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Free for your first 2 weekly planning sessions. No credit card required. Then {MONTHLY_PRICE}/month — cancel anytime from Settings.
-                  </span>
-                  {/* Pre-empts Google's consent screen, which is the very
-                      next thing this button shows and is the scariest-
-                      sounding screen in the funnel. Saying what we ask for
-                      and why, before it appears, costs one line here. */}
-                  <span className="max-w-sm text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-                    Google will ask Sundae to connect to your calendar — that&apos;s
-                    how it finds your open time. Nothing is ever added or
-                    changed without you confirming it first.
-                  </span>
+              <Reveal delay={150}>
+                <div data-cta className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                  <GoogleSignInButton
+                    label="Plan my week free"
+                    className={CTA_ON_LIGHT}
+                  />
+                  <p className="text-sm text-ink-secondary">
+                    {FREE_SESSIONS} sessions free. No card.
+                  </p>
                 </div>
               </Reveal>
 
-              <Reveal delay={270} className="w-full max-w-sm pt-2 lg:max-w-none">
+              {/* Pre-empts Google's consent screen, which is the very next
+                  thing the button shows and the scariest-sounding screen
+                  in the funnel. */}
+              <Reveal delay={210}>
+                <p className="max-w-md border-l-2 border-strawberry pl-4 text-sm leading-6 text-ink-secondary">
+                  Google will ask to connect your calendar so Sundae can
+                  find your open time. Nothing is added until you say yes.
+                </p>
+              </Reveal>
+
+              <Reveal delay={260} className="min-w-0 pt-2">
                 <RoleMarquee />
               </Reveal>
             </div>
 
-            <div className="flex w-full justify-center lg:justify-end">
-              <Reveal delay={260} scale>
-                <div className="float-soft">
-                  <AgentDemo />
-                </div>
+            <Reveal delay={200} scale className="flex justify-center lg:justify-end">
+              <div className="float-soft w-full max-w-md">
+                <AgentDemo />
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ---------------------------------------------------------------
+            The scroll-built week -- the page's centerpiece. Dark, so the
+            role colors carry it. Owns its own drips top and bottom. */}
+        <div id="how">
+          <WeekAssembly />
+        </div>
+
+        {/* ---------------------------------------------------------------
+            What makes it different. Rows, not cards. */}
+        <section className="mx-auto w-full max-w-7xl px-5 pb-20 pt-32 sm:px-10 sm:pb-28 sm:pt-44">
+          <Reveal>
+            <h2 className="display max-w-4xl text-5xl sm:text-7xl">
+              Not another
+              <br />
+              to-do list.
+            </h2>
+          </Reveal>
+          <ol className="mt-12 border-b border-ink/15 sm:mt-16">
+            {FEATURES.map((f, i) => (
+              <Reveal key={f.title} delay={i * 80}>
+                <li className="group grid gap-x-10 gap-y-3 border-t border-ink/15 py-8 sm:py-10 md:grid-cols-[4rem_minmax(0,5fr)_minmax(0,6fr)] md:items-baseline">
+                  <span className="font-mono text-sm text-ink-secondary transition-colors group-hover:text-strawberry">
+                    0{i + 1}
+                  </span>
+                  <h3 className="display text-3xl transition-transform duration-300 group-hover:translate-x-1 sm:text-4xl">
+                    {f.title}
+                  </h3>
+                  <p className="max-w-lg text-lg leading-8 text-ink-secondary">
+                    {f.body}
+                  </p>
+                </li>
               </Reveal>
-            </div>
-          </div>
+            ))}
+          </ol>
         </section>
 
         {/* ---------------------------------------------------------------
-            Scroll-scrubbed week assembly -- the page's centerpiece. Its
-            own component (src/components/WeekAssembly.tsx) since it owns
-            a scroll listener and a tall pinned layout, not something to
-            inline here. */}
-        <WeekAssembly />
-
-        {/* ---------------------------------------------------------------
-            What makes it different */}
-        <section className="px-6 py-16 sm:px-10 sm:py-24">
-          <div className="mx-auto flex max-w-5xl flex-col gap-10">
+            Trust. Its own section because the calendar permission is the
+            single biggest thing a cold visitor hesitates on. The Privacy
+            Policy link here (and in the footer) also has to stay reachable
+            from the homepage for Google's OAuth verification. */}
+        <section className="mx-auto w-full max-w-7xl px-5 py-20 sm:px-10 sm:py-28">
+          <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
             <Reveal>
-              <h2 className="text-center text-2xl font-semibold tracking-tight text-black dark:text-zinc-50 sm:text-3xl">
-                Not another to-do list
+              <h2 className="display text-5xl sm:text-7xl">
+                It proposes.
+                <br />
+                You confirm.
               </h2>
-            </Reveal>
-            <ul className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              {FEATURES.map((f, i) => (
-                <Reveal key={f.title} delay={i * 90} scale>
-                  <li className="group h-full rounded-xl border border-zinc-200 bg-white p-5 transition-all duration-300 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-lg hover:shadow-zinc-900/5 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700 dark:hover:shadow-black/20">
-                    <span
-                      aria-hidden
-                      className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-100 text-zinc-700 transition-colors group-hover:bg-emerald-100 group-hover:text-emerald-700 dark:bg-zinc-900 dark:text-zinc-300 dark:group-hover:bg-emerald-950/60 dark:group-hover:text-emerald-400"
-                    >
-                      <f.Icon className="h-[18px] w-[18px]" />
-                    </span>
-                    <h3 className="text-sm font-semibold text-black dark:text-zinc-50">
-                      {f.title}
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-                      {f.body}
-                    </p>
-                  </li>
-                </Reveal>
-              ))}
-            </ul>
-          </div>
-        </section>
-
-        {/* ---------------------------------------------------------------
-            Permissions / trust. Its own section because the calendar scope
-            is the single biggest thing a cold visitor hesitates on. */}
-        <section className="border-y border-zinc-200 bg-white px-6 py-16 dark:border-zinc-900 dark:bg-zinc-950 sm:px-10 sm:py-20">
-          <div className="mx-auto flex max-w-3xl flex-col gap-6">
-            <Reveal>
-              <h2 className="text-center text-2xl font-semibold tracking-tight text-black dark:text-zinc-50 sm:text-3xl">
-                What Sundae does with your calendar
-              </h2>
-            </Reveal>
-            <Reveal delay={80}>
-              <ul className="flex flex-col gap-4">
-                {CALENDAR_PROMISES.map((p) => (
-                  <li key={p} className="flex gap-3">
-                    <span
-                      aria-hidden
-                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
-                    />
-                    <span className="text-base leading-7 text-zinc-700 dark:text-zinc-300">
-                      {p}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Reveal>
-            <Reveal delay={140}>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Full detail in our{" "}
+              <p className="mt-6 max-w-sm text-lg leading-8 text-ink-secondary">
+                Connecting a calendar is a real ask. Here is exactly what
+                Sundae does with yours. Full detail in the{" "}
                 <a
                   href="/privacy"
-                  className="underline hover:text-zinc-950 dark:hover:text-zinc-50"
+                  className="text-ink underline decoration-strawberry decoration-2 underline-offset-4"
                 >
                   Privacy Policy
                 </a>
                 .
               </p>
             </Reveal>
-          </div>
-        </section>
 
-        {/* ---------------------------------------------------------------
-            FAQ */}
-        <section className="px-6 py-16 sm:px-10 sm:py-24">
-          <div className="mx-auto flex max-w-3xl flex-col gap-8">
-            <Reveal>
-              <h2 className="text-center text-2xl font-semibold tracking-tight text-black dark:text-zinc-50 sm:text-3xl">
-                Questions
-              </h2>
+            {/* One ruled grid: the hairlines are the cells' own borders,
+                shared, rather than four separate boxes. */}
+            <Reveal delay={100}>
+              <ul className="grid border-l border-t border-ink/15 sm:grid-cols-2">
+                {CALENDAR_PROMISES.map((p) => (
+                  <li
+                    key={p.title}
+                    className="flex flex-col gap-2 border-b border-r border-ink/15 p-6 sm:p-8"
+                  >
+                    <h3 className="text-lg font-semibold leading-snug tracking-normal">
+                      {p.title}
+                    </h3>
+                    <p className="text-base leading-7 text-ink-secondary">
+                      {p.body}
+                    </p>
+                  </li>
+                ))}
+              </ul>
             </Reveal>
-            <dl className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800">
-              {faqs(MONTHLY_PRICE).map((item, i) => (
-                <Reveal key={item.q} delay={i * 60}>
-                  <div className="flex flex-col gap-2 py-5 first:pt-0">
-                    <dt className="text-base font-semibold text-black dark:text-zinc-50">
-                      {item.q}
-                    </dt>
-                    <dd className="text-sm leading-7 text-zinc-600 dark:text-zinc-400">
-                      {item.a}
-                    </dd>
-                  </div>
-                </Reveal>
-              ))}
-            </dl>
           </div>
         </section>
 
         {/* ---------------------------------------------------------------
-            Closing CTA */}
-        <section className="relative overflow-hidden border-t border-zinc-200 bg-white px-6 py-16 text-center dark:border-zinc-900 dark:bg-zinc-950 sm:px-10 sm:py-28">
-          {/* Calm-identity retheme (spec #3): removed the aurora backdrop
-              behind the closing CTA. Same reasoning as the hero aurora
-              above -- no background gradients not tied to data. */}
-          <Reveal scale>
-            <div className="mx-auto flex max-w-xl flex-col items-center gap-6">
-              <h2 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50 sm:text-4xl">
-                Plan next week in one sitting.
-              </h2>
-              <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
-                Your first session takes about ten minutes and ends with a
-                week already on your calendar.
-              </p>
-              <div className="flex flex-col items-center gap-3">
-                <GoogleSignInButton label="Get started free" />
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {MONTHLY_PRICE
-                    ? `First 3 planning sessions free, then ${MONTHLY_PRICE}/month · cancel anytime`
-                    : "First 3 planning sessions free · cancel anytime"}
-                </span>
+            Pricing. Two numbers, set large. */}
+        <section
+          id="pricing"
+          className="mx-auto w-full max-w-7xl scroll-mt-20 px-5 py-20 sm:px-10 sm:py-28"
+        >
+          <Reveal>
+            <div className="grid border-y border-ink/15 md:grid-cols-2">
+              <div className="flex flex-col gap-3 py-10 md:pr-12">
+                <p className="font-mono text-sm text-ink-secondary">To start</p>
+                <p className="display text-7xl sm:text-8xl">Free</p>
+                <p className="max-w-sm text-lg leading-8 text-ink-secondary">
+                  Your first {FREE_SESSIONS} weekly planning sessions. No
+                  credit card.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 border-t border-ink/15 py-10 md:border-l md:border-t-0 md:pl-12">
+                <p className="font-mono text-sm text-ink-secondary">
+                  If you keep going
+                </p>
+                <p className="display text-7xl sm:text-8xl">
+                  {MONTHLY_PRICE}
+                  <span className="font-sans text-xl font-normal tracking-normal text-ink-secondary">
+                    {" "}
+                    / month
+                  </span>
+                </p>
+                <p className="max-w-sm text-lg leading-8 text-ink-secondary">
+                  Unlimited sessions. Your roles and history carry over.
+                  Cancel anytime from Settings.
+                </p>
               </div>
             </div>
           </Reveal>
+          <Reveal delay={100}>
+            <div data-cta className="mt-10">
+              <GoogleSignInButton
+                label="Start my free sessions"
+                className={CTA_ON_LIGHT}
+              />
+            </div>
+          </Reveal>
+        </section>
+
+        {/* ---------------------------------------------------------------
+            FAQ. Native <details>, so it works with no JS and is keyboard
+            and screen-reader operable for free. */}
+        <section
+          id="faq"
+          className="mx-auto w-full max-w-7xl scroll-mt-20 px-5 pb-28 pt-20 sm:px-10 sm:pb-40 sm:pt-28"
+        >
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
+            <Reveal>
+              <h2 className="display text-5xl sm:text-7xl">
+                Fair
+                <br />
+                questions.
+              </h2>
+            </Reveal>
+            <Reveal delay={80}>
+              <div className="border-b border-ink/15">
+                {FAQS.map((item, i) => (
+                  <details
+                    key={item.q}
+                    open={i === 0}
+                    className="faq-item border-t border-ink/15"
+                  >
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-6 text-lg font-semibold sm:text-xl">
+                      {item.q}
+                      <span
+                        aria-hidden
+                        className="faq-plus shrink-0 text-2xl font-light leading-none text-strawberry transition-transform duration-200"
+                      >
+                        +
+                      </span>
+                    </summary>
+                    <p className="max-w-2xl pb-7 text-lg leading-8 text-ink-secondary">
+                      {item.a}
+                    </p>
+                  </details>
+                ))}
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ---------------------------------------------------------------
+            Closing CTA. The page drips into it, and it drips into the
+            footer. */}
+        <section className="relative bg-night px-5 pb-24 pt-32 text-white sm:px-10 sm:pb-32 sm:pt-44">
+          <Drip className="absolute inset-x-0 top-0 text-canvas" />
+          <Reveal>
+            <div className="mx-auto flex w-full max-w-[75rem] flex-col gap-10">
+              <h2 className="display text-[clamp(3rem,9vw,8rem)]">
+                Sunday&rsquo;s coming.
+                <br />
+                Don&rsquo;t let it{" "}
+                <MeltWord
+                  text="melt."
+                  drips={CLOSING_DRIPS}
+                  className="text-[0.78em] text-strawberry"
+                />
+              </h2>
+              <div data-cta className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                <GoogleSignInButton
+                  label="Plan my week free"
+                  className={CTA_ON_DARK}
+                />
+                <p className="text-sm text-white/60">
+                  {FREE_SESSIONS} sessions free, then {MONTHLY_PRICE}/month.
+                  Cancel anytime.
+                </p>
+              </div>
+            </div>
+          </Reveal>
+          <Drip className="absolute inset-x-0 top-full text-night" />
         </section>
       </main>
 
-      <footer className="flex flex-col items-center gap-3 px-6 py-10 text-sm text-zinc-500 dark:text-zinc-400 sm:flex-row sm:justify-center sm:gap-6">
-        <span>© {new Date().getFullYear()} Sundae</span>
-        <a
-          href="/privacy"
-          className="underline hover:text-zinc-950 dark:hover:text-zinc-50"
-        >
+      {/* Bottom padding on phones leaves room for the sticky CTA bar. */}
+      <footer className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-5 pb-24 pt-24 text-sm text-ink-secondary sm:flex-row sm:items-center sm:gap-8 sm:px-10 md:pb-12">
+        <span className="melt text-base text-ink">Sundae</span>
+        <span>© {new Date().getFullYear()}</span>
+        <a href="/privacy" className="underline underline-offset-4 hover:text-ink sm:ml-auto">
           Privacy Policy
         </a>
-        <a
-          href="/terms"
-          className="underline hover:text-zinc-950 dark:hover:text-zinc-50"
-        >
+        <a href="/terms" className="underline underline-offset-4 hover:text-ink">
           Terms of Service
         </a>
       </footer>
+
+      <StickyCta note={`${FREE_SESSIONS} sessions free. No card.`} />
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Feature card icons -- plain stroke-based SVGs (24x24, currentColor) in
-// the same hand-rolled style as GoogleSignInButton's logo, rather than an
-// icon library dependency for three glyphs. Swapped in for the emoji this
-// section originally shipped with, which read as placeholder/AI-generated
-// rather than a deliberate icon choice.
-
-function RolesIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M12 3.5 21 8l-9 4.5L3 8Z" />
-      <path d="M3 12.5 12 17l9-4.5" />
-      <path d="M3 17 12 21.5 21 17" />
-    </svg>
-  );
-}
-
-function BlocksIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <rect x="3.5" y="5" width="17" height="16" rx="2.5" />
-      <path d="M3.5 10h17" />
-      <path d="M8 3v4M16 3v4" />
-      <path d="m8.5 14.5 2 2 4-4.2" />
-    </svg>
-  );
-}
-
-function FollowUpIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M4.5 12a7.5 7.5 0 0 1 12.6-5.5L20 9" />
-      <path d="M20 5v4h-4" />
-      <path d="M19.5 12a7.5 7.5 0 0 1-12.6 5.5L4 15" />
-      <path d="M4 19v-4h4" />
-    </svg>
   );
 }
 
@@ -361,52 +387,61 @@ function FollowUpIcon({ className }: { className?: string }) {
 
 const FEATURES = [
   {
-    Icon: RolesIcon,
     title: "Plans around your roles",
-    body: "Not a flat to-do list — your week, organized by who you're showing up for.",
+    body: "Parent, founder, athlete, friend. Your week gets organized by who you’re showing up for, so work stops winning by default.",
   },
   {
-    Icon: BlocksIcon,
     title: "Turns goals into blocks",
-    body: "“Work out every morning” becomes a real, done-for-you calendar plan.",
+    body: "“Work out every morning” becomes seven real blocks, fitted into the open time on your actual calendar.",
   },
   {
-    Icon: FollowUpIcon,
     title: "Follows up all week",
-    body: "A daily nudge to log what got done, and a per-role scorecard you review at your next session.",
+    body: "A daily nudge to tick off what got done, and a scorecard per role you review at your next session.",
   },
 ];
 
 const CALENDAR_PROMISES = [
-  "It reads your calendar to find open time — that's how it knows where a block can actually go.",
-  "It proposes; you confirm. Sundae never writes an event on its own.",
-  "You can edit or reject any proposed time before it's created.",
-  "Delete a block later and Sundae notices, so your scorecard stays honest.",
+  {
+    title: "It reads your open time",
+    body: "That’s how it knows where a block can actually go.",
+  },
+  {
+    title: "It never writes on its own",
+    body: "Sundae proposes a week. Nothing is created until you confirm.",
+  },
+  {
+    title: "You can change any block",
+    body: "Edit the time or drop it before anything is added.",
+  },
+  {
+    title: "Delete a block, it notices",
+    body: "Remove something later and your scorecard updates to match.",
+  },
 ];
 
-function faqs(price: string | null) {
-  return [
-    {
-      q: "Do I need a credit card to start?",
-      a: price
-        ? `No. Your first two weekly planning sessions are free, no card required. To keep planning after that, Sundae is ${price}/month — cancel anytime from Settings.`
-        : "No. Your first two weekly planning sessions are free, no card required. To keep planning after that, subscribe — cancel anytime from Settings.",
-    },
-    {
-      q: "Which calendars does it work with?",
-      a: "Google Calendar. Apple Calendar and Outlook aren't supported yet.",
-    },
-    {
-      q: "Will it put things on my calendar without asking?",
-      a: "No. Sundae proposes blocks and waits. Nothing is written until you confirm, and you can change the time or drop the block first.",
-    },
-    {
-      q: "How long does a session take?",
-      a: "About ten minutes, once a week. The first one runs a little longer because you're setting up your roles.",
-    },
-    {
-      q: "What if my week falls apart?",
-      a: "That's the normal case. Each week starts a fresh scorecard, and anything unfinished simply gets picked back up at your next session — nothing carries a penalty forward.",
-    },
-  ];
-}
+const FAQS = [
+  {
+    q: "Do I need a credit card to start?",
+    a: `No. Your first ${FREE_SESSIONS} weekly planning sessions are free with no card. To keep planning after that, Sundae is ${MONTHLY_PRICE}/month, and you can cancel anytime from Settings.`,
+  },
+  {
+    q: "Will it put things on my calendar without asking?",
+    a: "No. Sundae proposes blocks and waits. Nothing is written until you confirm, and you can change the time or drop a block first.",
+  },
+  {
+    q: "How long does a session take?",
+    a: "About ten minutes, once a week. The first one runs a little longer because you’re setting up your roles.",
+  },
+  {
+    q: "What does the AI actually do?",
+    a: "It runs the planning conversation: it asks about each role, works out how many blocks a goal needs, and proposes times in your open gaps. Every final call is yours.",
+  },
+  {
+    q: "Which calendars does it work with?",
+    a: "Google Calendar. Apple Calendar and Outlook aren’t supported yet.",
+  },
+  {
+    q: "What if my week falls apart?",
+    a: "That’s the normal case. Each week starts a fresh scorecard, and anything unfinished gets picked back up at your next session. Nothing carries a penalty forward.",
+  },
+];

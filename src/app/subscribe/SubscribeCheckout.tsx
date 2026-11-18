@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { trackMetaSubscribeOnce } from "@/lib/meta/pixel";
 import FreeLimitCard from "@/components/billing/FreeLimitCard";
+import FocusShell from "@/components/FocusShell";
 import { useStartCheckout } from "@/components/billing/useStartCheckout";
 
 const POLL_MS = 2500;
@@ -35,38 +36,59 @@ export default function SubscribeCheckout({
   // actually at the limit gets the same card the weekly-session page shows.
   if (limitReached && !checkoutCanceled) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-6 py-32 font-sans dark:bg-black sm:px-16">
-        <FreeLimitCard limit={freeLimit} />
-      </div>
+      <FocusShell>
+        <div className="flex flex-1 flex-col justify-center py-10">
+          <FreeLimitCard limit={freeLimit} />
+        </div>
+      </FocusShell>
     );
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex w-full max-w-md flex-col items-center justify-center gap-8 px-6 py-32 text-center sm:px-16">
-        <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-          Sundae
-        </span>
-        <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-          {resubscribe ? "Pick up your subscription" : "Keep planning with Sundae"}
+    <FocusShell>
+      <div className="flex flex-1 flex-col justify-center gap-10 py-10">
+        <h1 className="display max-w-4xl text-6xl sm:text-8xl">
+          {resubscribe ? (
+            <>Pick up where you left off.</>
+          ) : (
+            <>Keep every week planned.</>
+          )}
         </h1>
-        <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
-          {resubscribe
-            ? "Your billing period has ended. Resubscribe to keep planning weeks on your calendar — same $7.99/month, cancel anytime from Settings."
-            : "$7.99/month. Unlimited weekly planning sessions. Cancel anytime from Settings."}
-        </p>
-        {checkoutCanceled && (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Checkout was canceled. You can start again whenever you&apos;re ready — nothing was charged.
+
+        <div className="grid max-w-3xl border-y border-ink/15 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center sm:gap-12">
+          <p className="display py-6 text-7xl sm:text-8xl">
+            $7.99
+            <span className="font-sans text-xl font-normal tracking-normal text-ink-secondary">
+              {" "}
+              / month
+            </span>
+          </p>
+          <ul className="flex flex-col gap-2 border-t border-ink/15 py-6 text-lg text-ink sm:border-l sm:border-t-0 sm:pl-12">
+            <li>Unlimited weekly planning sessions</li>
+            <li>Your roles and history carry over</li>
+            <li>Cancel anytime from Settings</li>
+          </ul>
+        </div>
+
+        {resubscribe && (
+          <p className="max-w-xl text-lg leading-8 text-ink-secondary">
+            Your billing period has ended. Same price as before.
           </p>
         )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <div className="flex flex-col items-center gap-3">
+        {checkoutCanceled && (
+          <p className="max-w-xl border-l-2 border-strawberry pl-4 text-base text-ink-secondary">
+            Checkout was canceled. Nothing was charged. Start again whenever
+            you&rsquo;re ready.
+          </p>
+        )}
+        {error && <p className="border-l-2 border-red-600 pl-4 text-sm text-red-600">{error}</p>}
+
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
           <button
             type="button"
             onClick={() => void startCheckout()}
             disabled={loading}
-            className="inline-flex items-center justify-center rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+            className="inline-flex items-center justify-center rounded-full bg-ink px-7 py-3.5 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-black active:translate-y-0 disabled:opacity-60"
           >
             {loading ? "Redirecting…" : resubscribe ? "Resubscribe" : "Continue to checkout"}
           </button>
@@ -74,23 +96,20 @@ export default function SubscribeCheckout({
             <button
               type="button"
               onClick={() => window.location.assign(portalUrl)}
-              className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-800 transition hover:border-zinc-400 dark:border-zinc-700 dark:bg-black dark:text-zinc-200"
+              className="inline-flex items-center justify-center rounded-full border border-ink/15 px-6 py-3.5 text-base font-medium text-ink transition hover:border-ink/40"
             >
               Manage subscription
             </button>
           )}
           <Link
             href="/dashboard"
-            className="text-sm text-zinc-500 underline-offset-4 hover:underline dark:text-zinc-400"
+            className="text-base text-ink-secondary underline decoration-ink/20 underline-offset-4 hover:text-ink"
           >
             Back to dashboard
           </Link>
         </div>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Cancel anytime from Settings — no hoops.
-        </p>
-      </main>
-    </div>
+      </div>
+    </FocusShell>
   );
 }
 
@@ -142,18 +161,18 @@ function CheckoutConfirming({ sessionId }: { sessionId: string | null }) {
   }, [router, sessionId]);
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex w-full max-w-md flex-col items-center justify-center gap-6 px-6 py-32 text-center sm:px-16">
-        <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-          Sundae
-        </span>
-        <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-          Confirming your subscription
+    <FocusShell tone="night">
+      <div className="flex flex-1 flex-col justify-center gap-8 py-10">
+        <p className="font-mono text-sm text-white/50">Payment received</p>
+        <h1 className="display max-w-4xl text-6xl text-white sm:text-8xl">
+          Scooping up your account
+          <span className="caret ml-1 inline-block text-strawberry">.</span>
         </h1>
-        <p className="text-base leading-7 text-zinc-600 dark:text-zinc-400">
-          Payment received. We&apos;re activating your account — this usually takes a few seconds.
+        <p className="max-w-xl text-lg leading-8 text-white/70">
+          We&rsquo;re activating your subscription. This usually takes a few
+          seconds, and you&rsquo;ll land right back in your planning session.
         </p>
-      </main>
-    </div>
+      </div>
+    </FocusShell>
   );
 }
