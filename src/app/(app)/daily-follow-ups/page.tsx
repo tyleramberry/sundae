@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { flavorFor } from "@/lib/brand/flavors";
 
 type Item = {
   id: string;
@@ -137,10 +138,7 @@ function DailyFollowUpsInner() {
     <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-12 font-sans sm:py-16">
       <div className="flex w-full max-w-2xl flex-col gap-8">
         <header className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-            Sundae
-          </span>
-          <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
+          <h1 className="display text-4xl sm:text-6xl">
             Daily follow-ups
           </h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -162,7 +160,7 @@ function DailyFollowUpsInner() {
             </p>
             <Link
               href="/weekly-session"
-              className="mt-3 inline-block rounded-full bg-black px-4 py-2 text-sm text-white dark:bg-white dark:text-black"
+              className="mt-4 inline-block rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink/85"
             >
               Start a weekly session
             </Link>
@@ -178,7 +176,12 @@ function DailyFollowUpsInner() {
             className="flex flex-col gap-2"
             {...(groupIndex === 0 ? { "data-tour": "follow-up-list" } : {})}
           >
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            <h2 className="flex items-center gap-2.5 pt-2 font-mono text-xs uppercase tracking-wider text-ink-secondary">
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ background: flavorFor(groupIndex) }}
+              />
               {group.role}
             </h2>
             <ul className="flex flex-col gap-2">

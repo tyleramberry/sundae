@@ -1008,7 +1008,7 @@ export default function WeeklySessionPage() {
                 mid-conversation. Sundae now asks the "want to change anything,
                 or should I lock this in?" question inline as a chat bubble at
                 the moment /propose returns (see PromptToLockIn below). */}
-            <h1 className="mt-1 text-2xl font-semibold text-black dark:text-zinc-50">
+            <h1 className="display mt-2 text-4xl sm:text-6xl">
               Weekly planning session
             </h1>
             {weekLabel && (
@@ -1375,7 +1375,7 @@ function PayoffScreen({
           <span className="text-xs font-medium uppercase tracking-widest text-emerald-700 dark:text-emerald-400">
             Locked in
           </span>
-          <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
+          <h1 className="display text-5xl sm:text-7xl">
             {headline}
           </h1>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">{subhead}</p>

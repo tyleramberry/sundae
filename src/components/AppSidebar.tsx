@@ -135,7 +135,7 @@ export default function AppSidebar({
     // weekly-session chat grows, instead of scrolling away with the page.
     <aside
       className={[
-        "flex shrink-0 flex-row items-center justify-between gap-2 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950 md:h-full md:flex-col md:items-stretch md:justify-start md:gap-1 md:border-b-0 md:border-r md:py-8 md:transition-[width] md:duration-150",
+        "flex shrink-0 flex-row items-center justify-between gap-2 bg-night px-4 py-3 text-white md:h-full md:flex-col md:items-stretch md:justify-start md:gap-1 md:py-7 md:transition-[width] md:duration-150",
         collapsed ? "md:w-[68px] md:px-2" : "md:w-60 md:px-4",
       ].join(" ")}
     >
@@ -143,7 +143,7 @@ export default function AppSidebar({
         href="/dashboard"
         title="Sundae"
         className={[
-          "text-sm font-semibold uppercase tracking-[0.2em] text-black dark:text-zinc-50 md:mb-6",
+          "melt melt-hover text-xl leading-none text-white md:mb-8",
           collapsed ? "md:px-0 md:text-center" : "md:px-2",
         ].join(" ")}
       >
@@ -151,7 +151,7 @@ export default function AppSidebar({
         <span className={collapsed ? "hidden md:inline" : "hidden"}>S</span>
       </Link>
 
-      <nav className="flex flex-row gap-1 md:flex-1 md:flex-col">
+      <nav className="flex flex-row gap-0.5 md:flex-1 md:flex-col md:gap-1">
         {NAV.map((item) => {
           const active = isActive(item.href);
           return (
@@ -161,11 +161,11 @@ export default function AppSidebar({
               aria-current={active ? "page" : undefined}
               title={collapsed ? item.label : undefined}
               className={[
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                "relative flex items-center gap-3 rounded-lg px-2 py-2 md:px-3 text-sm font-medium transition",
                 collapsed ? "md:justify-center md:px-2" : "",
                 active
-                  ? "bg-zinc-100 text-black dark:bg-zinc-800 dark:text-zinc-50"
-                  : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
+                  ? "bg-white/10 text-white before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-strawberry"
+                  : "text-white/55 hover:bg-white/5 hover:text-white",
               ].join(" ")}
             >
               {item.icon}
@@ -175,11 +175,11 @@ export default function AppSidebar({
         })}
       </nav>
 
-      <div className="flex items-center gap-2 md:mt-auto md:flex-col md:items-stretch md:gap-3 md:border-t md:border-zinc-100 md:px-2 md:pt-4 md:dark:border-zinc-900">
+      <div className="flex items-center gap-0.5 md:mt-auto md:flex-col md:items-stretch md:gap-3 md:border-t md:border-white/10 md:px-2 md:pt-4">
         {email && (
           <span
             className={[
-              "hidden truncate text-xs text-zinc-400 dark:text-zinc-500",
+              "hidden truncate text-xs text-white/40",
               collapsed ? "" : "md:block",
             ].join(" ")}
           >
@@ -189,7 +189,7 @@ export default function AppSidebar({
         {plan && (
           <span
             className={[
-              "hidden text-xs text-zinc-500 dark:text-zinc-400",
+              "hidden text-xs text-white/60",
               collapsed ? "" : "md:block",
             ].join(" ")}
           >
@@ -212,26 +212,26 @@ export default function AppSidebar({
           }}
           title="Replay tutorial"
           className={[
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
+            "flex items-center gap-3 rounded-lg px-2 py-2 md:px-3 text-left text-sm font-medium text-white/55 transition hover:bg-white/5 hover:text-white",
             collapsed ? "md:justify-center md:px-2" : "",
           ].join(" ")}
         >
-          <span className={collapsed ? "hidden md:inline" : "hidden"}>{TUTORIAL_ICON}</span>
+          <span className={collapsed ? "" : "md:hidden"}>{TUTORIAL_ICON}</span>
           <span className={collapsed ? "hidden" : "hidden md:inline"}>Replay tutorial</span>
-          <span className="md:hidden">Replay tutorial</span>
+          <span className="sr-only md:hidden">Replay tutorial</span>
         </button>
         {plan?.kind === "free" ? (
           <Link
             href="/subscribe?reason=limit"
             title="Upgrade"
             className={[
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-900 transition hover:bg-zinc-50 dark:text-zinc-100 dark:hover:bg-zinc-900",
+              "flex items-center gap-3 rounded-lg px-2 py-2 md:px-3 text-left text-sm font-medium text-strawberry transition hover:bg-white/5",
               collapsed ? "md:justify-center md:px-2" : "",
             ].join(" ")}
           >
-            <span className={collapsed ? "hidden md:inline" : "hidden"}>{BILLING_ICON}</span>
+            <span className={collapsed ? "" : "md:hidden"}>{BILLING_ICON}</span>
             <span className={collapsed ? "hidden" : "hidden md:inline"}>Upgrade</span>
-            <span className="md:hidden">Upgrade</span>
+            <span className="sr-only md:hidden">Upgrade</span>
           </Link>
         ) : (
           <>
@@ -244,15 +244,15 @@ export default function AppSidebar({
               disabled={portalLoading}
               title="Manage subscription"
               className={[
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
+                "flex items-center gap-3 rounded-lg px-2 py-2 md:px-3 text-left text-sm font-medium text-white/55 transition hover:bg-white/5 hover:text-white disabled:opacity-60",
                 collapsed ? "md:justify-center md:px-2" : "",
               ].join(" ")}
             >
-              <span className={collapsed ? "hidden md:inline" : "hidden"}>{BILLING_ICON}</span>
+              <span className={collapsed ? "" : "md:hidden"}>{BILLING_ICON}</span>
               <span className={collapsed ? "hidden" : "hidden md:inline"}>
                 {portalLoading ? "Opening…" : "Manage subscription"}
               </span>
-              <span className="md:hidden">{portalLoading ? "Opening…" : "Manage subscription"}</span>
+              <span className="sr-only md:hidden">{portalLoading ? "Opening…" : "Manage subscription"}</span>
             </button>
           </>
         )}
@@ -260,13 +260,13 @@ export default function AppSidebar({
           onClick={signOut}
           title={collapsed ? `Sign out${email ? ` (${email})` : ""}` : undefined}
           className={[
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
+            "flex items-center gap-3 rounded-lg px-2 py-2 md:px-3 text-left text-sm font-medium text-white/55 transition hover:bg-white/5 hover:text-white",
             collapsed ? "md:justify-center md:px-2" : "",
           ].join(" ")}
         >
-          <span className={collapsed ? "hidden md:inline" : "hidden"}>{SIGN_OUT_ICON}</span>
+          <span className={collapsed ? "" : "md:hidden"}>{SIGN_OUT_ICON}</span>
           <span className={collapsed ? "hidden" : "hidden md:inline"}>Sign out</span>
-          <span className="md:hidden">Sign out</span>
+          <span className="sr-only md:hidden">Sign out</span>
         </button>
       </div>
     </aside>

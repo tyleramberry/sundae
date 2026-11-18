@@ -46,7 +46,7 @@ const CLOSING_DRIPS = {
 };
 
 const CTA_ON_LIGHT =
-  "inline-flex items-center justify-center gap-3 rounded-full bg-ink py-2.5 pl-2.5 pr-7 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-black active:translate-y-0 disabled:opacity-60";
+  "inline-flex items-center justify-center gap-3 rounded-full bg-ink py-2.5 pl-2.5 pr-7 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-ink/85 active:translate-y-0 disabled:opacity-60";
 const CTA_ON_DARK =
   "inline-flex items-center justify-center gap-3 rounded-full bg-strawberry py-2.5 pl-2.5 pr-7 text-base font-semibold text-night transition hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-60";
 

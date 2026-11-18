@@ -8,10 +8,9 @@
 // (new user), render a flat line with a single dot at the current
 // score.").
 //
-// Color: `text-accent` -- the calm-palette sage from spec #3. The
-// polyline uses `stroke="currentColor"` so this component follows
-// whatever text color the caller sets, which lets a future theme change
-// pick up automatically.
+// Color: `colorClass`, a text-color utility (default pistachio). Strokes
+// and dots use `currentColor`, so this sets the whole line -- the
+// dashboard's dark score hero passes strawberry.
 
 type SparklineProps = {
   values: number[];
@@ -19,6 +18,7 @@ type SparklineProps = {
   height?: number;
   strokeWidth?: number;
   ariaLabel?: string;
+  colorClass?: string;
 };
 
 const DEFAULT_WIDTH = 240;
@@ -31,6 +31,7 @@ export default function Sparkline({
   height = DEFAULT_HEIGHT,
   strokeWidth = DEFAULT_STROKE,
   ariaLabel = "Weekly score trend",
+  colorClass = "text-emerald-600",
 }: SparklineProps) {
   const padY = Math.max(3, strokeWidth * 2); // leave room for dots
   const usableH = Math.max(1, height - padY * 2);
@@ -47,7 +48,7 @@ export default function Sparkline({
         viewBox={`0 0 ${width} ${height}`}
         width={width}
         height={height}
-        className="text-emerald-600"
+        className={colorClass}
       >
         <line
           x1={0}
@@ -71,7 +72,7 @@ export default function Sparkline({
         viewBox={`0 0 ${width} ${height}`}
         width={width}
         height={height}
-        className="text-emerald-600"
+        className={colorClass}
       >
         <line
           x1={0}
@@ -98,7 +99,7 @@ export default function Sparkline({
       viewBox={`0 0 ${width} ${height}`}
       width={width}
       height={height}
-      className="text-emerald-600"
+      className={colorClass}
     >
       <polyline
         points={polylinePoints}

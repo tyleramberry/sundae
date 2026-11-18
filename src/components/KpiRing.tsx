@@ -14,12 +14,15 @@ export default function KpiRing({
   denominator,
   percent,
   size = 132,
+  color,
 }: {
   role: string;
   numerator: number;
   denominator: number;
   percent: number | null;
   size?: number;
+  /** Arc color (the role's flavor). Falls back to the pistachio ladder. */
+  color?: string;
 }) {
   const stroke = 10;
   const r = (size - stroke) / 2;
@@ -50,7 +53,7 @@ export default function KpiRing({
           r={r}
           fill="none"
           strokeWidth={stroke}
-          className="stroke-zinc-200 dark:stroke-zinc-800"
+          className="stroke-ink/[0.08]"
         />
         {fraction > 0 && (
           <circle
@@ -62,6 +65,7 @@ export default function KpiRing({
             strokeLinecap="round"
             strokeDasharray={c}
             strokeDashoffset={offset}
+            style={color ? { stroke: color } : undefined}
             className={[
               complete ? "stroke-emerald-500" : "stroke-emerald-400",
               "transition-[stroke-dashoffset] duration-500",
@@ -74,7 +78,7 @@ export default function KpiRing({
         )}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 px-4 text-center">
-        <span className="text-xl font-semibold tabular-nums text-black dark:text-zinc-50">
+        <span className="display text-3xl tabular-nums">
           {numerator}/{denominator}
         </span>
       </div>

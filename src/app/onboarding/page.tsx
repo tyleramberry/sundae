@@ -304,7 +304,7 @@ function ContinueButton({
       className={`group inline-flex items-center gap-2 self-start rounded-full px-7 py-3.5 text-base font-semibold transition hover:-translate-y-0.5 active:translate-y-0 disabled:pointer-events-none disabled:opacity-30 ${
         tone === "strawberry"
           ? "bg-strawberry text-night hover:brightness-110"
-          : "bg-ink text-white hover:bg-black"
+          : "bg-ink text-white hover:bg-ink/85"
       }`}
     >
       {children}

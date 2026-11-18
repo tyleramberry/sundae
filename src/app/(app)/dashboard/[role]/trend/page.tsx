@@ -67,7 +67,7 @@ export default function TrendPage({ params }: { params: Promise<{ role: string }
             >
               ← Dashboard
             </Link>
-            <h1 className="mt-1 text-2xl font-semibold text-black dark:text-zinc-50">
+            <h1 className="display mt-2 text-4xl sm:text-6xl">
               {role} — 6-week trend
             </h1>
           </div>

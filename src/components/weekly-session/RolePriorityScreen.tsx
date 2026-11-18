@@ -136,10 +136,7 @@ export function RolePriorityScreen({
     <div className="flex flex-1 flex-col items-center bg-zinc-50 px-6 py-16 font-sans dark:bg-black">
       <div className="flex w-full max-w-lg flex-1 flex-col gap-6">
         <div>
-          <span className="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-            Sundae
-          </span>
-          <h1 className="mt-1 text-2xl font-semibold text-black dark:text-zinc-50">
+          <h1 className="display text-4xl sm:text-6xl">
             What needs attention first this week?
           </h1>
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">

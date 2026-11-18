@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import KpiRing from "@/components/KpiRing";
+import { flavorFor } from "@/lib/brand/flavors";
 import DashboardStats, { type DashboardSummary } from "@/components/DashboardStats";
 import TypeBreakdown, { type TypeBreakdownRow } from "@/components/TypeBreakdown";
 import Sparkline from "@/components/Sparkline";
@@ -240,12 +241,9 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-12 font-sans sm:py-16">
       <div className="flex w-full max-w-5xl flex-col gap-8">
-        <div className="flex items-end justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <span className="text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-              Sundae
-            </span>
-            <h1 className="mt-1 text-2xl font-semibold text-black dark:text-zinc-50">
+            <h1 className="display text-4xl sm:text-6xl">
               {weekLabel ?? "This week"}
             </h1>
           </div>
@@ -268,7 +266,7 @@ export default function DashboardPage() {
             )}
             <Link
               href="/weekly-session"
-              className="rounded-full bg-black px-4 py-2 text-sm text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+              className="shrink-0 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-ink/85"
               data-tour="new-session-btn"
             >
               New weekly session
@@ -285,14 +283,14 @@ export default function DashboardPage() {
             nothing hidden, just re-ordered per PRD. Suppressed until
             the summary lands so the layout doesn't reflow twice. */}
         {summary && (
-          <section className="rounded-xl bg-zinc-100 px-6 py-8 dark:bg-zinc-900" data-tour="master-score">
+          <section className="rounded-[1.75rem] bg-night px-6 py-8 text-white sm:px-10 sm:py-10" data-tour="master-score">
             <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <p className="text-7xl font-semibold tracking-tight text-black dark:text-zinc-50">
-                  {summary.masterScore}
-                </p>
-                <p className="mt-1 text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                <p className="font-mono text-xs text-white/50">
                   Weekly score
+                </p>
+                <p className="display mt-2 text-8xl tabular-nums text-strawberry sm:text-9xl">
+                  {summary.masterScore}
                 </p>
               </div>
               <div className="w-full max-w-[240px] sm:w-auto">
@@ -302,6 +300,7 @@ export default function DashboardPage() {
                     summary.masterScore,
                   ]}
                   ariaLabel={`Master score over the last ${summary.masterScoreHistory.length + 1} weeks`}
+                  colorClass="text-strawberry"
                 />
               </div>
             </div>
@@ -325,7 +324,7 @@ export default function DashboardPage() {
             no longer fit, which is what keeps every ring on-screen at once
             instead of needing a scroll. */}
         <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-x-4 gap-y-8" data-tour="role-rings">
-          {roles.map((tile) => {
+          {roles.map((tile, roleIndex) => {
             const trendHref = `/dashboard/${encodeURIComponent(tile.role)}/trend`;
             return (
               <div
@@ -359,7 +358,7 @@ export default function DashboardPage() {
                       }
                       aria-expanded={openRole === tile.role}
                       aria-label={`${tile.role} -- this week's items`}
-                      className="line-clamp-1 max-w-[10rem] cursor-pointer select-none appearance-none border-0 bg-transparent p-0 text-center text-sm font-semibold text-black transition hover:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 dark:text-zinc-50 dark:hover:text-zinc-300"
+                      className="line-clamp-1 max-w-[10rem] cursor-pointer select-none appearance-none border-0 bg-transparent p-0 text-center text-base font-semibold text-black transition hover:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 dark:text-zinc-50 dark:hover:text-zinc-300"
                     >
                       {tile.role}
                     </button>
@@ -426,6 +425,7 @@ export default function DashboardPage() {
                     numerator={tile.numerator}
                     denominator={tile.denominator}
                     percent={tile.percent}
+                    color={flavorFor(roleIndex)}
                   />
                 </Link>
               </div>

@@ -67,20 +67,25 @@
   --color-zinc-900: #1C1917;
   --color-zinc-950: #1C1917;
 
-  /* --- Emerald override: existing emerald usages become the sage accent
-     ladder. Keeps semantic intent (success/positive/CTA) while switching
+  /* --- Emerald override: existing emerald usages become the pistachio
+     ladder (one of the landing page's flavors; it was sage before the
+     2026-11 rebrand). Keeps semantic intent (success/positive/CTA) while switching
      hue to the calm palette. */
-  --color-emerald-50: #EDF3EE;
-  --color-emerald-100: #EDF3EE;
-  --color-emerald-200: #C4D5C7;
-  --color-emerald-300: #A9C1AC;
-  --color-emerald-400: #7A9E7E;
-  --color-emerald-500: #7A9E7E;
-  --color-emerald-600: #5C8060;
-  --color-emerald-700: #5C8060;
-  --color-emerald-800: #47624A;
-  --color-emerald-900: #2F4131;
-  --color-emerald-950: #EDF3EE;
+  --color-emerald-50: #F1F7EC;
+  --color-emerald-100: #E4F0DA;
+  --color-emerald-200: #CBE3B8;
+  --color-emerald-300: #AED390;
+  --color-emerald-400: #8DBF6F;
+  --color-emerald-500: #74A956;
+  --color-emerald-600: #5C8F42;
+  --color-emerald-700: #4A7535;
+  --color-emerald-800: #3A5C2A;
+  --color-emerald-900: #2A421F;
+  --color-emerald-950: #F1F7EC;
+
+  /* Black is the brand ink, not #000, so `bg-black` buttons and
+     `text-black` headings match the landing page. */
+  --color-black: #1C1917;
 }
 
 /* Dark-mode override: the calm identity is a single warm-neutral theme,

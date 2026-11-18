@@ -48,7 +48,7 @@ async function LoginInner({
             next={next}
             autoStart={auto === "google"}
             label="Continue with Google"
-            className="inline-flex items-center justify-center gap-3 rounded-full bg-ink py-2.5 pl-2.5 pr-7 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-black active:translate-y-0 disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-3 rounded-full bg-ink py-2.5 pl-2.5 pr-7 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-ink/85 active:translate-y-0 disabled:opacity-60"
           />
         </div>
       </div>

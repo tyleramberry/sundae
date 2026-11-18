@@ -88,7 +88,7 @@ export default function SubscribeCheckout({
             type="button"
             onClick={() => void startCheckout()}
             disabled={loading}
-            className="inline-flex items-center justify-center rounded-full bg-ink px-7 py-3.5 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-black active:translate-y-0 disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-full bg-ink px-7 py-3.5 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-ink/85 active:translate-y-0 disabled:opacity-60"
           >
             {loading ? "Redirecting…" : resubscribe ? "Resubscribe" : "Continue to checkout"}
           </button>

@@ -28,16 +28,10 @@ function StatCard({
   sublabel?: string;
 }) {
   return (
-    <div className="flex flex-1 flex-col gap-1 rounded-2xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <span className="text-xs font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-        {label}
-      </span>
-      <span className="text-3xl font-semibold tabular-nums text-black dark:text-zinc-50">
-        {value}
-      </span>
-      {sublabel && (
-        <span className="text-xs text-zinc-400 dark:text-zinc-500">{sublabel}</span>
-      )}
+    <div className="flex flex-1 flex-col gap-1 border-t-2 border-ink pt-4">
+      <span className="font-mono text-xs text-ink-secondary">{label}</span>
+      <span className="display text-5xl tabular-nums">{value}</span>
+      {sublabel && <span className="text-sm text-ink-secondary">{sublabel}</span>}
     </div>
   );
 }
@@ -48,7 +42,7 @@ export default function DashboardStats({ summary }: { summary: DashboardSummary 
   const sixWeekAvg = summary?.sixWeekAveragePercent ?? null;
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-8 sm:grid-cols-3">
       <StatCard
         label="Streak"
         value={streak === null ? "–" : `${streak}`}
