@@ -152,6 +152,21 @@ describe("stabilizeActions", () => {
     assert.equal(call?.preferredTime, "10:00");
     assert.equal(gym?.preferredTime, undefined);
   });
+
+  it("promotes a vague locked Project to Goal (and dedupes) once clarified into a scheduled block", () => {
+    const out = stabilizeActions({
+      locked: [{ role: "Founder", description: "Board meeting prep", type: "project" }],
+      incoming: [
+        { role: "Founder", description: "Board meeting prep", type: "project" },
+        { role: "Founder", description: "Board meeting prep", type: "goal", durationMinutes: 60 },
+      ],
+      roles,
+      reply: "Got it, locked in a 1-hour block for board meeting prep.",
+    });
+    assert.equal(out.length, 1);
+    assert.equal(out[0].type, "goal");
+    assert.equal(out[0].durationMinutes, 60);
+  });
 });
 
 describe("findIncompleteSchedulingActions", () => {

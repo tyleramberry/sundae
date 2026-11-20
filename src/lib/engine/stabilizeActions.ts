@@ -69,13 +69,33 @@ export function replyAsksForClockTime(reply: string): boolean {
   );
 }
 
+function hasSchedulingDetail(a: ClassifiedAction): boolean {
+  return (
+    a.preferredTime !== undefined ||
+    a.durationMinutes !== undefined ||
+    a.weekday !== undefined ||
+    (Array.isArray(a.weekdays) && a.weekdays.length > 0) ||
+    a.cadenceCount !== undefined ||
+    a.recurrence !== undefined
+  );
+}
+
 function mergeLocked(locked: ClassifiedAction, incoming: ClassifiedAction): ClassifiedAction {
   // Role and type stay on the locked item so a re-read of the transcript
   // cannot silently re-file "Read together every night" under a different
-  // hat. Description / cadence / time may update when the user is still
-  // answering drill-down on the *same* item (e.g. they just gave 4pm).
+  // hat. One intentional exception: if an initially vague item was locked as
+  // a `project` and the user then clarifies it's a single scheduled block
+  // (exact same description, now with concrete scheduling fields), promote
+  // it to the incoming schedulable type instead of dropping the schedule.
+  const promoteVagueProject =
+    locked.type === "project" &&
+    incoming.type !== "project" &&
+    normalizeDescription(locked.description) === normalizeDescription(incoming.description) &&
+    hasSchedulingDetail(incoming);
+
   const next: ClassifiedAction = {
     ...locked,
+    type: promoteVagueProject ? incoming.type : locked.type,
     description: incoming.description || locked.description,
   };
   if (incoming.cadenceCount !== undefined) next.cadenceCount = incoming.cadenceCount;
@@ -229,5 +249,25 @@ export function stabilizeActions({
     result.push(item);
   }
 
-  return result;
+  // Dedupe: if the model emitted BOTH a `project` and a `goal`/`habit` with
+  // the exact same title (e.g. a vague item clarified into a scheduled block
+  // on the next turn), keep only the schedulable item unless that project
+  // already existed in lastWeekItems.
+  const lastWeekProjectKeys = new Set(
+    lastWeekItems
+      .filter((i) => i.type === "project")
+      .map((i) => normalizeDescription(i.title)),
+  );
+  const scheduledKeys = new Set(
+    result
+      .filter((a) => a.type !== "project")
+      .map((a) => normalizeDescription(a.description)),
+  );
+
+  return result.filter((a) => {
+    if (a.type !== "project") return true;
+    const key = normalizeDescription(a.description);
+    if (scheduledKeys.has(key) && !lastWeekProjectKeys.has(key)) return false;
+    return true;
+  });
 }
