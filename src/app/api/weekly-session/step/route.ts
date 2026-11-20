@@ -140,7 +140,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const lastWeek = mode === "full" ? await getLastWeekContext(supabase, user.id) : null;
+    const lastWeek = mode === "full" ? await getLastWeekContext(supabase, user.id, new Date(), timeZone) : null;
 
     // Bug fix: load this week's real Google Calendar into the engine's
     // context every turn (both "full" and "addendum" -- a mid-week addition
@@ -152,7 +152,7 @@ export async function POST(request: Request) {
     let calendarSummary: string;
     try {
       const events = await listWeekEvents(supabase, user.id, weekStartDate);
-      calendarSummary = formatCalendarSummary(events.items ?? []);
+      calendarSummary = formatCalendarSummary(events.items ?? [], timeZone);
     } catch (calendarError) {
       if (!(calendarError instanceof GoogleCalendarError)) throw calendarError;
       calendarSummary = CALENDAR_UNAVAILABLE_SUMMARY;
@@ -173,6 +173,7 @@ export async function POST(request: Request) {
       // that loop.
       lockedActions: transcript?.actions_so_far ?? [],
       calendarSummary,
+      timeZone,
       userId: user.id,
     });
 

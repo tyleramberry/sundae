@@ -1,3 +1,4 @@
+import { DateTime } from "luxon";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGoogleTokens, saveGoogleTokens } from "@/lib/google/tokens";
 
@@ -190,11 +191,31 @@ export type CreateCalendarEventInput = {
   description?: string;
   start: Date;
   end: Date;
+  // User's IANA timezone (e.g. "America/Denver"). Google Calendar requires
+  // start.timeZone / end.timeZone on recurring events so BYDAY evaluates in
+  // the user's local timezone and survives DST transitions cleanly.
+  timeZone?: string;
   // Optional recurrence intent -- when set, one master event is written
   // and Google generates the future occurrences. When absent, a plain
   // one-off event is written, exactly as before this field existed.
   recurrence?: CalendarRecurrence;
 };
+
+export function buildEventTimePayload(
+  date: Date,
+  timeZone?: string,
+): { dateTime: string; timeZone?: string } {
+  if (timeZone) {
+    const dt = DateTime.fromJSDate(date, { zone: timeZone });
+    if (dt.isValid) {
+      const iso = dt.toISO();
+      if (iso) {
+        return { dateTime: iso, timeZone };
+      }
+    }
+  }
+  return { dateTime: date.toISOString() };
+}
 
 export type GoogleCalendarWriteResult = {
   id: string;
@@ -210,14 +231,6 @@ export async function createCalendarEvent(
 ): Promise<GoogleCalendarWriteResult> {
   const accessToken = await getValidAccessToken(supabase, userId);
 
-  // Google's `recurrence` field is an array of RFC-5545 property lines
-  // ("RRULE:...", "EXDATE:..." etc). MVP only ever needs a single RRULE
-  // -- omit the field entirely when there's no recurrence so a one-off
-  // event's payload stays byte-identical to what this route sent before
-  // this field existed. buildRRule returning null (unrecognized pattern)
-  // is treated as "no recurrence"; the engine's own validator should
-  // never let that reach this layer, but keep the fallback so a corrupt
-  // record can't take down the write.
   const rruleLine = input.recurrence ? buildRRule(input.recurrence) : null;
 
   let response: Response;
@@ -231,8 +244,8 @@ export async function createCalendarEvent(
       body: JSON.stringify({
         summary: input.summary,
         description: input.description,
-        start: { dateTime: input.start.toISOString() },
-        end: { dateTime: input.end.toISOString() },
+        start: buildEventTimePayload(input.start, input.timeZone),
+        end: buildEventTimePayload(input.end, input.timeZone),
         ...(rruleLine ? { recurrence: [rruleLine] } : {}),
       }),
     });

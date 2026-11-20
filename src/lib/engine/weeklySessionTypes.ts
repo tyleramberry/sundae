@@ -64,18 +64,16 @@ export type ClassifiedAction = {
   // Habit/Goal only, 0=Sunday..6=Saturday -- the SINGLE specific day the
   // user named for this item, including a relative reference ("today",
   // "tonight") resolved against the actual date the message was sent.
-  // Omitted when no single day applies: a cadence-only habit ("every day",
-  // "3x this week") with no particular day named, or the user genuinely
-  // didn't say. Bug fix: this used to live only as text inside
-  // `description` ("...on Saturday", "...Monday through Friday") and get
-  // reverse-engineered by a regex at scheduling time -- which silently
-  // mis-fired on a range ("Monday through Friday" read as plain Monday)
-  // and had no way to understand a relative word ("tonight") at all,
-  // since it never saw the date the message was sent. Capturing it here,
-  // resolved by the model with today's real date already in front of it,
-  // removes that whole class of bug at the source instead of patching the
-  // regex again. Project: always omitted, same as cadenceCount/preferredTime.
+  // Omitted when no single day applies: a multi-day habit (use `weekdays`
+  // or `recurrence` instead) or when the user genuinely didn't say.
+  // Project: always omitted, same as cadenceCount/preferredTime.
   weekday?: number;
+  // Habit/Goal only, array of 0=Sunday..6=Saturday -- specific days for a
+  // multi-day item (e.g. "gym Mon/Wed/Fri this week" -> [1, 3, 5]). Keeps
+  // one-week multi-day habits from collapsing onto Mon/Tue/Wed in blocks.ts.
+  // Omit for single-day items (use `weekday`) or when no specific days were
+  // chosen. Project: always omitted.
+  weekdays?: number[];
   // Stage 1 rollover diagnosis only ("what got in the way" / "what will
   // you do differently") -- see weeklySession.ts's Stage 1 instructions.
   // Set together, only on an item that's rolling over from an unfinished

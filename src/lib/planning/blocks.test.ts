@@ -274,4 +274,89 @@ describe("proposeActionBlocks (explicit timezone)", () => {
     assert.equal(zonedStart.minute, 0);
     assert.equal(zonedStart.weekday, 1); // Monday
   });
+
+  it("honors recurrence.days (Tue/Thu) instead of falling back to Mon/Tue", () => {
+    const windowStart = zoned({ day: 9, hour: 0 }); // Sunday
+    const windowEnd = zoned({ day: 16, hour: 0 });
+    const now = zoned({ day: 9, hour: 7 });
+
+    const proposed = proposeActionBlocks(
+      [
+        {
+          role: "Personal",
+          description: "Gym workout",
+          type: "habit",
+          cadenceCount: 2,
+          preferredTime: "07:00",
+          durationMinutes: 60,
+          recurrence: { pattern: "weekly", days: ["TU", "TH"] },
+        },
+      ],
+      [],
+      windowStart,
+      windowEnd,
+      { now, timeZone: zone },
+    );
+
+    const weekdays = proposed[0].blocks.map(
+      (b) => DateTime.fromJSDate(b.start, { zone }).weekday % 7,
+    );
+    assert.deepEqual(weekdays, [2, 4]); // Tuesday, Thursday
+  });
+
+  it("honors one-week multi-day weekdays ([1, 3, 5] = Mon/Wed/Fri)", () => {
+    const windowStart = zoned({ day: 9, hour: 0 }); // Sunday
+    const windowEnd = zoned({ day: 16, hour: 0 });
+    const now = zoned({ day: 9, hour: 7 });
+
+    const proposed = proposeActionBlocks(
+      [
+        {
+          role: "Personal",
+          description: "Lift weights",
+          type: "habit",
+          cadenceCount: 3,
+          preferredTime: "06:30",
+          durationMinutes: 60,
+          weekdays: [1, 3, 5],
+        },
+      ],
+      [],
+      windowStart,
+      windowEnd,
+      { now, timeZone: zone },
+    );
+
+    const weekdays = proposed[0].blocks.map(
+      (b) => DateTime.fromJSDate(b.start, { zone }).weekday % 7,
+    );
+    assert.deepEqual(weekdays, [1, 3, 5]); // Mon, Wed, Fri
+  });
+});
+
+describe("calendar timezone formatting", () => {
+  it("buildEventTimePayload attaches timeZone and local ISO offset when provided", async () => {
+    const { buildEventTimePayload } = await import("@/lib/google/calendar");
+    const instant = new Date("2026-11-24T02:00:00.000Z"); // 7:00 PM MST on Nov 23
+    const payload = buildEventTimePayload(instant, "America/Denver");
+    assert.equal(payload.timeZone, "America/Denver");
+    assert.match(payload.dateTime, /^2026-11-23T19:00:00/);
+  });
+
+  it("formatCalendarSummary formats busy times in the user's timeZone, not UTC", async () => {
+    const { formatCalendarSummary } = await import("@/lib/weeklySession/calendarSummary");
+    const summary = formatCalendarSummary(
+      [
+        {
+          summary: "Dinner",
+          start: { dateTime: "2026-11-24T01:30:00.000Z" }, // 6:30 PM MST on Monday Nov 23
+          end: { dateTime: "2026-11-24T02:30:00.000Z" }, // 7:30 PM MST
+        },
+      ],
+      "America/Denver",
+    );
+    assert.match(summary, /Monday Nov 23/);
+    assert.match(summary, /6:30 PM/);
+    assert.match(summary, /7:30 PM/);
+  });
 });

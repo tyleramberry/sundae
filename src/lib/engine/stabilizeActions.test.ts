@@ -124,4 +124,69 @@ describe("stabilizeActions", () => {
     });
     assert.equal(out[0].preferredTime, "16:00");
   });
+
+  it("does not strip preferredTime from an unrelated new item when asking about a different one", () => {
+    const out = stabilizeActions({
+      locked: [],
+      incoming: [
+        {
+          role: "Founder",
+          description: "Investor call",
+          type: "goal",
+          weekday: 2,
+          preferredTime: "10:00",
+        },
+        {
+          role: "Personal",
+          description: "Gym workout",
+          type: "habit",
+          cadenceCount: 3,
+          preferredTime: "09:00",
+        },
+      ],
+      roles,
+      reply: "Got Investor call at 10am Tuesday. What time works best for your gym workout?",
+    });
+    const call = out.find((a) => a.description === "Investor call");
+    const gym = out.find((a) => a.description === "Gym workout");
+    assert.equal(call?.preferredTime, "10:00");
+    assert.equal(gym?.preferredTime, undefined);
+  });
+});
+
+describe("findIncompleteSchedulingActions", () => {
+  it("flags missing day, time, and duration on habits/goals and ignores projects", async () => {
+    const { findIncompleteSchedulingActions, buildMissingSpecificsFollowUp } = await import(
+      "@/lib/engine/weeklySession"
+    );
+    const incomplete = findIncompleteSchedulingActions([
+      { role: "Founder", description: "Close seed round", type: "project" },
+      { role: "Personal", description: "Gym workout", type: "habit", cadenceCount: 3 },
+      {
+        role: "Personal",
+        description: "Morning prayer",
+        type: "habit",
+        cadenceCount: 7,
+        preferredTime: "07:00",
+        durationMinutes: 15,
+      },
+      {
+        role: "Founder",
+        description: "Send deck",
+        type: "goal",
+        weekday: 3,
+        preferredTime: "14:00",
+      },
+    ]);
+
+    assert.equal(incomplete.length, 2);
+    assert.equal(incomplete[0].action.description, "Gym workout");
+    assert.deepEqual(incomplete[0].missing, ["day", "time", "duration"]);
+    assert.equal(incomplete[1].action.description, "Send deck");
+    assert.deepEqual(incomplete[1].missing, ["duration"]);
+
+    const followUp = buildMissingSpecificsFollowUp(incomplete);
+    assert.match(followUp, /Gym workout.*which days, what time, and how long/);
+    assert.match(followUp, /Send deck.*how long/);
+  });
 });

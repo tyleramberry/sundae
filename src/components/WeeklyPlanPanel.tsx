@@ -48,6 +48,20 @@ function typeBadgeClasses(type: ClassifiedAction["type"]): string {
   }
 }
 
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function weekdaysLabel(action: ClassifiedAction): string | null {
+  if (action.recurrence) return null; // recurrenceLabel already displays repeating days
+  if (!Array.isArray(action.weekdays) || action.weekdays.length === 0) return null;
+  const sorted = Array.from(
+    new Set(action.weekdays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)),
+  ).sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  if (sorted.length === 7) return "Every day";
+  if (sorted.length === 5 && sorted.every((d, idx) => d === idx + 1)) return "Mon–Fri";
+  return sorted.map((d) => WEEKDAY_SHORT[d]).join("/");
+}
+
 function cadenceLabel(action: ClassifiedAction): string | null {
   if (action.type !== "habit") return null;
   const n = action.cadenceCount ?? 1;
@@ -169,6 +183,7 @@ export default function WeeklyPlanPanel({
                   // text-parse fallback only still matters for items
                   // classified before that field existed.
                   const dayIdx = action.weekday ?? weekdayFromText(action.description);
+                  const multiDays = weekdaysLabel(action);
                   const cadence = cadenceLabel(action);
                   const time = timeLabel(action);
                   const duration = durationLabel(action);
@@ -191,18 +206,22 @@ export default function WeeklyPlanPanel({
                           {action.type}
                         </span>
                       </div>
-                      {(cadence || dayIdx !== null || time || duration || recurrence) && (
+                      {(cadence || dayIdx !== null || multiDays || time || duration || recurrence) && (
                         <div className="flex flex-wrap gap-1.5">
                           {cadence && (
                             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                               {cadence}
                             </span>
                           )}
-                          {dayIdx !== null && (
+                          {multiDays ? (
+                            <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                              {multiDays}
+                            </span>
+                          ) : dayIdx !== null ? (
                             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                               {WEEKDAY_NAMES[dayIdx]}
                             </span>
-                          )}
+                          ) : null}
                           {time && (
                             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                               {time}

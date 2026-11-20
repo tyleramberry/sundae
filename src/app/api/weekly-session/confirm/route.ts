@@ -186,6 +186,7 @@ export async function POST(request: Request) {
             description: `Sundae ${action.type} — ${action.role}`,
             start,
             end,
+            timeZone,
             recurrence: action.recurrence,
           });
           // Same eventId per this-week instance -- Google's derived
@@ -211,6 +212,7 @@ export async function POST(request: Request) {
               description: `Sundae ${action.type} — ${action.role}`,
               start,
               end,
+              timeZone,
             });
             eventIds.push(event.id);
             wroteAnyEvent = true;
@@ -237,12 +239,14 @@ export async function POST(request: Request) {
         preferredTime: action.preferredTime,
         durationMinutes: action.durationMinutes,
         recurrence: action.recurrence,
+        weekday: action.weekday,
+        weekdays: action.weekdays,
         obstacleNote: action.obstacleNote,
         mitigationPlan: action.mitigationPlan,
       });
     }
 
-    const created = await createWeeklyItems(supabase, user.id, new Date(), withEventIds);
+    const created = await createWeeklyItems(supabase, user.id, new Date(), withEventIds, timeZone);
 
     const priorTranscript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
     const roundTurns: Turn[] = priorTranscript?.active_state.turns ?? [];

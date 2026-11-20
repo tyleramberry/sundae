@@ -101,6 +101,8 @@ export async function POST(request: Request) {
       preferredTime: action.preferredTime,
       durationMinutes: action.durationMinutes,
       recurrence: action.recurrence,
+      weekday: action.weekday,
+      weekdays: action.weekdays,
       obstacleNote: action.obstacleNote,
       mitigationPlan: action.mitigationPlan,
       blocks: action.blocks.map((b) => ({

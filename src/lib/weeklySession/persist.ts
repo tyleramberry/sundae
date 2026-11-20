@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { startOfWeek } from "@/lib/google/calendar";
-import { addDays, planningWeekStartDate } from "@/lib/weeklySession/week";
+import { addDays, planningWeekStart, planningWeekStartDate } from "@/lib/weeklySession/week";
 import type {
   ActionType,
   ClassifiedAction,
@@ -55,10 +55,11 @@ export async function getLastWeekContext(
   supabase: SupabaseClient,
   userId: string,
   referenceDate: Date = new Date(),
+  timeZone?: string,
 ): Promise<LastWeekContext | null> {
-  const thisWeekStart = planningWeekStartDate(referenceDate);
+  const thisWeekStart = planningWeekStartDate(referenceDate, timeZone);
   const lastWeekStart = addDays(thisWeekStart, -7);
-  const weekStart = toDateOnly(lastWeekStart);
+  const weekStart = planningWeekStart(lastWeekStart, timeZone);
 
   const { data, error } = await supabase
     .from("weekly_items")
@@ -112,8 +113,9 @@ export async function createWeeklyItems(
   userId: string,
   referenceDate: Date,
   actions: (ProposedAction & { eventIds: string[]; percent?: number | null })[],
+  timeZone?: string,
 ): Promise<number> {
-  const weekStart = toDateOnly(planningWeekStartDate(referenceDate));
+  const weekStart = planningWeekStart(referenceDate, timeZone);
 
   const rows: WeeklyItemInsert[] = [];
   for (const action of actions) {
@@ -223,6 +225,8 @@ export type PendingProposedAction = {
   // instead of N one-off events. See ClassifiedAction.recurrence for the
   // engine-layer shape; the field is identical here.
   recurrence?: ClassifiedAction["recurrence"];
+  weekday?: number;
+  weekdays?: number[];
   // Stage 1 rollover diagnosis, round-tripped end-to-end the same way as
   // the fields above so createWeeklyItems can write it onto this week's
   // row -- see ClassifiedAction.obstacleNote.

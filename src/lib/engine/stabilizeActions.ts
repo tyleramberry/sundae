@@ -83,6 +83,7 @@ function mergeLocked(locked: ClassifiedAction, incoming: ClassifiedAction): Clas
   if (incoming.durationMinutes !== undefined) next.durationMinutes = incoming.durationMinutes;
   if (incoming.recurrence !== undefined) next.recurrence = incoming.recurrence;
   if (incoming.weekday !== undefined) next.weekday = incoming.weekday;
+  if (incoming.weekdays !== undefined) next.weekdays = incoming.weekdays;
   if (incoming.obstacleNote !== undefined) next.obstacleNote = incoming.obstacleNote;
   if (incoming.mitigationPlan !== undefined) next.mitigationPlan = incoming.mitigationPlan;
   if (next.type === "project") {
@@ -91,6 +92,7 @@ function mergeLocked(locked: ClassifiedAction, incoming: ClassifiedAction): Clas
     delete next.durationMinutes;
     delete next.recurrence;
     delete next.weekday;
+    delete next.weekdays;
   }
   // Recurrence is Habit-only per PRD -- if the incoming turn reclassifies
   // to a Goal, drop whatever recurrence had settled on the locked item.
@@ -99,6 +101,18 @@ function mergeLocked(locked: ClassifiedAction, incoming: ClassifiedAction): Clas
     delete next.recurrence;
   }
   return next;
+}
+
+function replyMentionsActionInTimeQuestion(reply: string, description: string): boolean {
+  const sentences = reply.split(/(?<=[.!?])\s+|\n+/);
+  const questionSentences = sentences.filter((s) => replyAsksForClockTime(s));
+  const targetText = questionSentences.length > 0 ? questionSentences.join(" ") : reply;
+  const replyTokens = significantTokens(targetText);
+  const descTokens = significantTokens(description);
+  for (const t of descTokens) {
+    if (replyTokens.has(t)) return true;
+  }
+  return false;
 }
 
 function looksLikeSameProject(a: string, b: string): boolean {
@@ -168,6 +182,10 @@ export function stabilizeActions({
       ),
   ];
 
+  const newNonProjectCount = incoming.filter(
+    (raw, idx) => !usedIncoming.has(idx) && raw.type !== "project",
+  ).length;
+
   for (let i = 0; i < incoming.length; i++) {
     if (usedIncoming.has(i)) continue;
     const raw = incoming[i];
@@ -181,6 +199,7 @@ export function stabilizeActions({
       delete item.durationMinutes;
       delete item.recurrence;
       delete item.weekday;
+      delete item.weekdays;
     }
     if (item.type === "goal") {
       delete item.recurrence;
@@ -199,7 +218,11 @@ export function stabilizeActions({
       }
     }
 
-    if (askingTime && item.type !== "project") {
+    if (
+      askingTime &&
+      item.type !== "project" &&
+      (newNonProjectCount <= 1 || replyMentionsActionInTimeQuestion(reply, item.description))
+    ) {
       delete item.preferredTime;
     }
 

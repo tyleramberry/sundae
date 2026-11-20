@@ -27,7 +27,7 @@ import { computeKpisForRoles, groupItemsByRole, type KpiItem } from "@/lib/kpi/c
 // behavior falls straight out of keying the lookup on the current
 // week_start, no separate expiry needed (see the migration's header
 // comment). Read-only; writes only ever happen from /step and /confirm.
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -37,8 +37,12 @@ export async function GET() {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const weekStart = planningWeekStart();
-  const weekLabel = formatPlanningWeekRange(planningWeekStartDate());
+  const url = new URL(request.url);
+  const tzParam = url.searchParams.get("timeZone");
+  const timeZone = tzParam && tzParam.trim() ? tzParam.trim() : undefined;
+  const now = new Date();
+  const weekStart = planningWeekStart(now, timeZone);
+  const weekLabel = formatPlanningWeekRange(planningWeekStartDate(now, timeZone), timeZone);
   const transcript = await getWeeklySessionTranscript(supabase, user.id, weekStart);
   const committedActions = await getCommittedPlanActions(supabase, user.id, weekStart);
 
@@ -78,7 +82,7 @@ export async function GET() {
   let lastWeekStats: { role: string; numerator: number; denominator: number; percent: number | null }[] = [];
   if (needsLastWeekStats) {
     const [lastWeek, onboarding] = await Promise.all([
-      getLastWeekContext(supabase, user.id),
+      getLastWeekContext(supabase, user.id, now, timeZone),
       getOnboardingAnswers(supabase, user.id),
     ]);
     if (lastWeek && onboarding) {

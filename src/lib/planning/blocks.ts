@@ -68,13 +68,12 @@ export type ProposedAction = {
   // ProposeBlocksOptions.blockMinutes / DEFAULT_BLOCK_MINUTES) when the
   // engine never captured one for this item.
   durationMinutes?: number;
-  // Habit-only recurrence intent captured by the engine. Pass-through here
-  // -- blocks.ts does not use it for placement (cadenceCount + weekday
-  // inference already place this week's occurrences as they always did);
-  // the calendar layer reads it at confirm-write time to attach an RRULE
-  // to the master event, so future weeks recur without a second write
-  // path. See ClassifiedAction.recurrence for shape.
+  // Habit-only recurrence intent captured by the engine. Used both for
+  // placing this week's blocks on the exact requested days and by the
+  // calendar layer at confirm-write time to attach an RRULE.
   recurrence?: ClassifiedAction["recurrence"];
+  weekday?: number;
+  weekdays?: number[];
   // Stage 1 rollover diagnosis, carried through untouched -- blocks.ts
   // never reads or reasons about these, purely a pass-through so
   // createWeeklyItems (persist.ts) can write them onto this week's row.
@@ -331,6 +330,69 @@ export function proposeActionBlocks(
     return block;
   }
 
+  const RECURRENCE_DAY_TO_INDEX: Record<string, number> = {
+    SU: 0,
+    MO: 1,
+    TU: 2,
+    WE: 3,
+    TH: 4,
+    FR: 5,
+    SA: 6,
+  };
+
+  function resolveTargetDays(
+    action: ClassifiedAction,
+    wanted: number,
+  ): { dayOrder: number[]; strict: boolean } {
+    // 1. Explicit recurrence pattern always dictates the exact days.
+    if (action.recurrence) {
+      if (action.recurrence.pattern === "daily") {
+        return { dayOrder: [0, 1, 2, 3, 4, 5, 6], strict: true };
+      }
+      if (action.recurrence.pattern === "weekdays") {
+        return { dayOrder: [1, 2, 3, 4, 5], strict: true };
+      }
+      if (action.recurrence.pattern === "weekly" && action.recurrence.days?.length) {
+        const mapped = Array.from(
+          new Set(
+            action.recurrence.days
+              .map((d) => RECURRENCE_DAY_TO_INDEX[d])
+              .filter((idx): idx is number => typeof idx === "number"),
+          ),
+        ).sort((a, b) => a - b);
+        if (mapped.length > 0) {
+          return { dayOrder: mapped, strict: true };
+        }
+      }
+    }
+
+    // 2. Explicit multi-day list for one-week items (e.g. Mon/Wed/Fri -> [1, 3, 5]).
+    if (Array.isArray(action.weekdays) && action.weekdays.length > 0) {
+      const cleaned = Array.from(
+        new Set(
+          action.weekdays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6),
+        ),
+      ).sort((a, b) => a - b);
+      if (cleaned.length > 0) {
+        return { dayOrder: cleaned, strict: true };
+      }
+    }
+
+    // 3. Single named day (structured `weekday` first, text fallback second).
+    const namedDay = action.weekday ?? weekdayFromText(action.description);
+    if (namedDay !== null) {
+      if (wanted === 1) {
+        return { dayOrder: [namedDay], strict: true };
+      }
+      return {
+        dayOrder: [namedDay, ...DEFAULT_DAY_ORDER.filter((d) => d !== namedDay)],
+        strict: false,
+      };
+    }
+
+    return { dayOrder: DEFAULT_DAY_ORDER, strict: false };
+  }
+
   return actions.map((action): ProposedAction => {
     const base = {
       role: action.role,
@@ -340,6 +402,8 @@ export function proposeActionBlocks(
       preferredTime: action.preferredTime,
       durationMinutes: action.durationMinutes,
       recurrence: action.recurrence,
+      weekday: action.weekday,
+      weekdays: action.weekdays,
       obstacleNote: action.obstacleNote,
       mitigationPlan: action.mitigationPlan,
     };
@@ -348,7 +412,7 @@ export function proposeActionBlocks(
       return { ...base, blocks: [] };
     }
 
-    const wanted = action.type === "habit" ? Math.max(1, action.cadenceCount ?? 1) : 1;
+    const baseWanted = action.type === "habit" ? Math.max(1, action.cadenceCount ?? 1) : 1;
     const minutesOfDay = parseTimeToMinutes(action.preferredTime) ?? DEFAULT_FALLBACK_MINUTES;
     // Per-action length wins over the batch default. Only falls through to
     // `blockMinutes` (which itself defaults to DEFAULT_BLOCK_MINUTES) when
@@ -357,26 +421,17 @@ export function proposeActionBlocks(
       typeof action.durationMinutes === "number" && action.durationMinutes > 0
         ? action.durationMinutes
         : blockMinutes;
-    // Structured field first (the live engine's own path); text-parsing is
-    // only a fallback for data captured before this field existed, or the
-    // rare case the model named a day in prose but somehow left the field
-    // out.
-    const namedDay = action.weekday ?? weekdayFromText(action.description);
+
+    const { dayOrder, strict } = resolveTargetDays(action, baseWanted);
+    // When specific days were named (recurrence or weekdays), place on every
+    // named day rather than truncating to a stale cadenceCount or spilling
+    // onto unrelated days.
+    const wanted = strict && action.type === "habit" ? dayOrder.length : baseWanted;
 
     const blocks: ProposedBlock[] = [];
-    const dayOrder =
-      namedDay !== null
-        ? [namedDay, ...DEFAULT_DAY_ORDER.filter((d) => d !== namedDay)]
-        : DEFAULT_DAY_ORDER;
 
     for (const day of dayOrder) {
       if (blocks.length >= wanted) break;
-      // A single-block ask (any Goal; a Habit with cadenceCount 1) that
-      // named a day only ever gets that ONE day tried -- never a
-      // different one, even if this exact slot is unreachable (past). A
-      // multi-block Habit, or an action with no day named at all, keeps
-      // going through the rest of `dayOrder` to fill every occurrence.
-      if (namedDay !== null && wanted === 1 && day !== namedDay) break;
       const block = placeAt(day, minutesOfDay, lengthMinutes);
       if (block) blocks.push(block);
     }

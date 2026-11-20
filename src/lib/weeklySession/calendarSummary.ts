@@ -9,33 +9,25 @@
 // Exact block placement still happens later at /propose, which does its
 // own gap-finding against the same events (see busyRangesFromEvents).
 
+import { DateTime } from "luxon";
 import { busyRangesFromEvents, type GoogleCalendarEvent } from "@/lib/planning/blocks";
 
-const DAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
-
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+function formatTime(d: Date, timeZone?: string): string {
+  const dt = DateTime.fromJSDate(d, { zone: timeZone ?? "local" });
+  return dt.toFormat("h:mm a");
 }
 
-function dayLabel(d: Date): string {
-  const month = d.toLocaleDateString(undefined, { month: "short" });
-  return `${DAY_NAMES[d.getDay()]} ${month} ${d.getDate()}`;
+function dayLabel(d: Date, timeZone?: string): string {
+  const dt = DateTime.fromJSDate(d, { zone: timeZone ?? "local" });
+  return dt.toFormat("cccc LLL d");
 }
 
 // Renders merged busy ranges grouped by calendar day, in chronological
-// order. Kept separate from the "no events" case so the caller (route.ts)
-// can also render an explicit "calendar not connected" string when the
-// Google API call itself fails, without this function needing to know why
-// there are no events.
-export function formatCalendarSummary(events: GoogleCalendarEvent[]): string {
+// order, in the user's real IANA timezone (not the server's UTC zone).
+export function formatCalendarSummary(
+  events: GoogleCalendarEvent[],
+  timeZone?: string,
+): string {
   const busy = busyRangesFromEvents(events);
 
   if (busy.length === 0) {
@@ -44,8 +36,8 @@ export function formatCalendarSummary(events: GoogleCalendarEvent[]): string {
 
   const byDay = new Map<string, string[]>();
   for (const range of busy) {
-    const label = dayLabel(range.start);
-    const line = `${formatTime(range.start)}–${formatTime(range.end)}`;
+    const label = dayLabel(range.start, timeZone);
+    const line = `${formatTime(range.start, timeZone)}–${formatTime(range.end, timeZone)}`;
     const existing = byDay.get(label);
     if (existing) {
       existing.push(line);

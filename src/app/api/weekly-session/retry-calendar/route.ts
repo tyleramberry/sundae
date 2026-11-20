@@ -226,6 +226,7 @@ export async function POST(request: Request) {
             description: `Sundae ${row.type} — ${row.role}`,
             start: block.start,
             end: block.end,
+            timeZone,
           });
 
           if (b === 0) {

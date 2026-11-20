@@ -70,10 +70,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Couldn't check your plan. Try again." }, { status: 500 });
   }
 
+  const timeZone = typeof body.timeZone === "string" ? body.timeZone : undefined;
   try {
     const result = await revisePlan({
       actions: body.actions,
       message: body.message,
+      timeZone,
       userId: user.id,
     });
     return NextResponse.json(result);

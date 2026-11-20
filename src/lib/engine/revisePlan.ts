@@ -15,6 +15,7 @@
 // -day, honoring a named weekday) stay in exactly one place.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { DateTime } from "luxon";
 import { getAnthropicModel } from "@/lib/anthropic/model";
 import { createTracedMessage, llmSessionId } from "@/lib/anthropic/traced";
 import type { ClassifiedAction } from "@/lib/engine/weeklySessionTypes";
@@ -26,11 +27,13 @@ const SYSTEM_PROMPT = `You are helping a user adjust their already-drafted weekl
 
 Each action item has:
 - role: which of the user's roles it belongs to (keep items under the role they were already under unless the user explicitly moves one).
-- description: a short phrase naming the action.
+- description: a short phrase naming the action (do NOT put the day of week or clock time into description; use weekday/weekdays/recurrence/preferredTime instead).
 - type: "habit", "goal", or "project".
 - cadenceCount: for a habit, how many times that week (7 = every day, 3 = three times a week, etc). Omit for goal and project.
 - preferredTime: for a habit or goal, "HH:MM" 24-hour local time -- the specific clock time that item is anchored to. Omit for project (no calendar block) and for any habit/goal that genuinely has no time preference.
 - durationMinutes: for a habit or goal, integer minutes -- how long the calendar block is ("1 hour" -> 60, "30 min" -> 30). Omit for project and for any habit/goal with no captured duration.
+- weekday: for a habit or goal on ONE specific day, integer 0=Sunday..6=Saturday. Preserve every unchanged item's weekday verbatim!
+- weekdays: for a multi-day one-week habit on specific days (e.g. Mon/Wed/Fri -> [1, 3, 5]), array of integers 0=Sunday..6=Saturday. Preserve every unchanged item's weekdays verbatim!
 - recurrence: for a HABIT that repeats beyond this week -- \`{ pattern: "daily" | "weekly" | "weekdays", days?: [...] }\`. \`days\` is required when pattern is "weekly" and holds two-letter Google Calendar weekday codes ("MO", "TU", "WE", "TH", "FR", "SA", "SU") in ascending week order. Omit for goal, project, and one-week-only habits. Anything outside those three patterns is unsupported; either narrow the answer or leave recurrence out.
 
 Rules:
@@ -38,7 +41,8 @@ Rules:
   - Habit = countable, recurring ("run every day", "stretch 3x a week"). Set cadenceCount from the cadence.
   - Goal = a single one-off task ("accept the job offer", "renew passport"). No cadenceCount.
   - Project = a one-off, not-cleanly-countable push ("close the seed round"). No cadenceCount, no calendar block.
-- If the user ties an item to a specific day of the week -- "date night on Tuesday", "temple shift on Saturday", "Sunday meal prep" -- INCLUDE that weekday name in the item's description text. Scheduling reads the day out of the description, so the weekday must be in the words, e.g. description "Plan date night on Tuesday".
+- CRITICAL: Preserve \`weekday\`, \`weekdays\`, \`preferredTime\`, \`durationMinutes\`, \`cadenceCount\`, and \`recurrence\` on EVERY item the user did not ask to change. Never drop a weekday or time from an untouched item.
+- If the user moves an item to a specific day ("move temple shift to Saturday", "date night on Tuesday") -- update \`weekday\` (0=Sun..6=Sat) and clear \`weekdays\` if it's now a single day. If they set multiple specific days for a one-week habit ("gym Mon/Wed/Fri") -- set \`weekdays\` (e.g. [1, 3, 5]) and \`cadenceCount\` to match, and omit \`weekday\`.
 - If the user's request names or changes a clock time ("move the run to 6am", "make date night 7:30 instead") -- update that item's preferredTime to match ("06:00", "19:30"). Leave every other item's preferredTime exactly as it was.
 - If the user's request names or changes a duration ("make date night 2 hours", "shorten the run to 30 min", "date night is 6-8pm" -> 120 min) -- update that item's durationMinutes to match. Leave every other item's durationMinutes exactly as it was.
 - If the user's request adds, removes, or changes a Habit's recurrence ("make the gym repeat every MWF", "just this week actually", "make it every day instead") -- update that item's \`recurrence\` accordingly. Setting recurrence is Habit-only; if the user asks to make a Goal or Project recur, either reclassify the item to a Habit (with a real cadence) or explain plainly that only Habits can repeat and leave \`recurrence\` off. Leave every other item's recurrence exactly as it was.
@@ -81,6 +85,23 @@ const TOOL: Anthropic.Tool = {
               description:
                 "Habit/Goal only, integer minutes -- the length of the calendar block. Omit for Project and for any item with no captured duration.",
             },
+            weekday: {
+              type: "integer",
+              minimum: 0,
+              maximum: 6,
+              description:
+                "Habit/Goal only, 0=Sunday..6=Saturday for a single specific day. Preserve on unchanged items; omit for multi-day habits or Project.",
+            },
+            weekdays: {
+              type: "array",
+              items: {
+                type: "integer",
+                minimum: 0,
+                maximum: 6,
+              },
+              description:
+                "Habit/Goal only, array of 0=Sunday..6=Saturday for specific days of a multi-day one-week item (e.g. Mon/Wed/Fri -> [1, 3, 5]). Preserve on unchanged items; omit for single-day items or Project.",
+            },
             recurrence: {
               type: "object",
               description:
@@ -122,6 +143,7 @@ type ToolInput = {
 export type RevisePlanInput = {
   actions: ClassifiedAction[];
   message: string;
+  timeZone?: string;
   userId?: string;
 };
 
@@ -131,6 +153,9 @@ export type RevisePlanOutput = {
 };
 
 export async function revisePlan(input: RevisePlanInput): Promise<RevisePlanOutput> {
+  const now = DateTime.now().setZone(input.timeZone ?? "local");
+  const todayLine = `Today is ${now.toFormat("cccc, LLLL d")} (0=Sunday..6=Saturday, today is ${now.weekday % 7}).`;
+
   const response = await createTracedMessage(
     {
       model: MODEL,
@@ -142,7 +167,7 @@ export async function revisePlan(input: RevisePlanInput): Promise<RevisePlanOutp
       messages: [
         {
           role: "user",
-          content: `Current plan:\n${JSON.stringify(input.actions, null, 2)}\n\nRequested change:\n${input.message}`,
+          content: `${todayLine}\n\nCurrent plan:\n${JSON.stringify(input.actions, null, 2)}\n\nRequested change:\n${input.message}`,
         },
       ],
     },

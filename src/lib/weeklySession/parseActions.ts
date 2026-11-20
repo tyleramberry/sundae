@@ -26,6 +26,12 @@ function isRecurrence(v: unknown): boolean {
   );
 }
 
+function isWeekdaysArray(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!Array.isArray(v)) return false;
+  return v.every((d) => typeof d === "number" && Number.isInteger(d) && d >= 0 && d <= 6);
+}
+
 export function isClassifiedAction(value: unknown): value is ClassifiedAction {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
@@ -39,6 +45,7 @@ export function isClassifiedAction(value: unknown): value is ClassifiedAction {
       (typeof v.durationMinutes === "number" && v.durationMinutes > 0)) &&
     isRecurrence(v.recurrence) &&
     (v.weekday === undefined || (typeof v.weekday === "number" && v.weekday >= 0 && v.weekday <= 6)) &&
+    isWeekdaysArray(v.weekdays) &&
     (v.obstacleNote === undefined || typeof v.obstacleNote === "string") &&
     (v.mitigationPlan === undefined || typeof v.mitigationPlan === "string")
   );
@@ -66,6 +73,8 @@ export function isIncomingAction(value: unknown): value is PendingProposedAction
     (v.durationMinutes === undefined ||
       (typeof v.durationMinutes === "number" && v.durationMinutes > 0)) &&
     isRecurrence(v.recurrence) &&
+    (v.weekday === undefined || (typeof v.weekday === "number" && v.weekday >= 0 && v.weekday <= 6)) &&
+    isWeekdaysArray(v.weekdays) &&
     (v.obstacleNote === undefined || typeof v.obstacleNote === "string") &&
     (v.mitigationPlan === undefined || typeof v.mitigationPlan === "string")
   );

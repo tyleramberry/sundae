@@ -31,6 +31,7 @@ import type {
 } from "@/lib/engine/weeklySessionTypes";
 import { withPersonalRole } from "@/lib/engine/weeklySessionTypes";
 import { stabilizeActions } from "@/lib/engine/stabilizeActions";
+import { weekdayFromText } from "@/lib/planning/blocks";
 
 const MODEL = getAnthropicModel();
 
@@ -43,7 +44,7 @@ const MODEL = getAnthropicModel();
 // prompts drifting apart on the classification rules. Written without
 // "Stage 2"/"Stage 3" vocabulary so it reads correctly stitched into
 // either prompt.
-const SHARED_ITEM_RULES = `**When you name a specific day, capture it in \`weekday\`, not the description.** If an action item is tied to a particular day of the week -- a standing "date night on Tuesday", a "temple shift on Saturday", "budgeting tonight", "Slack Spencer today" -- set \`weekday\` (0=Sunday..6=Saturday) to that day. Resolve a relative word ("today", "tonight", "tomorrow", "this morning") against the actual current date given below -- never leave \`weekday\` out just because the user said "tonight" instead of naming the day outright; that's still a specific day, just stated relatively. Leave \`weekday\` out entirely when no single day applies: a cadence-only habit ("every day," "3x this week") with no particular day named, or the user genuinely didn't say. Bug fix, worth being precise about: a Habit that recurs across MULTIPLE days ("Monday through Friday," "every day") is a cadence, not a single day -- set \`cadenceCount\` for that, and leave \`weekday\` out; setting \`weekday\` to the first day of a range used to make the whole habit collapse onto that one day instead of spreading across the week, which is exactly the bug this field exists to prevent.
+const SHARED_ITEM_RULES = `**When you name a specific day (or specific days), capture them in \`weekday\` / \`weekdays\`, not the description.** If an action item is tied to ONE particular day of the week -- a standing "date night on Tuesday", a "temple shift on Saturday", "budgeting tonight", "Slack Spencer today" -- set \`weekday\` (0=Sunday..6=Saturday) to that day. Resolve a relative word ("today", "tonight", "tomorrow", "this morning") against the actual current date given below -- never leave \`weekday\` out just because the user said "tonight" instead of naming the day outright; that's still a specific day, just stated relatively. If a Habit runs on MULTIPLE specific days ("Monday through Friday" -> [1, 2, 3, 4, 5], "Mon/Wed/Fri" -> [1, 3, 5], "every day" -> [0, 1, 2, 3, 4, 5, 6]), set \`weekdays\` to that exact array of day numbers (0=Sunday..6=Saturday) AND set \`cadenceCount\` to match, leaving single \`weekday\` out. Leave both \`weekday\` and \`weekdays\` out only when the user genuinely gave no specific days (e.g. "3x this week, whenever"). Never set single \`weekday\` to the first day of a multi-day range.
 
 **The description names the action, never restates when it happens.** Do not put a day of the week or a clock time in \`description\` -- \`weekday\` and \`preferredTime\` already carry that, and the calendar block itself will show it once placed, so repeating it in the title is just clutter ("Temple shift on Saturday from 5:00 to 10:00am" -> \`description\` is "Temple shift", \`weekday\` is 6, \`preferredTime\` is "05:00"; "Deep work on Sundae AI Monday through Friday from 9:00am to noon" -> \`description\` is "Deep work on Sundae AI", \`cadenceCount\` is 5, \`preferredTime\` is "09:00"). A name the user actually said stays in the description, though -- "Budgeting with Brooklyn tonight at 6:30pm" -> \`description\` is "Budgeting with Brooklyn" (keep "Brooklyn"), \`weekday\` is whatever "tonight" resolves to, \`preferredTime\` is "18:30". Only strip the scheduling info (day, time); never invent a shorter description than what the user actually said minus that.
 
@@ -367,7 +368,17 @@ function buildTool(mode: WeeklySessionMode): Anthropic.Tool {
                 minimum: 0,
                 maximum: 6,
                 description:
-                  "Habit/Goal only, 0=Sunday..6=Saturday. Set when the user named ONE specific day, including a relative word (\"today\", \"tonight\", \"tomorrow\") resolved against the real current date given above. Omit for a multi-day cadence (\"every day\", \"Monday through Friday\" -- that's `cadenceCount`, not a single weekday) or when the user simply didn't name a day. Omit for Project.",
+                  "Habit/Goal only, 0=Sunday..6=Saturday. Set when the user named ONE specific day, including a relative word (\"today\", \"tonight\", \"tomorrow\") resolved against the real current date given above. Omit for a multi-day cadence (use `weekdays` or `recurrence` instead) or when the user simply didn't name a day. Omit for Project.",
+              },
+              weekdays: {
+                type: "array",
+                items: {
+                  type: "integer",
+                  minimum: 0,
+                  maximum: 6,
+                },
+                description:
+                  "Habit/Goal only, array of 0=Sunday..6=Saturday for specific days of a multi-day item (e.g. \"Mon/Wed/Fri\" -> [1, 3, 5], \"Monday through Friday\" -> [1, 2, 3, 4, 5]). Omit for single-day items (use `weekday`) or Project.",
               },
               recurrence: {
                 type: "object",
@@ -420,6 +431,77 @@ type ToolInput = {
   done: boolean;
   actions: ClassifiedAction[];
 };
+
+export type MissingSchedulingField = "day" | "time" | "duration";
+
+export type IncompleteSchedulingAction = {
+  action: ClassifiedAction;
+  missing: MissingSchedulingField[];
+};
+
+const USER_OPTED_OUT_PATTERN =
+  /\b(you pick|up to you|whenever|any\s*(time|day)|doesn'?t matter|no preference|surprise me|just fit it in|whatever works)\b/i;
+
+const COMPLETENESS_GATE_MARKER = "Before I put this on your calendar";
+
+export function findIncompleteSchedulingActions(
+  actions: ClassifiedAction[],
+): IncompleteSchedulingAction[] {
+  const incomplete: IncompleteSchedulingAction[] = [];
+
+  for (const action of actions) {
+    if (action.type === "project") continue;
+
+    const missing: MissingSchedulingField[] = [];
+    const hasSpecificDay =
+      typeof action.weekday === "number" ||
+      (Array.isArray(action.weekdays) && action.weekdays.length > 0) ||
+      Boolean(action.recurrence) ||
+      weekdayFromText(action.description) !== null;
+
+    if (action.type === "goal") {
+      if (!hasSpecificDay) missing.push("day");
+    } else {
+      const count = action.cadenceCount ?? 1;
+      // 7x/week covers every day automatically; anything 1..6 needs specific
+      // day(s) or a recurrence pattern so blocks.ts doesn't guess Mon/Tue/Wed.
+      if (count < 7 && !hasSpecificDay) missing.push("day");
+    }
+
+    if (!action.preferredTime) missing.push("time");
+    if (!action.durationMinutes) missing.push("duration");
+
+    if (missing.length > 0) {
+      incomplete.push({ action, missing });
+    }
+  }
+
+  return incomplete;
+}
+
+export function buildMissingSpecificsFollowUp(
+  incomplete: IncompleteSchedulingAction[],
+): string {
+  const parts = incomplete.map(({ action, missing }) => {
+    const labels = missing.map((field) => {
+      if (field === "day") {
+        const isMulti = action.type === "habit" && (action.cadenceCount ?? 1) > 1;
+        return isMulti ? "which days" : "which day";
+      }
+      if (field === "time") return "what time";
+      return "how long";
+    });
+    const joined =
+      labels.length === 1
+        ? labels[0]
+        : labels.length === 2
+          ? `${labels[0]} and ${labels[1]}`
+          : `${labels[0]}, ${labels[1]}, and ${labels[2]}`;
+    return `"${action.description}" (${joined})`;
+  });
+
+  return `${COMPLETENESS_GATE_MARKER}, I need a few quick specifics so I don't guess: ${parts.join("; ")}. (Or say "you pick" and I'll slot them for you.)`;
+}
 
 export async function processWeeklySessionMessage(
   input: WeeklySessionInput,
@@ -507,14 +589,32 @@ export async function processWeeklySessionMessage(
     reply: result.reply,
   });
 
+  // Hard completeness gate: refuse to finish the session if any Habit/Goal is
+  // missing day(s), clock time, or duration, UNLESS the user explicitly opted
+  // out ("you pick", "whenever", etc.) or we already asked the completeness
+  // follow-up once (so we never trap the user in a loop).
+  let finalDone = result.done;
+  let finalReply = result.reply;
+  if (finalDone) {
+    const incomplete = findIncompleteSchedulingActions(actions);
+    const alreadyAskedGate = state.turns.some(
+      (t) => t.role === "assistant" && t.content.includes(COMPLETENESS_GATE_MARKER),
+    );
+    const userOptedOut = USER_OPTED_OUT_PATTERN.test(message);
+    if (incomplete.length > 0 && !alreadyAskedGate && !userOptedOut) {
+      finalDone = false;
+      finalReply = buildMissingSpecificsFollowUp(incomplete);
+    }
+  }
+
   const nextState: ConversationState = {
-    turns: [...turnsWithUserMessage, { role: "assistant", content: result.reply }],
+    turns: [...turnsWithUserMessage, { role: "assistant", content: finalReply }],
   };
 
   return {
-    reply: result.reply,
+    reply: finalReply,
     state: nextState,
-    action: result.done ? { type: "complete", actions } : { type: "ask" },
+    action: finalDone ? { type: "complete", actions } : { type: "ask" },
     actionsSoFar: actions,
     usage: {
       inputTokens: response.usage.input_tokens,

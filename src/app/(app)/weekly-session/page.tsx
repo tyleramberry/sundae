@@ -150,25 +150,33 @@ function buildDraftBlocks(
   const blocks: CalendarProposedBlock[] = [];
   for (const action of actions) {
     if (action.type === "project") continue;
-    if (typeof action.weekday !== "number" || !action.preferredTime) continue;
+    if (!action.preferredTime) continue;
     const m = /^([0-1]?\d|2[0-3]):([0-5]\d)$/.exec(action.preferredTime.trim());
     if (!m) continue;
     const hh = Number(m[1]);
     const mm = Number(m[2]);
-    const duration = action.durationMinutes ?? 60;
+    const duration = action.durationMinutes ?? 45;
 
     const dayIndices: number[] = (() => {
       const r = action.recurrence;
-      if (!r) return [action.weekday];
-      if (r.pattern === "daily") return [0, 1, 2, 3, 4, 5, 6];
-      if (r.pattern === "weekdays") return [1, 2, 3, 4, 5];
-      if (r.pattern === "weekly" && r.days && r.days.length > 0) {
-        return r.days
-          .map((d) => RECURRENCE_DAY_INDEX[d])
-          .filter((idx): idx is number => typeof idx === "number");
+      if (r) {
+        if (r.pattern === "daily") return [0, 1, 2, 3, 4, 5, 6];
+        if (r.pattern === "weekdays") return [1, 2, 3, 4, 5];
+        if (r.pattern === "weekly" && r.days && r.days.length > 0) {
+          return r.days
+            .map((d) => RECURRENCE_DAY_INDEX[d])
+            .filter((idx): idx is number => typeof idx === "number");
+        }
       }
-      return [action.weekday];
+      if (Array.isArray(action.weekdays) && action.weekdays.length > 0) {
+        return Array.from(
+          new Set(action.weekdays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)),
+        ).sort((a, b) => a - b);
+      }
+      if (typeof action.weekday === "number") return [action.weekday];
+      return [];
     })();
+    if (dayIndices.length === 0) continue;
 
     for (const dayIdx of dayIndices) {
       const start = new Date(weekStart);
@@ -393,7 +401,9 @@ export default function WeeklySessionPage() {
       if (hasRoles) {
         const declaredRoles: string[] = body.answers.roles ?? [];
         setRoles(declaredRoles);
-        const transcriptRes = await fetch("/api/weekly-session/transcript");
+        const transcriptRes = await fetch(
+          `/api/weekly-session/transcript?timeZone=${encodeURIComponent(browserTimeZone())}`,
+        );
         const transcriptBody = await transcriptRes.json().catch(() => ({}));
         applyWeekMeta(transcriptBody);
         const transcript = transcriptRes.ok ? transcriptBody.transcript : null;
