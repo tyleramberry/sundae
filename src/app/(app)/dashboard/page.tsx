@@ -264,6 +264,17 @@ export default function DashboardPage() {
                 Sundae subscriber
               </span>
             )}
+            {plan?.kind === "test" && (
+              <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 sm:inline">
+                Test account · Unlimited ·{" "}
+                <Link
+                  href="/debug"
+                  className="font-medium text-zinc-900 underline-offset-4 hover:underline dark:text-zinc-100"
+                >
+                  Demo tools
+                </Link>
+              </span>
+            )}
             <Link
               href="/weekly-session"
               className="shrink-0 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-ink/85"

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { isProductionRuntime, productionUnavailableResponse } from "@/lib/devOnly";
+import {
+  isDebugSurfaceAllowedForEmail,
+  isProductionRuntime,
+  productionUnavailableResponse,
+} from "@/lib/devOnly";
 import { getLastWeekContext } from "@/lib/weeklySession/persist";
 import { getOnboardingAnswers } from "@/lib/onboarding/persist";
 import { computeKpisForRoles, groupItemsByRole, type KpiItem } from "@/lib/kpi/compute";
@@ -45,12 +49,14 @@ const EXAMPLE_TRANSCRIPT: Turn[] = [
 ];
 
 export async function GET() {
-  if (isProductionRuntime()) return productionUnavailableResponse();
-
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  if (isProductionRuntime() && !isDebugSurfaceAllowedForEmail(user?.email)) {
+    return productionUnavailableResponse();
+  }
 
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

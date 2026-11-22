@@ -52,7 +52,7 @@ export async function GET(request: Request) {
   // "reached", even for a free user at the limit.
   let freeTier: { reached: boolean; completedSessions: number; limit: number } | null = null;
   try {
-    const access = await loadFreeTierAccess(supabase, user.id);
+    const access = await loadFreeTierAccess(supabase, user.id, user.email);
     freeTier = {
       reached: isNewSessionBlocked(access, roundStateOf(transcript)),
       completedSessions: access.completedSessions,

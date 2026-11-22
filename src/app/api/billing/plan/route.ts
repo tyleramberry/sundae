@@ -16,7 +16,7 @@ export async function GET() {
   }
 
   try {
-    const plan = planSummaryOf(await loadFreeTierAccess(supabase, user.id));
+    const plan = planSummaryOf(await loadFreeTierAccess(supabase, user.id, user.email));
     return NextResponse.json({ plan });
   } catch (error) {
     console.error("[billing/plan] failed to load plan:", error);

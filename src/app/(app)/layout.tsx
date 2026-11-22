@@ -26,7 +26,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   // loads the plan line the sidebar shows. A failed lookup just hides it.
   let plan: PlanSummary | null = null;
   try {
-    plan = planSummaryOf(await loadFreeTierAccess(supabase, user.id));
+    plan = planSummaryOf(await loadFreeTierAccess(supabase, user.id, user.email));
   } catch (error) {
     console.error("[app layout] failed to load plan:", error);
   }

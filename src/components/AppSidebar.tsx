@@ -76,6 +76,14 @@ const TUTORIAL_ICON = (
   </svg>
 );
 
+const DEBUG_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+    <path d="M10 3v5l-5.2 9A2 2 0 0 0 6.5 20h11a2 2 0 0 0 1.7-3L14 8V3" />
+    <path d="M8.5 3h7" />
+    <path d="M7.5 14h9" />
+  </svg>
+);
+
 export default function AppSidebar({
   email,
   plan,
@@ -193,7 +201,11 @@ export default function AppSidebar({
               collapsed ? "" : "md:block",
             ].join(" ")}
           >
-            {plan.kind === "free" ? formatFreePlanUsage(plan) : "Sundae subscriber"}
+            {plan.kind === "free"
+              ? formatFreePlanUsage(plan)
+              : plan.kind === "test"
+                ? "Test account · Unlimited"
+                : "Sundae subscriber"}
           </span>
         )}
         <button
@@ -232,6 +244,19 @@ export default function AppSidebar({
             <span className={collapsed ? "" : "md:hidden"}>{BILLING_ICON}</span>
             <span className={collapsed ? "hidden" : "hidden md:inline"}>Upgrade</span>
             <span className="sr-only md:hidden">Upgrade</span>
+          </Link>
+        ) : plan?.kind === "test" ? (
+          <Link
+            href="/debug"
+            title="Demo & debug tools"
+            className={[
+              "flex items-center gap-3 rounded-lg px-2 py-2 md:px-3 text-left text-sm font-medium text-strawberry transition hover:bg-white/5",
+              collapsed ? "md:justify-center md:px-2" : "",
+            ].join(" ")}
+          >
+            <span className={collapsed ? "" : "md:hidden"}>{DEBUG_ICON}</span>
+            <span className={collapsed ? "hidden" : "hidden md:inline"}>Demo &amp; debug tools</span>
+            <span className="sr-only md:hidden">Demo &amp; debug tools</span>
           </Link>
         ) : (
           <>

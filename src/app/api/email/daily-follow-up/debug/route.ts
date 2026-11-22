@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { isProductionRuntime, productionUnavailableResponse } from "@/lib/devOnly";
+import {
+  isDebugSurfaceAllowedForEmail,
+  isProductionRuntime,
+  productionUnavailableResponse,
+} from "@/lib/devOnly";
 import { getTodayBrief } from "@/lib/dailyBrief/gather";
 import { getNudgeCopy } from "@/lib/agents/dailyNudgeAgent";
 import { buildDailyFollowUpEmail } from "@/lib/email/dailyFollowUp";
@@ -13,12 +17,14 @@ import { buildDailyFollowUpEmail } from "@/lib/email/dailyFollowUp";
 // the brief + the agent's copy can be inspected without RESEND_API_KEY
 // being set, and without spending a real send just to check the output.
 export async function GET() {
-  if (isProductionRuntime()) return productionUnavailableResponse();
-
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  if (isProductionRuntime() && !isDebugSurfaceAllowedForEmail(user?.email)) {
+    return productionUnavailableResponse();
+  }
 
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

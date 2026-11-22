@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/billing";
+import { isTestAccountEmail } from "@/lib/testAccount";
 import {
   countCompletedSessions,
   FREE_SESSION_LIMIT,
@@ -24,6 +25,10 @@ export default async function SubscribePage({
 
   if (!user) {
     redirect("/login?next=/subscribe");
+  }
+
+  if (isTestAccountEmail(user.email)) {
+    redirect("/dashboard");
   }
 
   const params = await searchParams;

@@ -64,6 +64,7 @@ export async function POST(request: Request) {
       supabase,
       user.id,
       await getWeeklySessionTranscript(supabase, user.id, planningWeekStart(new Date(), timeZone)),
+      user.email,
     );
     if (freeLimit) {
       return NextResponse.json(freeLimit, { status: 402 });

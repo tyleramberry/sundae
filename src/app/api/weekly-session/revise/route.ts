@@ -61,6 +61,7 @@ export async function POST(request: Request) {
           typeof body.timeZone === "string" ? body.timeZone : undefined,
         ),
       ),
+      user.email,
     );
     if (freeLimit) {
       return NextResponse.json(freeLimit, { status: 402 });

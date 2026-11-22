@@ -29,6 +29,7 @@ import {
 } from "@/lib/weeklySession/calendarSummary";
 import { captureServerEvent } from "@/lib/analytics/server";
 import { getFreeLimitBlock } from "@/lib/weeklySession/freeTier";
+import { isTestAccountEmail } from "@/lib/testAccount";
 import { isFirstWeeklySessionUserMessage } from "@/lib/analytics/session";
 
 // Thin HTTP wrapper around the weekly-session engine, same shape as
@@ -124,7 +125,7 @@ export async function POST(request: Request) {
       // here -- before the daily throttle, the Claude call, and the
       // weekly_session_starts insert. Resumed rounds (turnCount > 0) and
       // addendum mode never reach this branch.
-      const freeLimit = await getFreeLimitBlock(supabase, user.id, transcript);
+      const freeLimit = await getFreeLimitBlock(supabase, user.id, transcript, user.email);
       if (freeLimit) {
         await captureServerEvent({
           distinctId: user.id,
@@ -134,9 +135,11 @@ export async function POST(request: Request) {
         return NextResponse.json(freeLimit, { status: 402 });
       }
 
-      const alreadyStartedToday = await hasStartedSessionToday(supabase, user.id);
-      if (alreadyStartedToday) {
-        return NextResponse.json({ error: SESSION_THROTTLE_MESSAGE }, { status: 429 });
+      if (!isTestAccountEmail(user.email)) {
+        const alreadyStartedToday = await hasStartedSessionToday(supabase, user.id);
+        if (alreadyStartedToday) {
+          return NextResponse.json({ error: SESSION_THROTTLE_MESSAGE }, { status: 429 });
+        }
       }
     }
 

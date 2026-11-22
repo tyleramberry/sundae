@@ -14,6 +14,7 @@ import {
   type StripeSubscriptionLike,
 } from "@/lib/stripe/webhook";
 import { isSubscriptionEntitled, type SubscriptionRow } from "@/lib/billing";
+import { isTestAccountEmail } from "@/lib/testAccount";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -23,6 +24,15 @@ export async function GET(request: Request) {
 
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+
+  if (isTestAccountEmail(user.email)) {
+    return NextResponse.json({
+      entitled: true,
+      status: "active",
+      pending: false,
+      subscriptionId: null,
+    });
   }
 
   const { data: sub, error } = await supabase

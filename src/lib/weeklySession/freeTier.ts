@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isBillingEnforced, isSubscriptionEntitled, type SubscriptionRow } from "@/lib/billing";
+import { isTestAccountEmail } from "@/lib/testAccount";
 import type { WeeklySessionTranscriptRow } from "@/lib/weeklySession/persist";
 
 // Freemium gate (PRD event 33822c9f…): anyone can sign up and plan for free
@@ -24,27 +25,32 @@ export type FreeTierAccess = {
   completedSessions: number;
   limit: number;
   canStartNewSession: boolean;
+  isTestAccount?: boolean;
 };
 
 // Pure: no Supabase, no Next. Entitlement reuses the existing billing rule
 // (trialing/active, or canceled/past_due still inside current_period_end),
-// so legacy card-backed trials stay unlimited untouched.
+// so legacy card-backed trials stay unlimited untouched. Built-in test
+// accounts are always entitled with unlimited sessions.
 export function getFreeTierAccess({
   subscription,
   completedSessions,
   now = new Date(),
+  isTestAccount = false,
 }: {
   subscription: Pick<SubscriptionRow, "status" | "current_period_end"> | null | undefined;
   completedSessions: number;
   now?: Date;
+  isTestAccount?: boolean;
 }): FreeTierAccess {
-  const entitled = isSubscriptionEntitled(subscription, now);
+  const entitled = isTestAccount || isSubscriptionEntitled(subscription, now);
   const count = Math.max(0, Math.floor(completedSessions));
   return {
     entitled,
     completedSessions: count,
     limit: FREE_SESSION_LIMIT,
     canStartNewSession: entitled || count < FREE_SESSION_LIMIT,
+    isTestAccount,
   };
 }
 
@@ -95,7 +101,19 @@ export async function countCompletedSessions(
 export async function loadFreeTierAccess(
   supabase: SupabaseClient,
   userId: string,
+  userEmail?: string | null,
 ): Promise<FreeTierAccess & { enforced: boolean }> {
+  if (isTestAccountEmail(userEmail)) {
+    return {
+      entitled: true,
+      completedSessions: 0,
+      limit: FREE_SESSION_LIMIT,
+      canStartNewSession: true,
+      isTestAccount: true,
+      enforced: isBillingEnforced(),
+    };
+  }
+
   const [{ data: sub, error: subError }, completedSessions] = await Promise.all([
     supabase
       .from("subscriptions")
@@ -142,20 +160,25 @@ export async function getFreeLimitBlock(
   supabase: SupabaseClient,
   userId: string,
   transcript: Pick<WeeklySessionTranscriptRow, "completed_at" | "active_state"> | null | undefined,
+  userEmail?: string | null,
 ): Promise<ReturnType<typeof freeLimitBody> | null> {
+  if (isTestAccountEmail(userEmail)) return null;
   const round = roundStateOf(transcript);
   if (round.weekCompleted || round.roundTurnCount > 0) return null;
-  const access = await loadFreeTierAccess(supabase, userId);
+  const access = await loadFreeTierAccess(supabase, userId, userEmail);
   return isNewSessionBlocked(access, round) ? freeLimitBody(access) : null;
 }
 
 // What the sidebar / dashboard show about the user's plan. null when
-// billing isn't enforced (local dev without Stripe), so no plan copy.
+// billing isn't enforced (local dev without Stripe), except for test
+// accounts which always display their test-account badge & demo link.
 export type PlanSummary =
   | { kind: "free"; completedSessions: number; limit: number }
-  | { kind: "subscriber" };
+  | { kind: "subscriber" }
+  | { kind: "test" };
 
 export function planSummaryOf(access: FreeTierAccess & { enforced: boolean }): PlanSummary | null {
+  if (access.isTestAccount) return { kind: "test" };
   if (!access.enforced) return null;
   if (access.entitled) return { kind: "subscriber" };
   return { kind: "free", completedSessions: access.completedSessions, limit: access.limit };

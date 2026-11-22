@@ -6,6 +6,7 @@ import {
   freeLimitBody,
   getFreeTierAccess,
   isNewSessionBlocked,
+  planSummaryOf,
 } from "./freeTier";
 
 const NOW = new Date("2026-11-06T12:00:00.000Z");
@@ -48,6 +49,20 @@ describe("getFreeTierAccess", () => {
     const access = getFreeTierAccess({ subscription: null, completedSessions: -4, now: NOW });
     assert.equal(access.completedSessions, 0);
     assert.equal(access.canStartNewSession, true);
+  });
+
+  it("always entitles test accounts regardless of subscription or session count", () => {
+    const access = getFreeTierAccess({
+      subscription: null,
+      completedSessions: 99,
+      now: NOW,
+      isTestAccount: true,
+    });
+    assert.equal(access.entitled, true);
+    assert.equal(access.canStartNewSession, true);
+    assert.equal(access.isTestAccount, true);
+    assert.deepEqual(planSummaryOf({ ...access, enforced: true }), { kind: "test" });
+    assert.deepEqual(planSummaryOf({ ...access, enforced: false }), { kind: "test" });
   });
 });
 

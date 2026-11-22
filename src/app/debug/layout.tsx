@@ -1,9 +1,18 @@
 import { notFound } from "next/navigation";
-import { isProductionRuntime } from "@/lib/devOnly";
+import { createClient } from "@/lib/supabase/server";
+import { isDebugSurfaceAllowedForEmail, isProductionRuntime } from "@/lib/devOnly";
 
-// Entire /debug/* tree is local-dev scaffolding. 404 in any production
-// build (including Vercel previews) so it never ships as a product surface.
-export default function DebugLayout({ children }: { children: React.ReactNode }) {
-  if (isProductionRuntime()) notFound();
+// /debug/* is open in local dev and for signed-in test accounts in production
+// (see src/lib/testAccount.ts). Everyone else gets a 404 in production.
+export default async function DebugLayout({ children }: { children: React.ReactNode }) {
+  if (isProductionRuntime()) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!isDebugSurfaceAllowedForEmail(user?.email)) {
+      notFound();
+    }
+  }
   return children;
 }

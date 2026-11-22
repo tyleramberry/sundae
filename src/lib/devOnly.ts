@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
+import { canAccessDebugSurfaceForEmail } from "@/lib/testAccount";
 
-// Debug/harness routes and pages are for local `next dev` only. Vercel
-// sets NODE_ENV=production for both production and preview deploys, which
-// is the same gate seed-test-account already uses. Fail closed: anything
-// that isn't a local dev server 404s rather than exposing Claude, calendar
-// writes, or email debug surfaces.
+// Debug/harness routes and pages are for local `next dev` (and signed-in
+// test accounts in production — see src/lib/testAccount.ts). Vercel sets
+// NODE_ENV=production for both production and preview deploys. Fail closed:
+// anything outside local dev and the test-account allowlist 404s rather than
+// exposing Claude, calendar writes, or email debug surfaces.
 
 export function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === "production";
+}
+
+export function isDebugSurfaceAllowedForEmail(email: string | null | undefined): boolean {
+  return canAccessDebugSurfaceForEmail(email, process.env.NODE_ENV);
 }
 
 export function productionUnavailableResponse() {
