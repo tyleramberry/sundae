@@ -125,12 +125,16 @@ function positionOnGrid({
   weekStart: Date;
   kind: "real" | "proposed" | "draft";
 }): PositionedItem | null {
-  // Which day column, in local time.
-  const dayIndex = Math.floor((start.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
+  // Which day column, in local calendar dates (DST-safe: immune to 23h/25h days).
+  const startDayUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const weekStartDayUtc = Date.UTC(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate());
+  const dayIndex = Math.round((startDayUtc - weekStartDayUtc) / (24 * 60 * 60 * 1000));
   if (dayIndex < 0 || dayIndex > 6) return null;
 
   const startMinutes = start.getHours() * 60 + start.getMinutes();
-  const endMinutes = end.getHours() * 60 + end.getMinutes();
+  const endDayUtc = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  const endMinutes =
+    endDayUtc > startDayUtc ? 24 * 60 : end.getHours() * 60 + end.getMinutes();
   const windowStart = HOURS_START * 60;
   const windowEnd = HOURS_END * 60;
 
@@ -227,151 +231,137 @@ export default function WeekCalendarGrid({
       </div>
 
       <div className="flex-1 overflow-auto">
-        {/* Explicit grid-template-rows: header row auto-sizes to its
-            content; every hour row is exactly HOUR_ROW_PX. Fixed pixel
-            rows are what the overlays measure against below -- percent-
-            based positioning depended on the grid item's own height being
-            "definite" for percent children, and in some flex-shrunk parent
-            layouts that basis went indefinite and collapsed every event
-            into a narrow band at the top. */}
-        <div
-          className="grid min-w-[560px] grid-cols-[56px_repeat(7,1fr)] text-[11px]"
-          style={{
-            gridTemplateRows: `auto repeat(${hours.length}, ${HOUR_ROW_PX}px)`,
-          }}
-        >
-          {/* Day header row */}
-          <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950" />
-          {dayHeaders.map((h, i) => (
-            <div
-              key={i}
-              className={[
-                "sticky top-0 z-10 flex flex-col items-center justify-center border-b border-l border-zinc-200 bg-white py-1.5 dark:border-zinc-800 dark:bg-zinc-950",
-                h.isToday ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500 dark:text-zinc-400",
-              ].join(" ")}
-            >
-              <span className="text-[10px] font-medium uppercase tracking-wide">{h.label}</span>
-              <span className={h.isToday ? "text-sm font-semibold" : "text-sm"}>{h.dayNum}</span>
-            </div>
-          ))}
-
-          {/* Hour grid: one row per hour. Column 0 = hour labels, cols 1-7 =
-              day cells. Absolutely-positioned event/proposed items are
-              layered on top of each day column separately below. */}
-          {hours.map((h) => (
-            <div key={`h-${h}`} className="contents">
-              {/* Hour labels: "6 AM"/"12 PM" instead of the old cramped
-                  "6a"/"12p". Column widened to 56px so "12 PM" doesn't
-                  clip; font bumped a step so labels are legible without
-                  zooming in. Noon = "12 PM"; midnight never appears in
-                  this window (HOURS_START = 6, HOURS_END = 22).
-                  `flex items-start justify-end` pins the label to the top-
-                  right of its row so it aligns with the row's own border-t
-                  -- an event at 9 AM lines up visually with the "9 AM"
-                  label. */}
-              <div className="flex items-start justify-end border-t border-zinc-100 pr-2 pt-0.5 text-[10px] font-medium tabular-nums text-zinc-500 dark:border-zinc-900 dark:text-zinc-500">
-                {h === 12 ? 12 : h % 12} {h < 12 ? "AM" : "PM"}
+        <div className="min-w-[560px] text-[11px]">
+          {/* Sticky day header row */}
+          <div className="sticky top-0 z-20 grid grid-cols-[56px_repeat(7,1fr)] bg-white dark:bg-zinc-950">
+            <div className="border-b border-zinc-200 dark:border-zinc-800" />
+            {dayHeaders.map((h, i) => (
+              <div
+                key={i}
+                className={[
+                  "flex flex-col items-center justify-center border-b border-l border-zinc-200 py-1.5 dark:border-zinc-800",
+                  h.isToday ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500 dark:text-zinc-400",
+                ].join(" ")}
+              >
+                <span className="text-[10px] font-medium uppercase tracking-wide">{h.label}</span>
+                <span className={h.isToday ? "text-sm font-semibold" : "text-sm"}>{h.dayNum}</span>
               </div>
-              {DAY_LABELS.map((_, dayIdx) => (
-                <div
-                  key={`c-${h}-${dayIdx}`}
-                  className="border-t border-l border-zinc-100 dark:border-zinc-900"
-                />
+            ))}
+          </div>
+
+          {/* Hourly body: background rows + absolute overlay layer sharing the
+              exact same `grid-cols-[56px_repeat(7,1fr)]` columns and
+              `hours.length * HOUR_ROW_PX` total height. Keeping overlays in a
+              separate layer prevents CSS Grid's explicit-before-auto placement
+              rule from pushing auto-placed hour cells down into column 1. */}
+          <div
+            className="relative"
+            style={{ height: `${HOUR_ROW_PX * hours.length}px` }}
+          >
+            {/* Background hour rows */}
+            <div
+              className="grid grid-cols-[56px_repeat(7,1fr)]"
+              style={{
+                gridTemplateRows: `repeat(${hours.length}, ${HOUR_ROW_PX}px)`,
+              }}
+            >
+              {hours.map((h) => (
+                <div key={`h-${h}`} className="contents">
+                  <div className="flex items-start justify-end border-t border-zinc-100 pr-2 pt-0.5 text-[10px] font-medium tabular-nums text-zinc-500 dark:border-zinc-900 dark:text-zinc-500">
+                    {h === 12 ? 12 : h % 12} {h < 12 ? "AM" : "PM"}
+                  </div>
+                  {DAY_LABELS.map((_, dayIdx) => (
+                    <div
+                      key={`c-${h}-${dayIdx}`}
+                      className="border-t border-l border-zinc-100 dark:border-zinc-900"
+                    />
+                  ))}
+                </div>
               ))}
             </div>
-          ))}
 
-          {/* Layered items: one wrapper per day column, positioned absolute
-              inside it. The wrapper spans all hour rows; children position
-              themselves by fixed pixel offsets (HOUR_ROW_PX * fraction-of-
-              hour), which is why the explicit gridTemplateRows above uses
-              fixed pixel row heights. */}
-          {DAY_LABELS.map((_, dayIdx) => {
-            const dayReal = realItems.filter((i) => i.dayIndex === dayIdx);
-            const dayDraft = draftItems.filter((i) => i.dayIndex === dayIdx);
-            const dayProposed = proposedItems.filter((i) => i.dayIndex === dayIdx);
-            return (
-              <div
-                key={`overlay-${dayIdx}`}
-                className="pointer-events-none relative"
-                style={{
-                  gridColumn: dayIdx + 2,
-                  gridRow: `2 / span ${hours.length}`,
-                  height: `${HOUR_ROW_PX * hours.length}px`,
-                }}
-              >
-                {dayReal.map((item) => (
+            {/* Layered event/draft/proposed overlays */}
+            <div className="pointer-events-none absolute inset-0 grid grid-cols-[56px_repeat(7,1fr)]">
+              <div />
+              {DAY_LABELS.map((_, dayIdx) => {
+                const dayReal = realItems.filter((i) => i.dayIndex === dayIdx);
+                const dayDraft = draftItems.filter((i) => i.dayIndex === dayIdx);
+                const dayProposed = proposedItems.filter((i) => i.dayIndex === dayIdx);
+                return (
                   <div
-                    key={item.key}
-                    className="pointer-events-auto absolute inset-x-0.5 overflow-hidden rounded-sm border border-zinc-400 bg-zinc-300 px-1 text-[9px] leading-tight text-zinc-800 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
-                    style={{ top: `${item.topPx}px`, height: `${item.heightPx}px` }}
-                    title={`Already on calendar: ${item.label}`}
+                    key={`overlay-${dayIdx}`}
+                    className="pointer-events-none relative"
+                    style={{ height: `${HOUR_ROW_PX * hours.length}px` }}
                   >
-                    <span className="line-clamp-2">
-                      <span className="font-semibold uppercase tracking-wide text-[8px] text-zinc-600 dark:text-zinc-300">
-                        Busy ·{" "}
-                      </span>
-                      {item.label}
-                    </span>
+                    {dayReal.map((item) => (
+                      <div
+                        key={item.key}
+                        className="pointer-events-auto absolute inset-x-0.5 overflow-hidden rounded-sm border border-zinc-400 bg-zinc-300 px-1 text-[9px] leading-tight text-zinc-800 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                        style={{ top: `${item.topPx}px`, height: `${item.heightPx}px` }}
+                        title={`Already on calendar: ${item.label}`}
+                      >
+                        <span className="line-clamp-2">
+                          <span className="font-semibold uppercase tracking-wide text-[8px] text-zinc-600 dark:text-zinc-300">
+                            Busy ·{" "}
+                          </span>
+                          {item.label}
+                        </span>
+                      </div>
+                    ))}
+                    {dayDraft.map((item) => (
+                      <div
+                        key={item.key}
+                        className="pointer-events-auto absolute inset-x-0.5 z-[1] overflow-hidden rounded-sm border-2 border-dashed border-sky-500 bg-sky-100 px-1 text-[9px] leading-tight text-sky-900 dark:border-sky-400 dark:bg-sky-200 dark:text-sky-900"
+                        style={{ top: `${item.topPx}px`, height: `${item.heightPx}px` }}
+                        title={`Draft (not yet slotted): ${item.role ? `${item.role} · ` : ""}${item.label}`}
+                      >
+                        <span className="line-clamp-2 font-semibold">
+                          <span className="text-[8px] uppercase tracking-wide opacity-80">
+                            Draft ·{" "}
+                          </span>
+                          {item.label}
+                        </span>
+                        {item.role && (
+                          <span className="block truncate text-[8px] uppercase tracking-wide opacity-70">
+                            {item.role}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    {dayProposed.map((item) => (
+                      <div
+                        key={item.key}
+                        className={[
+                          "pointer-events-auto absolute inset-x-0.5 z-[2] overflow-hidden rounded-sm border-2 px-1 text-[9px] leading-tight",
+                          item.conflictsWith
+                            ? "border-amber-600 bg-amber-300 text-amber-950 dark:border-amber-400 dark:bg-amber-600 dark:text-amber-50"
+                            : "border-emerald-600 bg-emerald-400 text-emerald-950 dark:border-emerald-300 dark:bg-emerald-600 dark:text-emerald-50",
+                        ].join(" ")}
+                        style={{ top: `${item.topPx}px`, height: `${item.heightPx}px` }}
+                        title={
+                          item.conflictsWith
+                            ? `Overlaps: ${item.conflictsWith} — ${item.role ? `${item.role} · ` : ""}${item.label}`
+                            : `Sundae proposal: ${item.role ? `${item.role} · ` : ""}${item.label}`
+                        }
+                      >
+                        <span className="line-clamp-2 font-semibold">
+                          <span className="text-[8px] uppercase tracking-wide">
+                            {item.conflictsWith ? "Overlaps · " : "Sundae · "}
+                          </span>
+                          {item.label}
+                        </span>
+                        {item.role && (
+                          <span className="block truncate text-[8px] uppercase tracking-wide opacity-70">
+                            {item.role}
+                          </span>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
-                {/* Draft layer: sits above real events but under proposed,
-                    so once /propose runs and hard proposals arrive they
-                    visually override the earlier draft blocks. Dashed
-                    border + sky tint reads as "planning, not confirmed"
-                    without competing with the sage proposed style. */}
-                {dayDraft.map((item) => (
-                  <div
-                    key={item.key}
-                    className="pointer-events-auto absolute inset-x-0.5 z-[1] overflow-hidden rounded-sm border-2 border-dashed border-sky-500 bg-sky-100 px-1 text-[9px] leading-tight text-sky-900 dark:border-sky-400 dark:bg-sky-200 dark:text-sky-900"
-                    style={{ top: `${item.topPx}px`, height: `${item.heightPx}px` }}
-                    title={`Draft (not yet slotted): ${item.role ? `${item.role} · ` : ""}${item.label}`}
-                  >
-                    <span className="line-clamp-2 font-semibold">
-                      <span className="text-[8px] uppercase tracking-wide opacity-80">
-                        Draft ·{" "}
-                      </span>
-                      {item.label}
-                    </span>
-                    {item.role && (
-                      <span className="block truncate text-[8px] uppercase tracking-wide opacity-70">
-                        {item.role}
-                      </span>
-                    )}
-                  </div>
-                ))}
-                {dayProposed.map((item) => (
-                  <div
-                    key={item.key}
-                    className={[
-                      "pointer-events-auto absolute inset-x-0.5 z-[2] overflow-hidden rounded-sm border-2 px-1 text-[9px] leading-tight",
-                      item.conflictsWith
-                        ? "border-amber-600 bg-amber-300 text-amber-950 dark:border-amber-400 dark:bg-amber-600 dark:text-amber-50"
-                        : "border-emerald-600 bg-emerald-400 text-emerald-950 dark:border-emerald-300 dark:bg-emerald-600 dark:text-emerald-50",
-                    ].join(" ")}
-                    style={{ top: `${item.topPx}px`, height: `${item.heightPx}px` }}
-                    title={
-                      item.conflictsWith
-                        ? `Overlaps: ${item.conflictsWith} — ${item.role ? `${item.role} · ` : ""}${item.label}`
-                        : `Sundae proposal: ${item.role ? `${item.role} · ` : ""}${item.label}`
-                    }
-                  >
-                    <span className="line-clamp-2 font-semibold">
-                      <span className="text-[8px] uppercase tracking-wide">
-                        {item.conflictsWith ? "Overlaps · " : "Sundae · "}
-                      </span>
-                      {item.label}
-                    </span>
-                    {item.role && (
-                      <span className="block truncate text-[8px] uppercase tracking-wide opacity-70">
-                        {item.role}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
     </div>
